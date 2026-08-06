@@ -1,0 +1,119 @@
+@import "@fontsource/sora/400.css";
+@import "@fontsource/sora/500.css";
+@import "@fontsource/sora/600.css";
+@import "@fontsource/fraunces/500.css";
+@import "@fontsource/fraunces/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Sora", "Segoe UI", sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-ink: #0b1210;
+  --color-ink-soft: #121a17;
+  --color-panel: #16201c;
+  --color-panel-elevated: #1c2924;
+  --color-border: #2a3a34;
+  --color-border-subtle: #1f2c27;
+  --color-muted: #8fa399;
+  --color-fg: #e8f0ec;
+  --color-fg-dim: #b7c6be;
+  --color-accent: #14b8a6;
+  --color-accent-soft: #0f766e;
+  --color-accent-glow: color-mix(in oklab, #14b8a6 28%, transparent);
+  --color-danger: #f87171;
+  --color-user-bubble: #1e3a34;
+  --color-assistant-bubble: transparent;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-fg);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(20, 184, 166, 0.16), transparent 55%),
+      radial-gradient(900px 500px at 100% 0%, rgba(45, 212, 191, 0.08), transparent 50%),
+      linear-gradient(180deg, var(--color-ink) 0%, #0e1613 100%);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 40%, transparent);
+  }
+
+  button,
+  textarea,
+  input {
+    font: inherit;
+  }
+
+  /* Scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2f433c transparent;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+.progress-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.18) 45%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}

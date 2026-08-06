@@ -3,19 +3,72 @@ import {
   Bot,
   Check,
   Loader2,
-  Play,
+  SendHorizontal,
   Square,
   Wrench,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAgent } from '@/hooks/useAgent';
 import { useAgentSettings } from '@/hooks/useAgentSettings';
 import { getTool } from '@/agent/tools';
+import type { AgentSettings, AgentStep } from '@/agent/types';
 import { cn } from '@/utils';
 
 interface AgentPanelProps {
   modelReady: boolean;
+}
+
+function StepBody({ step }: { step: AgentStep }) {
+  if (step.kind === 'user') {
+    return <p className="whitespace-pre-wrap">{step.content}</p>;
+  }
+
+  if (step.kind === 'tool_call') {
+    return (
+      <div className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg-dim">
+        {step.content}
+      </div>
+    );
+  }
+
+  if (step.kind === 'final' || step.kind === 'thought' || step.kind === 'tool_result') {
+    return (
+      <div
+        className={cn(
+          'prose-localmind leading-relaxed',
+          step.kind === 'tool_result' ? 'text-[12px] text-fg-dim' : 'text-sm',
+        )}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  return <pre className="whitespace-pre-wrap break-words font-sans">{step.content}</pre>;
+}
+
+function stepLabel(step: AgentStep): string {
+  switch (step.kind) {
+    case 'user':
+      return 'You';
+    case 'thought':
+      return 'Thinking';
+    case 'tool_call':
+      return 'Tool';
+    case 'tool_result':
+      return step.toolCall?.name?.replace(/_/g, ' ') ?? 'Result';
+    case 'confirm':
+      return 'Confirm';
+    case 'final':
+      return 'LocalMind';
+    case 'error':
+      return 'Error';
+    default:
+      return step.kind;
+  }
 }
 
 export function AgentPanel({ modelReady }: AgentPanelProps) {
@@ -32,16 +85,43 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
   } = useAgentSettings();
 
   const { steps, running, pendingConfirm, error, run, stop, resolveConfirm } = useAgent();
-  const [goal, setGoal] = useState(
-    'Open Wikipedia WebGPU, read the page, and summarize what WebGPU is in 3 bullets.',
-  );
+  const [goal, setGoal] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [steps, running, pendingConfirm]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = '0px';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [goal]);
 
   if (!settings) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">Loading agent…</div>
     );
   }
+
+  const submit = () => {
+    const text = goal.trim();
+    if (!text || running || busy || !settings.enabled || !modelReady) return;
+    setGoal('');
+    void run(text);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -169,37 +249,56 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
         </div>
       )}
 
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div ref={transcriptRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {steps.length === 0 && (
-          <div className="rounded-2xl border border-border bg-panel/60 px-3 py-3 text-sm text-muted">
-            Describe a goal. The local model will call browser tools (tabs, page actions, Gmail)
-            with confirmation for risky steps.
+          <div className="rounded-2xl px-1 py-6 text-center text-sm text-muted">
+            <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
+            <p className="mt-2 text-[12px]">
+              e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
+            </p>
           </div>
         )}
-        {steps.map((s) => (
-          <div
-            key={s.id}
-            className={cn(
-              'rounded-xl px-3 py-2 text-xs ring-1',
-              s.kind === 'error'
-                ? 'bg-danger/10 text-danger ring-danger/30'
-                : s.kind === 'confirm'
-                  ? 'bg-amber-500/10 text-amber-200 ring-amber-500/30'
-                  : s.kind === 'final'
-                    ? 'bg-accent/10 text-fg ring-accent/30'
-                    : 'bg-panel text-fg-dim ring-border',
-            )}
-          >
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide opacity-70">
-              {s.kind === 'tool_call' && <Wrench size={11} />}
-              {s.kind === 'confirm' && <AlertTriangle size={11} />}
-              {s.kind === 'final' && <Check size={11} />}
-              {s.kind}
-              {s.toolCall ? ` · ${s.toolCall.name}` : ''}
+
+        {steps.map((s) => {
+          const isUser = s.kind === 'user';
+          const isTool = s.kind === 'tool_call' || s.kind === 'tool_result';
+          return (
+            <div
+              key={s.id}
+              className={cn('animate-fade-up', isUser ? 'flex justify-end' : 'flex justify-start')}
+            >
+              <div
+                className={cn(
+                  'max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm',
+                  isUser && 'bg-user-bubble text-fg ring-1 ring-accent/20',
+                  s.kind === 'final' && 'w-full bg-transparent text-fg',
+                  s.kind === 'error' && 'bg-danger/10 text-danger ring-1 ring-danger/30',
+                  s.kind === 'confirm' && 'bg-amber-500/10 text-amber-100 ring-1 ring-amber-500/30',
+                  s.kind === 'thought' && 'w-full bg-transparent text-fg-dim',
+                  isTool && 'w-full bg-panel/70 text-fg-dim ring-1 ring-border-subtle',
+                )}
+              >
+                {!isUser && (
+                  <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider opacity-70">
+                    {s.kind === 'tool_call' && <Wrench size={11} />}
+                    {s.kind === 'confirm' && <AlertTriangle size={11} />}
+                    {s.kind === 'final' && <Check size={11} />}
+                    {s.kind === 'error' && <AlertTriangle size={11} />}
+                    {stepLabel(s)}
+                  </div>
+                )}
+                <StepBody step={s} />
+              </div>
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans">{s.content}</pre>
+          );
+        })}
+
+        {running && (
+          <div className="flex items-center gap-2 px-1 text-xs text-muted">
+            <Loader2 size={12} className="animate-spin text-accent" />
+            Working…
           </div>
-        ))}
+        )}
       </div>
 
       {pendingConfirm && (
@@ -236,33 +335,41 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
         </div>
       )}
 
-      <div className="border-t border-border-subtle px-3 py-3">
-        <textarea
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          rows={3}
-          disabled={running}
-          className="w-full resize-none rounded-2xl border border-border bg-panel px-3 py-2 text-sm text-fg outline-none focus:border-accent/50"
-          placeholder="Agent goal…"
-        />
-        <div className="mt-2 flex gap-2">
+      <div className="border-t border-border-subtle bg-ink-soft/80 px-3 py-3 backdrop-blur">
+        <div
+          className={cn(
+            'flex items-end gap-2 rounded-2xl border border-border bg-panel px-3 py-2',
+            'focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/20',
+          )}
+        >
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={running}
+            placeholder="Message the agent…"
+            className="max-h-36 min-h-[28px] flex-1 resize-none bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+          />
           {running ? (
             <button
               type="button"
               onClick={stop}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-panel-elevated py-2.5 text-sm ring-1 ring-border"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-panel-elevated text-fg ring-1 ring-border"
+              aria-label="Stop agent"
             >
-              <Square size={14} fill="currentColor" /> Stop
+              <Square size={14} fill="currentColor" />
             </button>
           ) : (
             <button
               type="button"
               disabled={!settings.enabled || !modelReady || !goal.trim() || busy}
-              onClick={() => void run(goal.trim())}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-ink disabled:opacity-40"
+              onClick={submit}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-ink transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send"
             >
-              {busy ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-              Run agent
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <SendHorizontal size={16} />}
             </button>
           )}
         </div>
@@ -270,6 +377,3 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     </div>
   );
 }
-
-// local type re-export for select onChange
-type AgentSettings = import('@/agent/types').AgentSettings;

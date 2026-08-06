@@ -106,7 +106,8 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   },
   {
     name: 'gmail_draft',
-    description: 'Create a Gmail draft in the open Gmail tab (does not send).',
+    description:
+      'Open a Gmail Compose draft in the open Gmail tab (to/subject/body). Does not send. Use this to reply or draft an email.',
     risk: 'moderate',
     confirmLabel: 'Create an email draft',
     parameters: {

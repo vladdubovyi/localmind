@@ -55,6 +55,20 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
   if (!result.ok) return result.error || 'Tool failed';
   if (name === 'gmail_list') return formatGmailList(result.data);
   if (name === 'gmail_read') return formatGmailRead(result.data);
+  if (name === 'gmail_draft' || name === 'gmail_send') {
+    const d = result.data as
+      | { to?: string; subject?: string; bodyPreview?: string; note?: string }
+      | undefined;
+    return [
+      name === 'gmail_send' ? 'Send draft opened in Gmail.' : 'Compose draft opened in Gmail.',
+      d?.to ? `To: ${cleanDisplayText(String(d.to), 80)}` : null,
+      d?.subject ? `Subject: ${cleanDisplayText(String(d.subject), 100)}` : null,
+      d?.bodyPreview ? `\n${cleanDisplayText(String(d.bodyPreview), 280)}` : null,
+      d?.note ? `\n${d.note}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
   if (name === 'page_read') return formatPageRead(result.data);
   if (name === 'tabs_create') {
     const d = result.data as { id?: number; url?: string; title?: string } | undefined;
@@ -84,6 +98,8 @@ export function toolCallLabel(name: string, args: Record<string, unknown>): stri
   const def = name.replace(/_/g, ' ');
   if (name === 'gmail_list') return 'Checking Gmail…';
   if (name === 'gmail_read') return 'Reading email…';
+  if (name === 'gmail_draft') return 'Opening Gmail draft…';
+  if (name === 'gmail_send') return 'Opening Gmail send draft…';
   if (name === 'page_read') return 'Reading page…';
   if (name === 'tabs_create') {
     const url = typeof args.url === 'string' ? args.url : '';

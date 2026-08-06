@@ -43,6 +43,78 @@ export function isSummarizeGoal(goal: string): boolean {
   return /\b(summar[iy]s?e|summirize|summary|tl;?dr|what does .+ say)\b/i.test(goal);
 }
 
+/** User wants a Gmail compose draft / reply opened — not just text, not gmail_read. */
+export function isDraftGoal(goal: string): boolean {
+  return (
+    /\b(draft|compose)\b/i.test(goal) ||
+    /\b(put|place)\s+that\s+in\s+(an?\s+)?email\b/i.test(goal) ||
+    /\b(write|send)\s+(a\s+|an\s+)?(response|reply|email)\b/i.test(goal) ||
+    /\b(reply|respond)\s+to\b/i.test(goal) ||
+    /\bemail\s+(them|him|her|it)\b/i.test(goal)
+  );
+}
+
+/**
+ * "write a response to SUBJECT saying BODY" / "draft a reply to SUBJECT"
+ * Helps recover subject + body when the model omits tool args.
+ */
+export function parseReplyRequest(goal: string): { subjectHint?: string; bodyHint?: string } {
+  const withSaying = goal.match(
+    /\b(?:write\s+(?:a\s+|an\s+)?(?:response|reply|email)|respond|reply|draft(?:\s+a)?(?:\s+reply|\s+response|\s+email)?)\s+to\s+(.+?)\s+saying\s+[:\"]?\s*(.+)$/i,
+  );
+  if (withSaying) {
+    return {
+      subjectHint: withSaying[1].replace(/^["']|["']$/g, '').trim(),
+      bodyHint: withSaying[2].replace(/^["']|["']$/g, '').trim(),
+    };
+  }
+  const toOnly = goal.match(
+    /\b(?:write\s+(?:a\s+|an\s+)?(?:response|reply|email)|respond|reply|draft(?:\s+a)?(?:\s+reply|\s+response|\s+email)?)\s+to\s+(.+)$/i,
+  );
+  if (toOnly) {
+    return { subjectHint: toOnly[1].replace(/^["']|["']$/g, '').trim() };
+  }
+  const sayingOnly = goal.match(/\bsaying\s+[:\"]?\s*(.+)$/i);
+  if (sayingOnly) {
+    return { bodyHint: sayingOnly[1].replace(/^["']|["']$/g, '').trim() };
+  }
+  return {};
+}
+
+/** Body for the draft: explicit "saying …", else last assistant final text. */
+export function extractReplyBody(goal: string, steps: AgentStep[]): string {
+  const parsed = parseReplyRequest(goal);
+  if (parsed.bodyHint && parsed.bodyHint.length > 1) return parsed.bodyHint;
+
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    if (s.kind === 'final' && s.content.trim()) {
+      const text = s.content.trim();
+      // Skip long tool-looking dumps
+      if (text.length > 8 && text.length < 4000 && !text.startsWith('[')) return text;
+    }
+  }
+  return '';
+}
+
+export function buildDraftArguments(
+  goal: string,
+  steps: AgentStep[],
+): { to: string; subject: string; body: string } {
+  const parsed = parseReplyRequest(goal);
+  const list = lastGmailList(steps);
+  let target = resolveEmailTarget(goal, steps);
+  if (parsed.subjectHint && list.length) {
+    const byHint = matchEmailFromGoal(parsed.subjectHint, list);
+    if (byHint) target = byHint;
+  }
+  const body = extractReplyBody(goal, steps) || 'Thank you.';
+  const rawSubject = target?.subject || parsed.subjectHint || 'your email';
+  const subject = /^re:/i.test(rawSubject) ? rawSubject : `Re: ${rawSubject}`;
+  const to = target?.from || '';
+  return { to, subject, body };
+}
+
 export function priorHasGmail(steps: AgentStep[]): boolean {
   return steps.some(
     (s) =>
@@ -94,7 +166,7 @@ export function matchEmailFromGoal(
   // Strip common command words to leave subject-ish tokens
   const query = g
     .replace(
-      /\b(yes|please|can you|could you|summar[iy]s?e|summirize|summary|read|open|the|this|that|email|mail|message|it|of|for|me)\b/g,
+      /\b(yes|please|can you|could you|summar[iy]s?e|summirize|summary|read|open|the|this|that|email|mail|message|it|of|for|me|write|a|an|response|reply|respond|draft|compose|put|in|saying|thank|you)\b/g,
       ' ',
     )
     .replace(/\s+/g, ' ')
@@ -157,6 +229,7 @@ export function isUnrelatedDemoUrl(url: string): boolean {
 export type AgentIntent =
   | 'email_list'
   | 'email_read'
+  | 'email_draft'
   | 'open_link'
   | 'web_page'
   | 'general';
@@ -165,14 +238,16 @@ export function detectIntent(goal: string, priorSteps: AgentStep[]): AgentIntent
   const list = lastGmailList(priorSteps);
   const hasGmail = priorHasGmail(priorSteps) || list.length > 0;
 
+  // Draft/reply must win over email_read ("put that in email", "write a response…")
+  if (isDraftGoal(goal)) return 'email_draft';
   if (isOpenLinkGoal(goal) && !isSummarizeGoal(goal)) return 'open_link';
   if (isEmailListGoal(goal)) return 'email_list';
   if (
     hasGmail &&
     (isSummarizeGoal(goal) ||
-      isEmailGoal(goal) ||
       matchEmailFromGoal(goal, list) ||
-      /\byes\b/i.test(goal))
+      /^\s*yes\b/i.test(goal) ||
+      (isEmailGoal(goal) && !isDraftGoal(goal)))
   ) {
     return 'email_read';
   }
@@ -192,6 +267,17 @@ export function nudgeToolExample(goal: string, priorSteps: AgentStep[]): string 
       '<tool_call>',
       `{"name":"gmail_list","arguments":{"query":"newer_than:14d","maxResults":${max}}}`,
       '</tool_call>',
+    ].join('\n');
+  }
+
+  if (intent === 'email_draft') {
+    const draft = buildDraftArguments(goal, priorSteps);
+    const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return [
+      '<tool_call>',
+      `{"name":"gmail_draft","arguments":{"to":"${esc(draft.to)}","subject":"${esc(draft.subject)}","body":"${esc(draft.body)}"}}`,
+      '</tool_call>',
+      'This opens a Compose draft in Gmail. Do NOT call gmail_read. Do NOT send unless the user asked to send.',
     ].join('\n');
   }
 
@@ -230,7 +316,7 @@ export function nudgeToolExample(goal: string, priorSteps: AgentStep[]): string 
   return [
     'Output a valid <tool_call> for the user goal, or the final markdown answer if no tool is needed.',
     'Do NOT open https://en.wikipedia.org/wiki/WebGPU unless the user asked for WebGPU.',
-    'Do NOT invent email contents. For inbox questions use gmail_list; for a specific email use gmail_read.',
+    'Do NOT invent email contents. For inbox use gmail_list; read one email with gmail_read; draft a reply with gmail_draft.',
   ].join('\n');
 }
 
@@ -245,6 +331,33 @@ export function rewriteToolCallForIntent(
 ): ToolCall {
   const intent = detectIntent(goal, priorSteps);
   const url = typeof call.arguments.url === 'string' ? call.arguments.url : '';
+
+  // Never rewrite an explicit draft/send away — only enrich missing fields
+  if (call.name === 'gmail_draft' || call.name === 'gmail_send') {
+    const built = buildDraftArguments(goal, priorSteps);
+    const args = { ...call.arguments };
+    if (!String(args.to ?? '').trim()) args.to = built.to;
+    if (!String(args.subject ?? '').trim()) args.subject = built.subject;
+    if (!String(args.body ?? '').trim()) args.body = built.body;
+    return { ...call, arguments: args };
+  }
+
+  // Draft intent: force gmail_draft even if the model called gmail_read / tabs / etc.
+  if (
+    intent === 'email_draft' &&
+    (call.name === 'gmail_read' ||
+      call.name === 'gmail_list' ||
+      call.name === 'tabs_navigate' ||
+      call.name === 'tabs_create' ||
+      call.name === 'page_read')
+  ) {
+    const built = buildDraftArguments(goal, priorSteps);
+    return {
+      ...call,
+      name: 'gmail_draft',
+      arguments: built,
+    };
+  }
 
   // Atom / feed URLs are never the right way to read Gmail
   if (
@@ -265,8 +378,14 @@ export function rewriteToolCallForIntent(
     (call.name === 'tabs_navigate' || call.name === 'tabs_create') &&
     url &&
     isUnrelatedDemoUrl(url) &&
-    (intent === 'email_list' || intent === 'email_read' || priorHasGmail(priorSteps))
+    (intent === 'email_list' ||
+      intent === 'email_read' ||
+      intent === 'email_draft' ||
+      priorHasGmail(priorSteps))
   ) {
+    if (intent === 'email_draft') {
+      return { ...call, name: 'gmail_draft', arguments: buildDraftArguments(goal, priorSteps) };
+    }
     const matched = resolveEmailTarget(goal, priorSteps);
     if ((intent === 'email_read' || matched) && matched) {
       return {

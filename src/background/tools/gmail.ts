@@ -226,19 +226,39 @@ export async function executeGmailTools(
         subject: String(call.arguments.subject ?? ''),
         body: String(call.arguments.body ?? ''),
       };
+      if (!draft.body.trim()) {
+        return {
+          ok: false,
+          error: 'Draft body is empty. Provide the reply text in the body argument.',
+          toolCall: call,
+        };
+      }
       const result = await sessionCall('compose', { draft });
       if (call.name === 'gmail_send') {
         return {
           ok: result.ok,
           data: {
             ...(typeof result.data === 'object' && result.data ? result.data : {}),
+            to: draft.to,
+            subject: draft.subject,
             note: 'Draft opened in Gmail. Click Send yourself — LocalMind will not auto-send in session mode.',
           },
           error: result.error,
           toolCall: call,
         };
       }
-      return { ...result, toolCall: call };
+      return {
+        ok: result.ok,
+        data: {
+          ...(typeof result.data === 'object' && result.data ? result.data : {}),
+          to: draft.to,
+          subject: draft.subject,
+          bodyPreview: draft.body.slice(0, 240),
+          note: 'Compose draft opened in your Gmail tab. Review and click Send yourself if you want to send it.',
+        },
+        error: result.error,
+        toolCall: call,
+      };
     }
     default:
       return { ok: false, error: `Unknown gmail tool ${call.name}`, toolCall: call };

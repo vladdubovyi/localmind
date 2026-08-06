@@ -103,4 +103,64 @@ assert(isUnrelatedDemoUrl('https://en.wikipedia.org/wiki/WebGPU'), 'webgpu demo'
   assert(fixed.arguments.id === 'dom-1', 'rewrite uses message id');
 }
 
+{
+  const prior: AgentStep[] = [
+    {
+      id: '1',
+      kind: 'tool_result',
+      content: 'list',
+      createdAt: 1,
+      toolCall: { id: 't', name: 'gmail_list', arguments: {} },
+      toolResult: {
+        ok: true,
+        data: [
+          {
+            id: 'dom-0',
+            from: 'workspace-noreply@google.com',
+            subject: 'You now have exclusive access to AI features',
+            snippet: 'Get started with Gemini',
+          },
+        ],
+      },
+    },
+    {
+      id: '2',
+      kind: 'final',
+      content:
+        'Thank you for the exclusive access to AI features. I am excited to start exploring them!',
+      createdAt: 2,
+    },
+  ];
+
+  assert(
+    detectIntent(
+      'write a response to You now have exclusive access to AI features saying thank you',
+      prior,
+    ) === 'email_draft',
+    'intent draft write response',
+  );
+  assert(
+    detectIntent('put that in email and draft it', prior) === 'email_draft',
+    'intent draft put in email',
+  );
+
+  const nudge = nudgeToolExample('put that in email and draft it', prior);
+  assert(nudge.includes('gmail_draft'), 'nudge draft');
+  assert(nudge.includes('workspace-noreply@google.com'), 'nudge draft to');
+  assert(nudge.includes('"name":"gmail_draft"'), 'nudge draft tool name');
+
+  const readCall: ToolCall = {
+    id: 'r',
+    name: 'gmail_read',
+    arguments: { id: 'dom-0' },
+  };
+  const rewritten = rewriteToolCallForIntent('put that in email and draft it', prior, readCall);
+  assert(rewritten.name === 'gmail_draft', 'rewrite read → draft');
+  assert(String(rewritten.arguments.body).includes('Thank you'), 'draft body from prior final');
+  assert(
+    String(rewritten.arguments.subject).includes('exclusive access'),
+    'draft subject Re:',
+  );
+}
+
 console.log('goalIntent.test.ts: ok');

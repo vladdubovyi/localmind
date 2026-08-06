@@ -16,7 +16,7 @@ export default defineManifest({
   },
   action: {
     default_popup: 'src/popup/index.html',
-    default_title: 'LocalMind',
+    default_title: 'LocalMind (opens side panel)',
     default_icon: {
       '16': 'public/icons/icon16.png',
       '32': 'public/icons/icon32.png',

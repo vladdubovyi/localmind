@@ -40,7 +40,8 @@ async function setPendingAction(action: PendingSelectionAction): Promise<void> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {
+  // Primary UI is the side panel — keep setup, model, chat, and agent in one place.
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
     // older Chrome builds may not support setPanelBehavior
   });
 
@@ -61,6 +62,13 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+});
+
+// Also apply on SW wake so upgrades pick up the behavior without reinstall.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.windowId) return;

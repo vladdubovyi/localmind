@@ -11,7 +11,7 @@ import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { useChat } from '@/hooks/useChat';
 import { usePageContext } from '@/hooks/usePageContext';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
-import { completeOnboarding, getOnboardingState } from '@/storage/onboarding';
+import { getOnboardingState } from '@/storage/onboarding';
 import type { ChatMessage, PendingSelectionAction } from '@/types';
 import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
@@ -70,17 +70,10 @@ export function ChatApp({ variant }: ChatAppProps) {
     if (phase === 'checking') return;
     void (async () => {
       const state = await getOnboardingState();
-      if (state.completed) {
-        setSetupDone(true);
-        return;
-      }
-      // Returning installs (pre-setup-wizard): don't interrupt users who already have a model.
-      if (phase === 'ready' || phase === 'cached') {
-        await completeOnboarding({ skipped: true });
-        setSetupDone(true);
-        return;
-      }
-      setSetupDone(false);
+      // Only skip the wizard when the user has actually finished or skipped it.
+      // Do NOT auto-complete just because a model is cached — that omitted
+      // permission steps and made popup/side-panel flows diverge.
+      setSetupDone(state.completed);
     })();
   }, [phase]);
 
@@ -236,7 +229,6 @@ export function ChatApp({ variant }: ChatAppProps) {
           error={error}
           isDownloading={phase === 'downloading'}
           alreadyCached={loadingFromCache || phase === 'cached'}
-          surface={variant}
           onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
           onDownload={(id) => void downloadAndLoad(id)}
         />
@@ -283,7 +275,7 @@ export function ChatApp({ variant }: ChatAppProps) {
 
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1">
-          <AgentPanel modelReady={modelReady} surface={variant} />
+          <AgentPanel modelReady={modelReady} />
         </div>
       ) : (
         <>

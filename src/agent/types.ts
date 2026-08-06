@@ -101,13 +101,25 @@ export type AgentRuntimeMessage =
       message?: string;
     }
   | { type: 'PAGE_ACTION_RESULT'; ok: boolean; data?: unknown; error?: string }
-  | { type: 'GMAIL_SESSION'; action: 'list' | 'read' | 'compose'; query?: string; id?: string; draft?: GmailDraft }
+  | {
+      type: 'GMAIL_SESSION';
+      action: string;
+      query?: string;
+      id?: string;
+      draft?: GmailDraft;
+      body?: string;
+      label?: string;
+      maxResults?: number;
+      limit?: number;
+    }
   | { type: 'GMAIL_SESSION_RESULT'; ok: boolean; data?: unknown; error?: string };
 
 export interface GmailDraft {
   to: string;
   subject: string;
   body: string;
+  cc?: string;
+  bcc?: string;
 }
 
 export interface GmailMessageSummary {
@@ -117,4 +129,6 @@ export interface GmailMessageSummary {
   subject: string;
   snippet: string;
   date?: string;
+  unread?: boolean;
+  starred?: boolean;
 }

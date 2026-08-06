@@ -7,6 +7,7 @@ import {
 } from '@/agent/formatStep';
 import {
   detectIntent,
+  buildDraftArguments,
   inferMaxResults,
   isEmailGoal,
   isOpenLinkGoal,
@@ -71,7 +72,7 @@ function looksLikeMalformedToolCall(text: string): boolean {
 
 /** Model said it would use a tool but didn't emit a call. */
 function narratesToolUse(text: string): boolean {
-  return /\b(gmail_list|gmail_read|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+  return /\b(gmail_list|gmail_read|gmail_draft|gmail_send|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
     text,
   );
 }
@@ -101,7 +102,17 @@ function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: stri
     `New request: ${goal}`,
   ];
 
-  if (intent === 'email_read') {
+  if (intent === 'email_draft') {
+    const draft = buildDraftArguments(goal, priorSteps);
+    lines.push(
+      'The user wants a Gmail DRAFT opened (Compose), not just chat text.',
+      'Call gmail_draft now with to/subject/body. Do NOT call gmail_read.',
+      draft.to ? `Suggested to: ${draft.to}` : 'Pick to: from the earlier gmail_list From: field.',
+      `Suggested subject: ${draft.subject}`,
+      `Suggested body:\n${draft.body.slice(0, 500)}`,
+      'Do NOT auto-send. Do NOT open Wikipedia/WebGPU.',
+    );
+  } else if (intent === 'email_read') {
     lines.push(
       'This is an email follow-up. Call gmail_read with the message id from gmail_list.',
       matched
@@ -144,7 +155,11 @@ function continueAfterToolPrompt(
   ];
 
   if (!result.ok) {
-    if (intent === 'email_list' || intent === 'email_read') {
+    if (intent === 'email_draft') {
+      lines.push(
+        'Draft failed. Call gmail_draft again with to, subject, and body. Do not call gmail_read.',
+      );
+    } else if (intent === 'email_list' || intent === 'email_read') {
       lines.push(
         'Stay on email tools. Prefer gmail_list or gmail_read. Never use Gmail atom/feed URLs.',
       );
@@ -154,8 +169,30 @@ function continueAfterToolPrompt(
         'Do not invent tab IDs.',
       );
     }
+  } else if (call.name === 'gmail_draft' || call.name === 'gmail_send') {
+    lines.push(
+      'The Gmail compose draft is open. Tell the user briefly what was drafted (to/subject) and that they can click Send in Gmail.',
+      'Do not call more tools. Do not claim the email was sent unless gmail_send API mode was used successfully.',
+    );
   } else if (call.name === 'gmail_list') {
-    if (intent === 'email_read' || isSummarizeGoal(goal)) {
+    if (intent === 'email_draft') {
+      const draft = buildDraftArguments(goal, [
+        ...priorSteps,
+        {
+          id: 'tmp',
+          kind: 'tool_result',
+          content: '',
+          createdAt: Date.now(),
+          toolCall: call,
+          toolResult: result,
+        },
+      ]);
+      lines.push(
+        'You have the inbox list. Now open a draft with gmail_draft:',
+        `to=${draft.to || '(from matching message)'} subject=${draft.subject}`,
+        'Do NOT call gmail_read.',
+      );
+    } else if (intent === 'email_read' || isSummarizeGoal(goal)) {
       const list = Array.isArray(result.data)
         ? (result.data as import('@/agent/types').GmailMessageSummary[])
         : [];
@@ -190,14 +227,24 @@ function continueAfterToolPrompt(
       );
     }
   } else if (call.name === 'gmail_read') {
-    lines.push(
-      'Summarize this email for the user now in a few sentences. Do not call more tools. Do not open other pages.',
-    );
+    if (intent === 'email_draft') {
+      const draft = buildDraftArguments(goal, priorSteps);
+      lines.push(
+        'Wrong tool for drafting. Now call gmail_draft to open Compose with the reply text.',
+        `Use to=${draft.to || 'sender from list'}, subject=${draft.subject}, body from the user/assistant draft text.`,
+      );
+    } else {
+      lines.push(
+        'Summarize this email for the user now in a few sentences. Do not call more tools. Do not open other pages.',
+      );
+    }
   } else if (call.name === 'tabs_create') {
     const id = (result.data as { id?: number } | undefined)?.id;
-    if (intent === 'email_list' || intent === 'email_read') {
+    if (intent === 'email_list' || intent === 'email_read' || intent === 'email_draft') {
       lines.push(
-        'Wrong tool for email. Ignore this tab. Call gmail_list or gmail_read instead. Do not page_read Wikipedia.',
+        intent === 'email_draft'
+          ? 'Wrong tool. Call gmail_draft to open a Compose draft in Gmail.'
+          : 'Wrong tool for email. Ignore this tab. Call gmail_list or gmail_read instead. Do not page_read Wikipedia.',
       );
     } else if (isOpenLinkGoal(goal) && !isSummarizeGoal(goal)) {
       lines.push(
@@ -212,17 +259,23 @@ function continueAfterToolPrompt(
       );
     }
   } else if (call.name === 'tabs_navigate') {
-    if (intent === 'email_list' || intent === 'email_read') {
-      lines.push('Wrong approach for email. Call gmail_list or gmail_read. Never use atom feeds.');
+    if (intent === 'email_list' || intent === 'email_read' || intent === 'email_draft') {
+      lines.push(
+        intent === 'email_draft'
+          ? 'Wrong approach. Call gmail_draft.'
+          : 'Wrong approach for email. Call gmail_list or gmail_read. Never use atom feeds.',
+      );
     } else {
       lines.push(
         'Navigation completed. Confirm briefly for the user. Do not call more tools unless they asked for a page summary.',
       );
     }
   } else if (call.name === 'page_read' || call.name === 'page_query') {
-    if (intent === 'email_list' || intent === 'email_read') {
+    if (intent === 'email_list' || intent === 'email_read' || intent === 'email_draft') {
       lines.push(
-        'This page read is unrelated to the email goal. Call gmail_read (or gmail_list) and summarize the email only.',
+        intent === 'email_draft'
+          ? 'Unrelated page read. Call gmail_draft with the reply body.'
+          : 'This page read is unrelated to the email goal. Call gmail_read (or gmail_list) and summarize the email only.',
       );
     } else {
       lines.push(
@@ -352,15 +405,24 @@ export function useAgent() {
                   s.kind === 'tool_result' && s.toolCall?.name === 'gmail_read' && s.toolResult?.ok,
               ) &&
               isSummarizeGoal(goal);
+            const needsDraft =
+              intent === 'email_draft' &&
+              !stepsRef.current.some(
+                (s) =>
+                  s.kind === 'tool_result' &&
+                  (s.toolCall?.name === 'gmail_draft' || s.toolCall?.name === 'gmail_send') &&
+                  s.toolResult?.ok,
+              );
 
             const shouldNudge =
               formatNudgesLeft > 0 &&
               (hallucinated ||
                 needsEmailTool ||
                 needsRead ||
+                needsDraft ||
                 looksLikeMalformedToolCall(reply) ||
                 narratesToolUse(reply) ||
-                ((isEmailGoal(goal) || isOpenLinkGoal(goal)) &&
+                ((isEmailGoal(goal) || isOpenLinkGoal(goal) || intent === 'email_draft') &&
                   !gotSuccessfulTool &&
                   stepsLeft > 0));
 
@@ -368,9 +430,10 @@ export function useAgent() {
               formatNudgesLeft -= 1;
               pushStep({
                 kind: 'thought',
-                content:
-                  hallucinated
-                    ? 'Refusing invented emails — requesting a real gmail tool call.'
+                content: hallucinated
+                  ? 'Refusing invented emails — requesting a real gmail tool call.'
+                  : needsDraft
+                    ? 'Need a real gmail_draft tool call to open Compose.'
                     : visible ||
                       'Model talked about a tool instead of calling it — requesting a real tool call.',
               });
@@ -381,7 +444,9 @@ export function useAgent() {
                   `Original goal: ${goal}`,
                   hallucinated
                     ? 'Those emails were invented. You MUST call a real tool. Never fabricate inbox contents.'
-                    : 'Do not narrate. Output ONLY a valid tool call now:',
+                    : needsDraft
+                      ? 'Do not only write the reply in chat. Output ONLY a gmail_draft tool call now:'
+                      : 'Do not narrate. Output ONLY a valid tool call now:',
                   nudgeToolExample(goal, stepsRef.current.length ? stepsRef.current : priorSteps),
                 ].join('\n'),
               });
@@ -442,6 +507,9 @@ export function useAgent() {
           if (result.ok) {
             gotSuccessfulTool = true;
             if (call.name === 'gmail_list' || call.name === 'gmail_read') {
+              gotSuccessfulGmail = true;
+            }
+            if (call.name === 'gmail_draft' || call.name === 'gmail_send') {
               gotSuccessfulGmail = true;
             }
           }

@@ -89,10 +89,22 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'gmail_list',
     description:
-      'List recent Gmail messages from the open Gmail tab (default). No API key needed. Opens mail.google.com if needed.',
+      'List/search Gmail messages from the open Gmail tab (default). Supports Gmail search queries. Opens mail.google.com if needed.',
     risk: 'safe',
     parameters: {
-      query: { type: 'string', description: 'Gmail search query, e.g. newer_than:7d or label:inbox' },
+      query: {
+        type: 'string',
+        description: 'Gmail search query, e.g. newer_than:7d, from:gabe@, is:unread, has:attachment',
+      },
+      maxResults: { type: 'number', description: 'Max messages (default 10)' },
+    },
+  },
+  {
+    name: 'gmail_search',
+    description: 'Alias of gmail_list with an explicit search query (waits for results).',
+    risk: 'safe',
+    parameters: {
+      query: { type: 'string', description: 'Gmail search query', required: true },
       maxResults: { type: 'number', description: 'Max messages (default 10)' },
     },
   },
@@ -101,18 +113,74 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
     description: 'Read a Gmail message by id from the open Gmail tab (or API if configured).',
     risk: 'safe',
     parameters: {
-      id: { type: 'string', description: 'Message id', required: true },
+      id: { type: 'string', description: 'Message id from gmail_list', required: true },
+    },
+  },
+  {
+    name: 'gmail_thread',
+    description: 'Read the full conversation/thread for a message id.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Message or thread id', required: true },
+    },
+  },
+  {
+    name: 'gmail_extract_links',
+    description: 'Extract links from an open/selected message (or by id).',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional message id; opens it first if provided' },
+      limit: { type: 'number', description: 'Max links (default 20)' },
+    },
+  },
+  {
+    name: 'gmail_get_attachments',
+    description: 'List attachment names (and URLs when available) for a message.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional message id; opens it first if provided' },
     },
   },
   {
     name: 'gmail_draft',
-    description: 'Create a Gmail draft in the open Gmail tab (does not send).',
+    description:
+      'Open a Gmail Compose draft (to/subject/body). Does not send. Prefer gmail_reply for in-thread replies.',
     risk: 'moderate',
     confirmLabel: 'Create an email draft',
     parameters: {
       to: { type: 'string', description: 'Recipient email', required: true },
       subject: { type: 'string', description: 'Subject', required: true },
       body: { type: 'string', description: 'Plain-text body', required: true },
+    },
+  },
+  {
+    name: 'gmail_reply',
+    description: 'Open Reply on a message and optionally fill the body. Does not send.',
+    risk: 'moderate',
+    confirmLabel: 'Open a reply draft',
+    parameters: {
+      id: { type: 'string', description: 'Message id to reply to', required: true },
+      body: { type: 'string', description: 'Reply body text' },
+    },
+  },
+  {
+    name: 'gmail_reply_all',
+    description: 'Open Reply all on a message and optionally fill the body. Does not send.',
+    risk: 'moderate',
+    confirmLabel: 'Open a reply-all draft',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+      body: { type: 'string', description: 'Reply body text' },
+    },
+  },
+  {
+    name: 'gmail_forward',
+    description: 'Open Forward on a message and optionally add a note. Does not send.',
+    risk: 'moderate',
+    confirmLabel: 'Open a forward draft',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+      body: { type: 'string', description: 'Optional note to prepend' },
     },
   },
   {
@@ -125,6 +193,67 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       to: { type: 'string', description: 'Recipient email', required: true },
       subject: { type: 'string', description: 'Subject', required: true },
       body: { type: 'string', description: 'Plain-text body', required: true },
+    },
+  },
+  {
+    name: 'gmail_archive',
+    description: 'Archive a message (remove from inbox).',
+    risk: 'moderate',
+    confirmLabel: 'Archive this email',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+    },
+  },
+  {
+    name: 'gmail_trash',
+    description: 'Move a message to Trash.',
+    risk: 'dangerous',
+    confirmLabel: 'Move this email to Trash',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+    },
+  },
+  {
+    name: 'gmail_spam',
+    description: 'Report a message as spam.',
+    risk: 'dangerous',
+    confirmLabel: 'Report this email as spam',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+    },
+  },
+  {
+    name: 'gmail_label',
+    description: 'Apply a Gmail label to a message.',
+    risk: 'moderate',
+    confirmLabel: 'Apply a Gmail label',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+      label: { type: 'string', description: 'Label name', required: true },
+    },
+  },
+  {
+    name: 'gmail_star',
+    description: 'Toggle star on a message.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+    },
+  },
+  {
+    name: 'gmail_mark_read',
+    description: 'Mark a message as read.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
+    },
+  },
+  {
+    name: 'gmail_mark_unread',
+    description: 'Mark a message as unread.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Message id', required: true },
     },
   },
 ];

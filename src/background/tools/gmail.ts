@@ -9,11 +9,14 @@ import type {
 import {
   gmailApiConfigured,
   gmailCreateDraft,
+  gmailGetAttachments,
   gmailGetMessage,
+  gmailGetThread,
   gmailListMessages,
+  gmailModifyMessage,
   gmailSendMessage,
 } from '@/agent/gmail/api';
-import { gmailDomCompose, gmailDomList, gmailDomRead } from '@/content/gmailDom';
+import { gmailDomDispatch, type GmailDomAction } from '@/content/gmailDom';
 
 function sanitizeGmailList(data: unknown): GmailMessageSummary[] {
   if (!Array.isArray(data)) return [];
@@ -26,6 +29,8 @@ function sanitizeGmailList(data: unknown): GmailMessageSummary[] {
       subject: cleanDisplayText(String(row.subject ?? '(no subject)'), 120),
       snippet: cleanDisplayText(String(row.snippet ?? ''), 140),
       date: row.date,
+      unread: row.unread,
+      starred: row.starred,
     };
   });
 }
@@ -68,7 +73,6 @@ async function ensureGmailTab(): Promise<chrome.tabs.Tab> {
       active: true,
     });
     if (tab.id != null) await waitForTabComplete(tab.id);
-    // Give the inbox DOM a moment after "complete"
     await new Promise((r) => setTimeout(r, 1200));
   } else {
     await chrome.tabs.update(tab.id!, { active: true });
@@ -78,13 +82,12 @@ async function ensureGmailTab(): Promise<chrome.tabs.Tab> {
 }
 
 async function sessionCall(
-  action: 'list' | 'read' | 'compose',
+  action: GmailDomAction,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const tab = await ensureGmailTab();
   const tabId = tab.id!;
 
-  // Prefer content-script message bus
   try {
     const result = await chrome.tabs.sendMessage(tabId, {
       type: 'GMAIL_SESSION',
@@ -92,6 +95,10 @@ async function sessionCall(
       query: args.query,
       id: args.id,
       draft: args.draft,
+      body: args.body,
+      label: args.label,
+      maxResults: args.maxResults,
+      limit: args.limit,
     });
     if (result) {
       return {
@@ -104,52 +111,52 @@ async function sessionCall(
     // fall through to executeScript
   }
 
-  // Fallback: inject DOM helpers directly (no OAuth / no content-script required)
   try {
-    if (action === 'list') {
-      const injected = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: gmailDomList,
-        args: [args.query != null ? String(args.query) : ''],
-      });
-      return { ok: true, data: injected[0]?.result ?? [] };
-    }
-    if (action === 'read') {
-      const injected = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: gmailDomRead,
-        args: [String(args.id ?? '')],
-      });
-      return { ok: true, data: injected[0]?.result };
-    }
-    if (action === 'compose') {
-      const draft = args.draft as GmailDraft;
-      const injected = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: gmailDomCompose,
-        args: [draft],
-      });
-      const data = await injected[0]?.result;
-      return { ok: true, data };
-    }
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: gmailDomDispatch,
+      args: [action, args],
+    });
+    const data = await injected[0]?.result;
+    return { ok: true, data };
   } catch (e) {
     return {
       ok: false,
       error:
         e instanceof Error
           ? e.message
-          : 'Could not read Gmail. Open mail.google.com, sign in, and retry.',
+          : 'Could not access Gmail. Open mail.google.com, sign in, and retry.',
     };
   }
+}
 
-  return { ok: false, error: 'Unknown Gmail session action' };
+function draftFromArgs(call: ToolCall): GmailDraft {
+  return {
+    to: String(call.arguments.to ?? ''),
+    subject: String(call.arguments.subject ?? ''),
+    body: String(call.arguments.body ?? ''),
+  };
+}
+
+async function sessionList(call: ToolCall): Promise<ToolResult> {
+  const max = Number(call.arguments.maxResults ?? 10);
+  const limit = Number.isFinite(max) && max > 0 ? Math.min(25, Math.floor(max)) : 10;
+  const result = await sessionCall('list', {
+    query: call.arguments.query,
+    maxResults: limit,
+  });
+  return {
+    ok: result.ok,
+    data: sanitizeGmailList(result.data).slice(0, limit),
+    error: result.error,
+    toolCall: call,
+  };
 }
 
 export async function executeGmailTools(
   call: ToolCall,
   settings: AgentSettings,
 ): Promise<ToolResult> {
-  // OAuth API only when explicitly configured — otherwise always use the Gmail tab.
   const preferApi =
     (settings.gmailMode === 'api' || settings.gmailMode === 'auto') &&
     gmailApiConfigured(settings);
@@ -157,7 +164,8 @@ export async function executeGmailTools(
   if (preferApi) {
     try {
       switch (call.name) {
-        case 'gmail_list': {
+        case 'gmail_list':
+        case 'gmail_search': {
           const data = await gmailListMessages(
             settings,
             String(call.arguments.query ?? ''),
@@ -166,28 +174,77 @@ export async function executeGmailTools(
           return { ok: true, data: sanitizeGmailList(data), toolCall: call };
         }
         case 'gmail_read': {
-          const id = String(call.arguments.id ?? '');
-          const data = await gmailGetMessage(settings, id);
+          const data = await gmailGetMessage(settings, String(call.arguments.id ?? ''));
+          return { ok: true, data, toolCall: call };
+        }
+        case 'gmail_thread': {
+          const data = await gmailGetThread(settings, String(call.arguments.id ?? ''));
+          return { ok: true, data, toolCall: call };
+        }
+        case 'gmail_get_attachments': {
+          const data = await gmailGetAttachments(settings, String(call.arguments.id ?? ''));
           return { ok: true, data, toolCall: call };
         }
         case 'gmail_draft': {
-          const draft: GmailDraft = {
-            to: String(call.arguments.to ?? ''),
-            subject: String(call.arguments.subject ?? ''),
-            body: String(call.arguments.body ?? ''),
-          };
+          const draft = draftFromArgs(call);
           const data = await gmailCreateDraft(settings, draft);
-          return { ok: true, data, toolCall: call };
+          return { ok: true, data: { ...data, ...draft }, toolCall: call };
         }
         case 'gmail_send': {
-          const draft: GmailDraft = {
-            to: String(call.arguments.to ?? ''),
-            subject: String(call.arguments.subject ?? ''),
-            body: String(call.arguments.body ?? ''),
-          };
+          const draft = draftFromArgs(call);
           const data = await gmailSendMessage(settings, draft);
           return { ok: true, data, toolCall: call };
         }
+        case 'gmail_archive': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            removeLabelIds: ['INBOX'],
+          });
+          return { ok: true, data: { action: 'archive' }, toolCall: call };
+        }
+        case 'gmail_trash': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            addLabelIds: ['TRASH'],
+            removeLabelIds: ['INBOX'],
+          });
+          return { ok: true, data: { action: 'trash' }, toolCall: call };
+        }
+        case 'gmail_spam': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            addLabelIds: ['SPAM'],
+            removeLabelIds: ['INBOX'],
+          });
+          return { ok: true, data: { action: 'spam' }, toolCall: call };
+        }
+        case 'gmail_star': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            addLabelIds: ['STARRED'],
+          });
+          return { ok: true, data: { action: 'star' }, toolCall: call };
+        }
+        case 'gmail_mark_read': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            removeLabelIds: ['UNREAD'],
+          });
+          return { ok: true, data: { action: 'mark_read' }, toolCall: call };
+        }
+        case 'gmail_mark_unread': {
+          await gmailModifyMessage(settings, String(call.arguments.id ?? ''), {
+            addLabelIds: ['UNREAD'],
+          });
+          return { ok: true, data: { action: 'mark_unread' }, toolCall: call };
+        }
+        case 'gmail_label': {
+          // Custom labels need label id lookup — fall through to session for named labels
+          break;
+        }
+        case 'gmail_reply':
+        case 'gmail_reply_all':
+        case 'gmail_forward':
+        case 'gmail_extract_links':
+          // Prefer session UI for these
+          break;
+        default:
+          break;
       }
     } catch (e) {
       if (settings.gmailMode === 'api') {
@@ -202,43 +259,99 @@ export async function executeGmailTools(
   }
 
   switch (call.name) {
-    case 'gmail_list': {
-      const result = await sessionCall('list', { query: call.arguments.query });
-      const list = sanitizeGmailList(result.data);
-      const max = Number(call.arguments.maxResults ?? 10);
-      const limit = Number.isFinite(max) && max > 0 ? Math.min(25, Math.floor(max)) : 10;
+    case 'gmail_list':
+    case 'gmail_search':
+      return sessionList(call);
+    case 'gmail_read':
+      return { ...(await sessionCall('read', { id: call.arguments.id })), toolCall: call };
+    case 'gmail_thread':
+      return { ...(await sessionCall('thread', { id: call.arguments.id })), toolCall: call };
+    case 'gmail_extract_links':
       return {
-        ok: result.ok,
-        data: list.slice(0, limit),
-        error: result.error,
+        ...(await sessionCall('extract_links', {
+          id: call.arguments.id,
+          limit: call.arguments.limit,
+        })),
         toolCall: call,
       };
-    }
-    case 'gmail_read':
+    case 'gmail_get_attachments':
       return {
-        ...(await sessionCall('read', { id: call.arguments.id })),
+        ...(await sessionCall('attachments', { id: call.arguments.id })),
+        toolCall: call,
+      };
+    case 'gmail_reply':
+      return {
+        ...(await sessionCall('reply', { id: call.arguments.id, body: call.arguments.body })),
+        toolCall: call,
+      };
+    case 'gmail_reply_all':
+      return {
+        ...(await sessionCall('reply_all', {
+          id: call.arguments.id,
+          body: call.arguments.body,
+        })),
+        toolCall: call,
+      };
+    case 'gmail_forward':
+      return {
+        ...(await sessionCall('forward', { id: call.arguments.id, body: call.arguments.body })),
+        toolCall: call,
+      };
+    case 'gmail_archive':
+      return {
+        ...(await sessionCall('archive', { id: call.arguments.id })),
+        toolCall: call,
+      };
+    case 'gmail_trash':
+      return { ...(await sessionCall('trash', { id: call.arguments.id })), toolCall: call };
+    case 'gmail_spam':
+      return { ...(await sessionCall('spam', { id: call.arguments.id })), toolCall: call };
+    case 'gmail_label':
+      return {
+        ...(await sessionCall('label', {
+          id: call.arguments.id,
+          label: call.arguments.label,
+        })),
+        toolCall: call,
+      };
+    case 'gmail_star':
+      return { ...(await sessionCall('star', { id: call.arguments.id })), toolCall: call };
+    case 'gmail_mark_read':
+      return {
+        ...(await sessionCall('mark_read', { id: call.arguments.id })),
+        toolCall: call,
+      };
+    case 'gmail_mark_unread':
+      return {
+        ...(await sessionCall('mark_unread', { id: call.arguments.id })),
         toolCall: call,
       };
     case 'gmail_draft':
     case 'gmail_send': {
-      const draft: GmailDraft = {
-        to: String(call.arguments.to ?? ''),
-        subject: String(call.arguments.subject ?? ''),
-        body: String(call.arguments.body ?? ''),
-      };
-      const result = await sessionCall('compose', { draft });
-      if (call.name === 'gmail_send') {
+      const draft = draftFromArgs(call);
+      if (!draft.body.trim()) {
         return {
-          ok: result.ok,
-          data: {
-            ...(typeof result.data === 'object' && result.data ? result.data : {}),
-            note: 'Draft opened in Gmail. Click Send yourself — LocalMind will not auto-send in session mode.',
-          },
-          error: result.error,
+          ok: false,
+          error: 'Draft body is empty. Provide the reply text in the body argument.',
           toolCall: call,
         };
       }
-      return { ...result, toolCall: call };
+      const result = await sessionCall('compose', { draft });
+      return {
+        ok: result.ok,
+        data: {
+          ...(typeof result.data === 'object' && result.data ? result.data : {}),
+          to: draft.to,
+          subject: draft.subject,
+          bodyPreview: draft.body.slice(0, 240),
+          note:
+            call.name === 'gmail_send'
+              ? 'Draft opened in Gmail. Click Send yourself — LocalMind will not auto-send in session mode.'
+              : 'Compose draft opened in your Gmail tab. Review and click Send yourself if you want to send it.',
+        },
+        error: result.error,
+        toolCall: call,
+      };
     }
     default:
       return { ok: false, error: `Unknown gmail tool ${call.name}`, toolCall: call };

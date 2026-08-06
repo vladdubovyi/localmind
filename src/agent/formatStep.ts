@@ -18,13 +18,29 @@ function formatGmailList(data: unknown): string {
   return data
     .slice(0, 10)
     .map((item, i) => {
-      const row = item as { id?: string; from?: string; subject?: string; snippet?: string };
+      const row = item as {
+        id?: string;
+        threadId?: string;
+        from?: string;
+        subject?: string;
+        snippet?: string;
+        unread?: boolean;
+        starred?: boolean;
+      };
       const id = String(row.id ?? '');
       const from = cleanDisplayText(String(row.from ?? 'Unknown'), 60);
       const subject = cleanDisplayText(String(row.subject ?? '(no subject)'), 100);
       const snippet = cleanDisplayText(String(row.snippet ?? ''), 100);
+      const flags = [
+        row.unread ? 'unread' : null,
+        row.starred ? 'starred' : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
       const showSnippet = snippet.length > 2;
-      return `${i + 1}. **${subject}**\n   From: ${from}${id ? `\n   id: ${id}` : ''}${
+      return `${i + 1}. **${subject}**${flags ? ` (${flags})` : ''}\n   From: ${from}${
+        id ? `\n   id: ${id}` : ''
+      }${row.threadId ? `\n   thread: ${row.threadId}` : ''}${
         showSnippet ? `\n   ${snippet}` : ''
       }`;
     })
@@ -41,6 +57,44 @@ function formatGmailRead(data: unknown): string {
   }`;
 }
 
+function formatGmailThread(data: unknown): string {
+  if (!data || typeof data !== 'object') return 'Thread read.';
+  const thread = data as {
+    subject?: string;
+    messages?: Array<{ from?: string; body?: string }>;
+  };
+  const subject = cleanDisplayText(String(thread.subject ?? 'Thread'), 120);
+  const msgs = (thread.messages ?? []).slice(0, 8);
+  if (!msgs.length) return `**${subject}**\n(No messages found in thread.)`;
+  return [
+    `**${subject}** (${msgs.length} messages)`,
+    ...msgs.map((m, i) => {
+      const from = cleanDisplayText(String(m.from ?? ''), 60);
+      const body = cleanDisplayText(String(m.body ?? ''), 400);
+      return `${i + 1}. ${from || 'Unknown'}\n${body}`;
+    }),
+  ].join('\n\n');
+}
+
+function formatLinks(data: unknown): string {
+  const links = (data as { links?: Array<{ text?: string; href?: string }> })?.links ?? [];
+  if (!links.length) return 'No links found in this message.';
+  return links
+    .slice(0, 15)
+    .map((l, i) => `${i + 1}. ${cleanDisplayText(String(l.text || l.href || ''), 60)}\n   ${l.href}`)
+    .join('\n');
+}
+
+function formatAttachments(data: unknown): string {
+  const items =
+    (data as { attachments?: Array<{ name?: string; url?: string; mimeType?: string }> })
+      ?.attachments ?? [];
+  if (!items.length) return 'No attachments found.';
+  return items
+    .map((a, i) => `${i + 1}. ${cleanDisplayText(String(a.name ?? 'file'), 80)}${a.mimeType ? ` (${a.mimeType})` : ''}`)
+    .join('\n');
+}
+
 function formatPageRead(data: unknown): string {
   if (!data || typeof data !== 'object') return 'Page read.';
   const page = data as { title?: string; url?: string; text?: string };
@@ -53,8 +107,53 @@ function formatPageRead(data: unknown): string {
 /** Human-readable tool result for the chat transcript. */
 export function formatToolResultContent(name: string, result: ToolResult): string {
   if (!result.ok) return result.error || 'Tool failed';
-  if (name === 'gmail_list') return formatGmailList(result.data);
+  if (name === 'gmail_list' || name === 'gmail_search') return formatGmailList(result.data);
   if (name === 'gmail_read') return formatGmailRead(result.data);
+  if (name === 'gmail_thread') return formatGmailThread(result.data);
+  if (name === 'gmail_extract_links') return formatLinks(result.data);
+  if (name === 'gmail_get_attachments') return formatAttachments(result.data);
+  if (
+    name === 'gmail_draft' ||
+    name === 'gmail_send' ||
+    name === 'gmail_reply' ||
+    name === 'gmail_reply_all' ||
+    name === 'gmail_forward'
+  ) {
+    const d = result.data as
+      | { to?: string; subject?: string; bodyPreview?: string; note?: string; mode?: string; opened?: boolean }
+      | undefined;
+    const title =
+      name === 'gmail_reply' || name === 'gmail_reply_all'
+        ? 'Reply draft opened in Gmail.'
+        : name === 'gmail_forward'
+          ? 'Forward draft opened in Gmail.'
+          : name === 'gmail_send'
+            ? 'Send draft opened in Gmail.'
+            : 'Compose draft opened in Gmail.';
+    return [
+      title,
+      d?.mode ? `Mode: ${d.mode}` : null,
+      d?.to ? `To: ${cleanDisplayText(String(d.to), 80)}` : null,
+      d?.subject ? `Subject: ${cleanDisplayText(String(d.subject), 100)}` : null,
+      d?.bodyPreview ? `\n${cleanDisplayText(String(d.bodyPreview), 280)}` : null,
+      d?.note ? `\n${d.note}` : '\nReview in Gmail and click Send yourself if needed.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (
+    name === 'gmail_archive' ||
+    name === 'gmail_trash' ||
+    name === 'gmail_spam' ||
+    name === 'gmail_star' ||
+    name === 'gmail_mark_read' ||
+    name === 'gmail_mark_unread' ||
+    name === 'gmail_label'
+  ) {
+    const d = result.data as { action?: string; label?: string } | undefined;
+    if (name === 'gmail_label') return `Applied label “${d?.label ?? 'label'}”.`;
+    return `Done: ${(d?.action || name.replace('gmail_', '')).replace(/_/g, ' ')}.`;
+  }
   if (name === 'page_read') return formatPageRead(result.data);
   if (name === 'tabs_create') {
     const d = result.data as { id?: number; url?: string; title?: string } | undefined;
@@ -72,7 +171,6 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
       })
       .join('\n');
   }
-  // Compact JSON fallback
   try {
     return JSON.stringify(result.data ?? { ok: true }, null, 2).slice(0, 1200);
   } catch {
@@ -82,9 +180,28 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
 
 export function toolCallLabel(name: string, args: Record<string, unknown>): string {
   const def = name.replace(/_/g, ' ');
-  if (name === 'gmail_list') return 'Checking Gmail…';
-  if (name === 'gmail_read') return 'Reading email…';
-  if (name === 'page_read') return 'Reading page…';
+  const labels: Record<string, string> = {
+    gmail_list: 'Checking Gmail…',
+    gmail_search: 'Searching Gmail…',
+    gmail_read: 'Reading email…',
+    gmail_thread: 'Reading thread…',
+    gmail_draft: 'Opening Gmail draft…',
+    gmail_send: 'Opening Gmail send draft…',
+    gmail_reply: 'Opening reply…',
+    gmail_reply_all: 'Opening reply all…',
+    gmail_forward: 'Opening forward…',
+    gmail_archive: 'Archiving…',
+    gmail_trash: 'Moving to Trash…',
+    gmail_spam: 'Reporting spam…',
+    gmail_label: 'Applying label…',
+    gmail_star: 'Starring…',
+    gmail_mark_read: 'Marking read…',
+    gmail_mark_unread: 'Marking unread…',
+    gmail_extract_links: 'Extracting links…',
+    gmail_get_attachments: 'Listing attachments…',
+    page_read: 'Reading page…',
+  };
+  if (labels[name]) return labels[name];
   if (name === 'tabs_create') {
     const url = typeof args.url === 'string' ? args.url : '';
     return url ? `Opening ${url}…` : 'Opening tab…';

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { getAIProvider } from '@/ai/webllm';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
-import { toolsPromptBlock } from '@/agent/tools';
+import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
 import { getAgentSettings } from '@/storage/agentSettings';
 import { getSettings } from '@/storage/db';
@@ -13,6 +13,41 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
     call,
     confirmed,
   });
+}
+
+/** True only when the reply looks like a structured tool attempt, not mere tool-name chatter. */
+function looksLikeMalformedToolCall(text: string): boolean {
+  if (/<tool_call>[\s\S]*?<\/tool_call>/i.test(text)) return true;
+  if (/TOOL_CALL:\s*\{/i.test(text)) return true;
+  if (/```(?:tool|json)?[\s\S]*?"name"\s*:/i.test(text)) return true;
+  if (/\{\s*"name"\s*:\s*"[a-z][a-z0-9_]+"/.test(text)) return true;
+  if (/\b[a-z][a-z0-9_]+\s*\(\s*\{/.test(text)) {
+    const m = text.match(/\b([a-z][a-z0-9_]+)\s*\(\s*\{/i);
+    if (m && getTool(m[1])) return true;
+  }
+  return false;
+}
+
+function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResult): string {
+  const lines = [
+    `Original goal: ${goal}`,
+    `Tool ${call.name} result:`,
+    result.ok
+      ? JSON.stringify(result.data ?? { ok: true }).slice(0, 6000)
+      : `ERROR: ${result.error}`,
+  ];
+
+  if (!result.ok) {
+    lines.push(
+      'That tool failed. Choose a different next step that still advances the original goal.',
+      'Do not invent tab IDs. Prefer tabs_create / tabs_list, then page_read without tabId.',
+      'Do not switch to unrelated tools (e.g. Gmail) unless the goal is about email.',
+    );
+  } else {
+    lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
+  }
+
+  return lines.join('\n');
 }
 
 export function useAgent() {
@@ -81,15 +116,16 @@ export function useAgent() {
         ];
 
         let stepsLeft = agentSettings.maxSteps;
+        let formatNudgesLeft = 1;
 
         while (stepsLeft > 0 && !abortRef.current) {
           stepsLeft -= 1;
 
           const reply = await provider.chat({
             messages: history,
-            temperature: Math.min(appSettings.generation.temperature, 0.4),
+            temperature: Math.min(appSettings.generation.temperature, 0.3),
             topP: appSettings.generation.topP,
-            maxTokens: appSettings.generation.maxTokens,
+            maxTokens: Math.min(appSettings.generation.maxTokens, 768),
             stream: false,
           });
 
@@ -99,30 +135,30 @@ export function useAgent() {
           const visible = stripToolCallMarkup(reply);
 
           if (!calls.length) {
-            // Small local models often emit almost-tool JSON without tags. Nudge once
-            // instead of treating that as the final answer.
-            const looksLikeToolAttempt =
-              /"name"\s*:\s*"[a-z_]+"|<tool|TOOL_CALL:|gmail_list|tabs_|page_/i.test(reply) &&
-              stepsLeft > 0;
-            if (looksLikeToolAttempt) {
+            if (formatNudgesLeft > 0 && looksLikeMalformedToolCall(reply)) {
+              formatNudgesLeft -= 1;
               pushStep({
                 kind: 'thought',
                 content:
                   visible ||
-                  'Model attempted a tool call in the wrong format — retrying with a stricter reminder.',
+                  'Model attempted a tool call in the wrong format — asking once for the XML format.',
               });
               history.push({ role: 'assistant', content: reply });
               history.push({
                 role: 'user',
                 content: [
-                  'That was not a valid tool call. Reply with ONLY this XML (no prose, no markdown):',
+                  `Original goal: ${goal}`,
+                  'Your last message was not a valid tool call.',
+                  'Reply with ONLY this XML (no prose). Pick a tool that matches the goal:',
                   '<tool_call>',
-                  '{"name":"gmail_list","arguments":{"query":"label:inbox","maxResults":5}}',
+                  '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
                   '</tool_call>',
+                  'Or answer the user in markdown if you are done.',
                 ].join('\n'),
               });
               continue;
             }
+
             pushStep({ kind: 'final', content: visible || reply });
             break;
           }
@@ -174,13 +210,7 @@ export function useAgent() {
           history.push({ role: 'assistant', content: reply });
           history.push({
             role: 'user',
-            content: [
-              `Tool ${call.name} result:`,
-              result.ok
-                ? JSON.stringify(result.data ?? { ok: true }).slice(0, 6000)
-                : `ERROR: ${result.error}`,
-              'Continue. Call another tool if needed, or give the final answer.',
-            ].join('\n'),
+            content: continueAfterToolPrompt(goal, call, result),
           });
         }
 

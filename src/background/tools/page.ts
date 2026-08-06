@@ -2,10 +2,20 @@ import type { ToolCall, ToolResult } from '@/agent/types';
 import { extractPageContextInPage } from '@/content/extract';
 
 async function resolveTabId(tabIdArg: unknown): Promise<number> {
-  if (tabIdArg != null && Number.isFinite(Number(tabIdArg))) return Number(tabIdArg);
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!active?.id) throw new Error('No active tab');
-  return active.id;
+  if (tabIdArg != null && Number.isFinite(Number(tabIdArg))) {
+    const requested = Number(tabIdArg);
+    try {
+      const tab = await chrome.tabs.get(requested);
+      if (tab?.id != null) return tab.id;
+    } catch {
+      // Model-invented IDs are common; fall back to the active tab.
+    }
+  }
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (active?.id != null) return active.id;
+  const [anyActive] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!anyActive?.id) throw new Error('No active tab');
+  return anyActive.id;
 }
 
 async function ensureContentScript(tabId: number): Promise<void> {

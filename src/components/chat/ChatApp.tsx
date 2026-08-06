@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PanelRightOpen, Plus, Settings2 } from 'lucide-react';
 import { BrandMark } from '@/components/common/BrandMark';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { PageActions } from '@/components/chat/PageActions';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { useChat } from '@/hooks/useChat';
+import { usePageContext } from '@/hooks/usePageContext';
 import { cn } from '@/utils';
 
 interface ChatAppProps {
@@ -20,22 +22,62 @@ export function ChatApp({ variant }: ChatAppProps) {
     progress,
     error,
     isGenerating,
+    mode,
+    setMode,
     downloadAndLoad,
     updateSettings,
     send,
+    summarizePage,
     stop,
     regenerate,
     newChat,
+    setError,
   } = useChat();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // Load page context when Ask-this-page is on, or lazily for Summarize.
+  const pageCtx = usePageContext(mode === 'page');
+  const autoSummarizeFired = useRef(false);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [conversation?.messages, isGenerating]);
+
+  // Optional: auto-summarize once when entering Ask-this-page with an empty chat
+  useEffect(() => {
+    if (
+      !settings?.autoSummarize ||
+      mode !== 'page' ||
+      pageCtx.status !== 'ready' ||
+      !pageCtx.page ||
+      !conversation ||
+      conversation.messages.length > 0 ||
+      isGenerating ||
+      autoSummarizeFired.current
+    ) {
+      return;
+    }
+    autoSummarizeFired.current = true;
+    void summarizePage(pageCtx.page);
+  }, [
+    settings?.autoSummarize,
+    mode,
+    pageCtx.status,
+    pageCtx.page,
+    conversation,
+    isGenerating,
+    summarizePage,
+  ]);
+
+  useEffect(() => {
+    if (mode !== 'page') {
+      autoSummarizeFired.current = false;
+    }
+  }, [mode]);
 
   const openSidePanel = async () => {
     try {
@@ -45,6 +87,44 @@ export function ChatApp({ variant }: ChatAppProps) {
       // ignore when not in extension context
     }
   };
+
+  const ensurePage = useCallback(async () => {
+    if (pageCtx.status === 'ready' && pageCtx.page) return pageCtx.page;
+    return pageCtx.refresh();
+  }, [pageCtx]);
+
+  const handleSend = useCallback(
+    async (text: string) => {
+      if (mode === 'page') {
+        const page = await ensurePage();
+        if (!page) {
+          setError(pageCtx.error ?? 'Could not read the current page.');
+          return;
+        }
+        await send(text, page);
+        return;
+      }
+      await send(text);
+    },
+    [mode, ensurePage, send, setError, pageCtx.error],
+  );
+
+  const handleSummarize = useCallback(async () => {
+    const page = await ensurePage();
+    if (!page) {
+      setError(pageCtx.error ?? 'Could not read the current page.');
+      return;
+    }
+    await summarizePage(page);
+  }, [ensurePage, summarizePage, setError, pageCtx.error]);
+
+  const handleModeChange = useCallback(
+    (next: typeof mode) => {
+      setMode(next);
+      setError(null);
+    },
+    [setMode, setError],
+  );
 
   if (!settings || !conversation || phase === 'checking') {
     return (
@@ -101,9 +181,26 @@ export function ChatApp({ variant }: ChatAppProps) {
         </div>
       </header>
 
+      <PageActions
+        mode={mode}
+        onModeChange={handleModeChange}
+        page={pageCtx.page}
+        status={pageCtx.status}
+        stats={pageCtx.stats}
+        error={pageCtx.error}
+        disabled={isGenerating}
+        onRefresh={() => void pageCtx.refresh()}
+        onSummarize={() => void handleSummarize()}
+      />
+
       <div ref={scrollerRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <EmptyState onPrompt={(p) => void send(p)} />
+          <EmptyState
+            mode={mode}
+            pageTitle={pageCtx.page?.title}
+            onPrompt={(p) => void handleSend(p)}
+            onSummarize={() => void handleSummarize()}
+          />
         ) : (
           messages.map((m, idx) => (
             <MessageBubble
@@ -114,7 +211,7 @@ export function ChatApp({ variant }: ChatAppProps) {
                 m.role === 'assistant' &&
                 idx === messages.length - 1
               }
-              onRegenerate={() => void regenerate()}
+              onRegenerate={() => void regenerate(pageCtx.page)}
             />
           ))
         )}
@@ -128,8 +225,13 @@ export function ChatApp({ variant }: ChatAppProps) {
 
       <ChatInput
         isGenerating={isGenerating}
-        onSend={(v) => void send(v)}
+        onSend={(v) => void handleSend(v)}
         onStop={() => void stop()}
+        placeholder={
+          mode === 'page'
+            ? 'Ask anything about this page…'
+            : 'Message LocalMind…'
+        }
       />
 
       <SettingsPanel
@@ -146,7 +248,55 @@ export function ChatApp({ variant }: ChatAppProps) {
   );
 }
 
-function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
+function EmptyState({
+  mode,
+  pageTitle,
+  onPrompt,
+  onSummarize,
+}: {
+  mode: 'chat' | 'page';
+  pageTitle?: string;
+  onPrompt: (p: string) => void;
+  onSummarize: () => void;
+}) {
+  if (mode === 'page') {
+    const prompts = [
+      'What is this page about?',
+      'Extract the main claims',
+      'What should I pay attention to?',
+    ];
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+        <h2 className="font-display text-xl text-fg">Ask this page</h2>
+        <p className="mt-2 max-w-[30ch] text-sm text-muted">
+          {pageTitle
+            ? `Answers use only “${pageTitle}”. Nothing is uploaded.`
+            : 'Answers use only the open tab. Nothing is uploaded.'}
+        </p>
+        <div className="mt-6 flex w-full flex-col gap-2">
+          <button
+            type="button"
+            onClick={onSummarize}
+            className="rounded-2xl border border-accent/40 bg-accent/10 px-3 py-2.5 text-left text-sm text-accent transition hover:bg-accent/20"
+          >
+            Summarize this page
+          </button>
+          {prompts.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onPrompt(p)}
+              className="rounded-2xl border border-border bg-panel/70 px-3 py-2.5 text-left text-sm text-fg-dim transition hover:border-accent/40 hover:bg-panel hover:text-fg"
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const prompts = [
     'Explain quantum entanglement simply',
     'Write a TypeScript debounce helper',
@@ -157,7 +307,7 @@ function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <h2 className="font-display text-xl text-fg">What do you want to explore?</h2>
       <p className="mt-2 max-w-[28ch] text-sm text-muted">
-        Your model is ready. Everything stays on this device.
+        Your model is ready. Switch to Ask this page to ground answers in the open tab.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
         {prompts.map((p) => (

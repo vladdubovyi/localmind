@@ -106,9 +106,8 @@ export function SettingsPanel({
             onChange={(memoryEnabled) => onChange({ memoryEnabled })}
           />
           <Toggle
-            label="Auto-summarize pages (Milestone 2)"
+            label="Auto-summarize on Ask this page"
             checked={settings.autoSummarize}
-            disabled
             onChange={(autoSummarize) => onChange({ autoSummarize })}
           />
           <p className="text-xs text-muted">

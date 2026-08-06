@@ -12,7 +12,6 @@ interface OnboardingProps {
   error: string | null;
   isDownloading: boolean;
   alreadyCached?: boolean;
-  surface?: 'popup' | 'sidebar';
   onSelectModel: (id: string) => void;
   onDownload: (id: string) => void;
 }
@@ -23,7 +22,6 @@ export function Onboarding({
   error,
   isDownloading,
   alreadyCached = false,
-  surface = 'sidebar',
   onSelectModel,
   onDownload,
 }: OnboardingProps) {
@@ -108,13 +106,6 @@ export function Onboarding({
       </div>
 
       <div className="mt-auto space-y-3 p-5">
-        {surface === 'popup' && !isDownloading && (
-          <div className="rounded-2xl border border-accent/30 bg-accent/10 px-3 py-2.5 text-xs leading-relaxed text-fg-dim">
-            Model download and cache loading run in the side panel so they keep going if
-            you close this popup.
-          </div>
-        )}
-
         {isDownloading && progress && (
           <div className="space-y-2 rounded-2xl border border-border bg-panel p-3">
             <div className="flex items-center justify-between text-xs text-muted">
@@ -152,18 +143,14 @@ export function Onboarding({
             ? alreadyCached
               ? 'Loading from cache…'
               : 'Downloading…'
-            : surface === 'popup'
-              ? alreadyCached
-                ? 'Open side panel & load'
-                : 'Open side panel & download'
-              : alreadyCached
-                ? 'Load LocalMind'
-                : `Download AI · ${formatBytes(model.estimatedBytes)} · ~${minutes} min`}
+            : alreadyCached
+              ? 'Load LocalMind'
+              : `Download AI · ${formatBytes(model.estimatedBytes)} · ~${minutes} min`}
         </button>
         <p className="text-center text-[11px] text-muted">
           {alreadyCached
             ? 'Model found in local cache. Loading uses WebGPU on this device.'
-            : 'Downloads are saved in this browser. Closing the popup no longer forces a full re-download.'}
+            : 'Downloads are saved in this browser and resume if interrupted.'}
         </p>
       </div>
     </div>

@@ -18,9 +18,7 @@ import {
 } from '@/storage/db';
 import {
   consumePendingModelLoad,
-  setPendingModelLoad,
 } from '@/storage/sessionIntent';
-import { openSidePanelFromPage } from '@/utils/sidePanel';
 import type {
   AppSettings,
   ChatMessage,
@@ -147,19 +145,6 @@ export function useChat(options: UseChatOptions = {}) {
       if (!settings) return;
       const id = modelId ?? settings.selectedModelId;
 
-      // Popup documents are destroyed when they lose focus — move heavy work
-      // to the side panel so Cache API writes can finish.
-      if (surface === 'popup') {
-        await setPendingModelLoad(id);
-        await openSidePanelFromPage();
-        try {
-          window.close();
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
       const inCache = await isModelInCache(id);
       const meta = await getModelMeta(id);
       const fromCache = inCache || meta?.status === 'ready';
@@ -209,7 +194,7 @@ export function useChat(options: UseChatOptions = {}) {
         setPhase(fromCache ? 'cached' : 'error');
       }
     },
-    [settings, surface],
+    [settings],
   );
 
   // Side panel: pick up downloads/loads handed off from the popup.

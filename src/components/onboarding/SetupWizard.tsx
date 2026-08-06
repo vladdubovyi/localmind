@@ -6,7 +6,6 @@ import {
   Globe,
   Mail,
   MessageCircle,
-  PanelRightOpen,
   SkipForward,
   Sparkles,
 } from 'lucide-react';
@@ -23,7 +22,6 @@ import {
   getWizardStep,
   saveWizardStep,
 } from '@/storage/sessionIntent';
-import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
 
 type StepId = 'welcome' | 'browser' | 'gmail' | 'ready';
@@ -41,16 +39,7 @@ interface StepResult {
 
 const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'ready'];
 
-async function handOffToSidePanel() {
-  await openSidePanelFromPage();
-  try {
-    window.close();
-  } catch {
-    // ignore
-  }
-}
-
-export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
+export function SetupWizard({ onFinished }: SetupWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,7 +51,6 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
   });
 
   const step = STEPS[stepIndex];
-  const isPopup = variant === 'popup';
 
   useEffect(() => {
     void (async () => {
@@ -116,20 +104,7 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
 
   const chatNow = () => void finish(true);
 
-  /** Chrome closes the action popup when the permission dialog opens. */
-  const continueInSidePanel = async () => {
-    setBusy(true);
-    setStatus('Opening side panel — continue permissions there.');
-    await saveWizardStep(stepIndex);
-    await handOffToSidePanel();
-    setBusy(false);
-  };
-
   const grantBrowser = async () => {
-    if (isPopup) {
-      await continueInSidePanel();
-      return;
-    }
     setBusy(true);
     setStatus(null);
     try {
@@ -144,10 +119,6 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
   };
 
   const grantGmail = async () => {
-    if (isPopup) {
-      await continueInSidePanel();
-      return;
-    }
     setBusy(true);
     setStatus(null);
     try {
@@ -190,13 +161,6 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
       </div>
 
       <div className="relative flex-1 overflow-y-auto px-5 py-4">
-        {isPopup && (step === 'browser' || step === 'gmail') && (
-          <div className="mb-4 rounded-2xl border border-accent/30 bg-accent/10 px-3 py-2.5 text-xs leading-relaxed text-fg-dim">
-            Chrome closes the toolbar popup when asking for permissions. Continue in the
-            side panel — it stays open through the prompt.
-          </div>
-        )}
-
         {step === 'welcome' && (
           <StepBody
             icon={<Sparkles size={22} />}
@@ -266,16 +230,7 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
         {step === 'browser' && (
           <>
             <Primary disabled={busy} onClick={() => void grantBrowser()}>
-              {results.grantedBrowser ? (
-                'Continue'
-              ) : isPopup ? (
-                <>
-                  <PanelRightOpen size={16} />
-                  Continue in side panel
-                </>
-              ) : (
-                'Allow browser access'
-              )}
+              {results.grantedBrowser ? 'Continue' : 'Allow browser access'}
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
               <SkipForward size={14} /> Skip for now
@@ -286,16 +241,7 @@ export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
         {step === 'gmail' && (
           <>
             <Primary disabled={busy} onClick={() => void grantGmail()}>
-              {results.grantedGmail ? (
-                'Continue'
-              ) : isPopup ? (
-                <>
-                  <PanelRightOpen size={16} />
-                  Continue in side panel
-                </>
-              ) : (
-                'Allow Gmail access'
-              )}
+              {results.grantedGmail ? 'Continue' : 'Allow Gmail access'}
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
               <SkipForward size={14} /> Skip for now

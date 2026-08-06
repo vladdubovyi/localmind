@@ -7,7 +7,7 @@ LocalMind is a Chrome extension (Manifest V3) that runs an LLM fully on-device w
 ## Shipped
 
 ### Milestone 1 — Core runtime
-Chrome extension + WebLLM download/cache + chat UI (markdown, copy, regenerate, stop). Curated free models from light (Gemma 2 2B) through high-end (Qwen 3.5 9B, Llama 3.1 8B, DeepSeek R1 distill, Qwen Coder 7B). Model weights persist in the browser Cache API; the WebGPU engine is hosted in the extension service worker so reopening the side panel reconnects instead of re-downloading.
+Chrome extension + WebLLM download/cache + chat UI (markdown, copy, regenerate, stop). Curated free models from light (Gemma 2 2B) through high-end (Qwen 3.5 9B, Llama 3.1 8B, DeepSeek R1 distill, Qwen Coder 7B). Model weights persist in the browser Cache API; reopening the side panel restores from cache (GPU reload) instead of re-downloading.
 
 ### Milestone 2 — Page understanding
 **Ask this page** + **Summarize** (TLDR / bullets / facts / actions) with DOM → chunk → retrieve → LLM.

@@ -1,7 +1,7 @@
 /**
  * WebLLM Cache API helpers — source of truth for whether model *weights* were
- * downloaded. The live WebGPU engine lives in the extension service worker;
- * IndexedDB modelMeta is only a UX hint and can drift if a load is interrupted.
+ * downloaded. IndexedDB modelMeta is only a UX hint and can drift if a load
+ * is interrupted. The live WebGPU engine is created in the side panel page.
  */
 
 export async function isModelInCache(modelId: string): Promise<boolean> {

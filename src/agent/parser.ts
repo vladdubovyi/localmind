@@ -1,9 +1,18 @@
 import { parseJsonLenient, repairToolJson } from './jsonRepair';
+import { normalizeToolArgs, parseShorthandArgBody } from './shorthandArgs';
 import { getTool } from './tools';
 import type { ToolCall } from './types';
 
 function toolId(): string {
   return `tool_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function makeCall(name: string, args: Record<string, unknown>): ToolCall {
+  return {
+    id: toolId(),
+    name,
+    arguments: normalizeToolArgs(name, args),
+  };
 }
 
 /** Extract top-level JSON objects with string-aware brace matching. */
@@ -69,11 +78,7 @@ function tryParseObject(raw: string): ToolCall | null {
       if (!name || typeof name !== 'string') continue;
       if (!getTool(name)) continue;
       const args = parsed.arguments ?? parsed.args ?? parsed.parameters ?? {};
-      return {
-        id: toolId(),
-        name,
-        arguments: typeof args === 'object' && args ? args : {},
-      };
+      return makeCall(name, typeof args === 'object' && args ? args : {});
     } catch {
       // try next
     }
@@ -133,11 +138,25 @@ export function parseToolCalls(text: string): ToolCall[] {
     if (!getTool(name)) continue;
     try {
       const args = parseJsonLenient(m[2]) as Record<string, unknown>;
-      calls.push({ id: toolId(), name, arguments: args });
+      calls.push(makeCall(name, args));
     } catch {
       // ignore
     }
   }
+
+  // Shorthand: gmail_list {query:"newer_than:14d", maxResults:5}
+  // Also: tabs_navigate {url:"mail.google.com"}
+  if (!calls.length) {
+    for (const m of text.matchAll(/\b([a-z][a-z0-9_]{2,})\s+(\{[\s\S]*?\})/gi)) {
+      const name = m[1];
+      if (!getTool(name)) continue;
+      const args = parseShorthandArgBody(m[2]);
+      calls.push(makeCall(name, args));
+    }
+  }
+
+  // Bare tool name alone on a line — skipped (too many false positives)
+
 
   if (!calls.length) {
     for (const source of [textRepaired, text]) {
@@ -167,6 +186,9 @@ export function stripToolCallMarkup(text: string): string {
     .replace(/```(?:tool|json)?\s*[\s\S]*?```/gi, '')
     .replace(/TOOL_CALL:\s*\{[\s\S]*?\}(?:\n|$)/gi, '')
     .replace(/\b([a-z][a-z0-9_]{2,})\s*\(\s*\{[\s\S]*?\}\s*\)/gi, (full, name: string) =>
+      getTool(name) ? '' : full,
+    )
+    .replace(/\b([a-z][a-z0-9_]{2,})\s+\{[\s\S]*?\}/gi, (full, name: string) =>
       getTool(name) ? '' : full,
     );
 

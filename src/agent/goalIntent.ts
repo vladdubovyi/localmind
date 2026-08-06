@@ -60,7 +60,7 @@ export function isDraftGoal(goal: string): boolean {
  */
 export function parseReplyRequest(goal: string): { subjectHint?: string; bodyHint?: string } {
   const withSaying = goal.match(
-    /\b(?:write\s+(?:a\s+|an\s+)?(?:response|reply|email)|respond|reply|draft(?:\s+a)?(?:\s+reply|\s+response|\s+email)?)\s+to\s+(.+?)\s+saying\s+[:\"]?\s*(.+)$/i,
+    /\b(?:write\s+(?:a\s+|an\s+)?(?:response|reply|email)|respond|reply|draft(?:\s+a)?(?:\s+reply|\s+response|\s+email)?)\s+to\s+(.+?)\s+saying\s+[:"]?\s*(.+)$/i,
   );
   if (withSaying) {
     return {
@@ -74,7 +74,7 @@ export function parseReplyRequest(goal: string): { subjectHint?: string; bodyHin
   if (toOnly) {
     return { subjectHint: toOnly[1].replace(/^["']|["']$/g, '').trim() };
   }
-  const sayingOnly = goal.match(/\bsaying\s+[:\"]?\s*(.+)$/i);
+  const sayingOnly = goal.match(/\bsaying\s+[:"]?\s*(.+)$/i);
   if (sayingOnly) {
     return { bodyHint: sayingOnly[1].replace(/^["']|["']$/g, '').trim() };
   }

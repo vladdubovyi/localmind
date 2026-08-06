@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inbox - user@example.com - Gmail</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        background: #f6f8fc;
+      }
+      header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 16px;
+        background: #fff;
+        border-bottom: 1px solid #dadce0;
+      }
+      #compose-btn {
+        background: #c2e7ff;
+        padding: 10px 20px;
+        border-radius: 16px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+      }
+      tr.zA {
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+      }
+      tr.zA:hover {
+        box-shadow: inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0,
+          0 1px 2px 0 rgba(60, 64, 67, 0.15);
+      }
+      td {
+        padding: 10px 12px;
+      }
+      .y2 {
+        color: #5f6368;
+      }
+      #thread-pane {
+        display: none;
+        padding: 24px;
+        background: #fff;
+        border-top: 1px solid #dadce0;
+      }
+      #thread-pane.open {
+        display: block;
+      }
+      #compose-pane {
+        display: none;
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        width: 420px;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+        padding: 16px;
+      }
+      #compose-pane.open {
+        display: block;
+      }
+      #compose-pane label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 12px;
+        color: #5f6368;
+      }
+      #compose-pane input,
+      #compose-pane textarea,
+      #compose-pane [role='textbox'] {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 4px;
+        padding: 8px;
+        border: 1px solid #dadce0;
+        border-radius: 6px;
+      }
+      #compose-pane [role='textbox'] {
+        min-height: 120px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div id="compose-btn" gh="cm" role="button" aria-label="Compose">Compose</div>
+      <form id="search-form" action="#" method="get">
+        <input
+          type="text"
+          name="q"
+          aria-label="Search mail"
+          placeholder="Search mail"
+        />
+      </form>
+    </header>
+
+    <div role="main">
+      <table>
+        <tbody id="inbox-rows">
+          <tr class="zA" data-legacy-message-id="msg-newsletter-1">
+            <td>
+              <span class="yP" email="digest@news.example">Example Digest</span>
+            </td>
+            <td><span class="bog">Weekly product digest</span></td>
+            <td>
+              <span class="y2"
+                >- Launch notes, roadmap updates, and three action items for
+                next week.</span
+              >
+            </td>
+          </tr>
+          <tr class="zA" data-legacy-message-id="msg-invoice-2">
+            <td>
+              <span class="zF" email="billing@acme.example">Acme Billing</span>
+            </td>
+            <td><span class="bog">Invoice #4821 due Friday</span></td>
+            <td>
+              <span class="y2"
+                >- Your August invoice is ready. Amount due: $240.00.</span
+              >
+            </td>
+          </tr>
+          <tr class="zA" data-legacy-message-id="msg-recruiting-3">
+            <td>
+              <span class="yP" email="talent@hire.example">Hire Talent</span>
+            </td>
+            <td><span class="bog">Interview loop for frontend role</span></td>
+            <td>
+              <span class="y2"
+                >- Can we schedule the system design round this Thursday?</span
+              >
+            </td>
+          </tr>
+          <tr class="zA" data-legacy-message-id="msg-security-4">
+            <td>
+              <span class="yP" email="noreply@security.example">Security</span>
+            </td>
+            <td><span class="bog">New sign-in on Chrome</span></td>
+            <td>
+              <span class="y2"
+                >- We noticed a new sign-in from Berlin. If this was you, no
+                action needed.</span
+              >
+            </td>
+          </tr>
+          <tr class="zA" data-legacy-message-id="msg-personal-5">
+            <td>
+              <span class="yP" email="alex@friends.example">Alex Friend</span>
+            </td>
+            <td><span class="bog">Dinner plans Saturday?</span></td>
+            <td>
+              <span class="y2"
+                >- Free around 7pm — want to try the new ramen place?</span
+              >
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <section id="thread-pane" aria-label="Message">
+      <h2 class="hP" id="thread-subject"></h2>
+      <div class="a3s aiL" id="thread-body"></div>
+    </section>
+
+    <div id="compose-pane" aria-label="Compose">
+      <label>
+        To
+        <textarea name="to" rows="1"></textarea>
+      </label>
+      <label>
+        Subject
+        <input name="subjectbox" type="text" />
+      </label>
+      <label>
+        Message
+        <div
+          role="textbox"
+          aria-label="Message Body"
+          contenteditable="true"
+        ></div>
+      </label>
+    </div>
+
+    <script>
+      const BODIES = {
+        'msg-newsletter-1': {
+          subject: 'Weekly product digest',
+          body:
+            'Hi team,\n\nThis week we shipped dark mode polish, fixed the agent confirm gate, and drafted the Gmail session guide.\n\nAction items:\n1. Review the digest summary\n2. Reply with blockers\n3. Confirm Friday demo\n\nThanks,\nProduct',
+        },
+        'msg-invoice-2': {
+          subject: 'Invoice #4821 due Friday',
+          body:
+            'Hello,\n\nInvoice #4821 for August services is attached conceptually.\nAmount due: $240.00\nDue date: Friday\n\nPay via the billing portal or reply to confirm.\n\nAcme Billing',
+        },
+        'msg-recruiting-3': {
+          subject: 'Interview loop for frontend role',
+          body:
+            'Hi,\n\nCan we schedule the system design round this Thursday at 2pm?\nCandidate: Jordan Lee\nRole: Frontend engineer\n\nPlease confirm availability.\n\nHire Talent',
+        },
+        'msg-security-4': {
+          subject: 'New sign-in on Chrome',
+          body:
+            'We noticed a new sign-in from Berlin on Chrome.\nDevice: Windows\nTime: today\n\nIf this was you, no action needed. Otherwise reset your password.',
+        },
+        'msg-personal-5': {
+          subject: 'Dinner plans Saturday?',
+          body:
+            'Hey!\n\nFree around 7pm — want to try the new ramen place on Market St?\n\nAlex',
+        },
+      };
+
+      const threadPane = document.getElementById('thread-pane');
+      const threadSubject = document.getElementById('thread-subject');
+      const threadBody = document.getElementById('thread-body');
+      const composePane = document.getElementById('compose-pane');
+      const composeBtn = document.getElementById('compose-btn');
+
+      document.querySelectorAll('tr.zA').forEach((row) => {
+        row.addEventListener('click', () => {
+          const id = row.getAttribute('data-legacy-message-id');
+          const payload = BODIES[id];
+          if (!payload) return;
+          threadSubject.textContent = payload.subject;
+          threadBody.innerText = payload.body;
+          threadPane.classList.add('open');
+        });
+      });
+
+      composeBtn.addEventListener('click', () => {
+        composePane.classList.add('open');
+      });
+
+      document.getElementById('search-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+      });
+    </script>
+  </body>
+</html>

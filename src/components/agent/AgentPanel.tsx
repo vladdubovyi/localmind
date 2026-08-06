@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  Eraser,
   Loader2,
   SendHorizontal,
   Square,
@@ -23,12 +24,16 @@ interface AgentPanelProps {
 
 function StepBody({ step }: { step: AgentStep }) {
   if (step.kind === 'user') {
-    return <p className="whitespace-pre-wrap">{step.content}</p>;
+    return (
+      <p className="max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+        {step.content}
+      </p>
+    );
   }
 
   if (step.kind === 'tool_call') {
     return (
-      <div className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg-dim">
+      <div className="max-w-full whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg-dim [overflow-wrap:anywhere]">
         {step.content}
       </div>
     );
@@ -38,7 +43,7 @@ function StepBody({ step }: { step: AgentStep }) {
     return (
       <div
         className={cn(
-          'prose-localmind leading-relaxed',
+          'prose-localmind max-w-full leading-relaxed',
           step.kind === 'tool_result' ? 'text-[12px] text-fg-dim' : 'text-sm',
         )}
       >
@@ -47,7 +52,11 @@ function StepBody({ step }: { step: AgentStep }) {
     );
   }
 
-  return <pre className="whitespace-pre-wrap break-words font-sans">{step.content}</pre>;
+  return (
+    <pre className="max-w-full whitespace-pre-wrap break-words font-sans [overflow-wrap:anywhere]">
+      {step.content}
+    </pre>
+  );
 }
 
 function stepLabel(step: AgentStep): string {
@@ -84,7 +93,8 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     disconnectGmail,
   } = useAgentSettings();
 
-  const { steps, running, pendingConfirm, error, run, stop, resolveConfirm } = useAgent();
+  const { steps, running, pendingConfirm, error, run, stop, resolveConfirm, clearHistory } =
+    useAgent();
   const [goal, setGoal] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -93,7 +103,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
   useEffect(() => {
     const el = transcriptRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [steps, running, pendingConfirm]);
 
   useEffect(() => {
@@ -124,23 +134,37 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-3 py-2">
         <div className="flex items-center gap-2 text-sm font-medium text-fg">
           <Bot size={16} className="text-accent" />
           Browser Agent
         </div>
-        <button
-          type="button"
-          className="text-[11px] text-muted hover:text-fg"
-          onClick={() => setShowSettings((v) => !v)}
-        >
-          {showSettings ? 'Hide settings' : 'Settings'}
-        </button>
+        <div className="flex items-center gap-3">
+          {steps.length > 0 && (
+            <button
+              type="button"
+              disabled={running}
+              className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-fg disabled:opacity-40"
+              onClick={clearHistory}
+              title="Clear chat history"
+            >
+              <Eraser size={12} />
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-[11px] text-muted hover:text-fg"
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            {showSettings ? 'Hide settings' : 'Settings'}
+          </button>
+        </div>
       </div>
 
       {showSettings && (
-        <div className="space-y-3 border-b border-border-subtle bg-panel/50 px-3 py-3 text-xs">
+        <div className="max-h-[45%] shrink-0 space-y-3 overflow-y-auto overflow-x-hidden border-b border-border-subtle bg-panel/50 px-3 py-3 text-xs">
           <div className="flex items-center justify-between gap-2">
             <span className="text-fg-dim">Agent mode</span>
             {settings.enabled ? (
@@ -249,7 +273,10 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
         </div>
       )}
 
-      <div ref={transcriptRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div
+        ref={transcriptRef}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3"
+      >
         {steps.length === 0 && (
           <div className="rounded-2xl px-1 py-6 text-center text-sm text-muted">
             <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
@@ -265,11 +292,14 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
           return (
             <div
               key={s.id}
-              className={cn('animate-fade-up', isUser ? 'flex justify-end' : 'flex justify-start')}
+              className={cn(
+                'animate-fade-up min-w-0',
+                isUser ? 'flex justify-end' : 'flex justify-start',
+              )}
             >
               <div
                 className={cn(
-                  'max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm',
+                  'min-w-0 max-w-[92%] overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm break-words [overflow-wrap:anywhere]',
                   isUser && 'bg-user-bubble text-fg ring-1 ring-accent/20',
                   s.kind === 'final' && 'w-full bg-transparent text-fg',
                   s.kind === 'error' && 'bg-danger/10 text-danger ring-1 ring-danger/30',
@@ -302,12 +332,12 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
       </div>
 
       {pendingConfirm && (
-        <div className="border-t border-amber-500/30 bg-amber-500/10 px-3 py-3">
+        <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-3 py-3">
           <div className="text-xs text-amber-100">
             Allow{' '}
             <strong>{getTool(pendingConfirm.name)?.confirmLabel ?? pendingConfirm.name}</strong>?
           </div>
-          <pre className="mt-1 max-h-20 overflow-auto text-[11px] text-amber-100/80">
+          <pre className="mt-1 max-h-20 max-w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words text-[11px] text-amber-100/80 [overflow-wrap:anywhere]">
             {JSON.stringify(pendingConfirm.arguments, null, 2)}
           </pre>
           <div className="mt-2 flex gap-2">
@@ -330,12 +360,12 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
       )}
 
       {(error || (!modelReady && settings.enabled)) && (
-        <div className="mx-3 mb-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+        <div className="mx-3 mb-2 shrink-0 break-words rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger [overflow-wrap:anywhere]">
           {error || 'Load the local model before running the agent.'}
         </div>
       )}
 
-      <div className="border-t border-border-subtle bg-ink-soft/80 px-3 py-3 backdrop-blur">
+      <div className="shrink-0 border-t border-border-subtle bg-ink-soft/80 px-3 py-3 backdrop-blur">
         <div
           className={cn(
             'flex items-end gap-2 rounded-2xl border border-border bg-panel px-3 py-2',
@@ -350,7 +380,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
             onKeyDown={onKeyDown}
             disabled={running}
             placeholder="Message the agent…"
-            className="max-h-36 min-h-[28px] flex-1 resize-none bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+            className="max-h-36 min-h-[28px] min-w-0 flex-1 resize-none break-words bg-transparent text-sm text-fg outline-none placeholder:text-muted"
           />
           {running ? (
             <button

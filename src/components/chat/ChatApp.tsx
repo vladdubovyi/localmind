@@ -274,7 +274,7 @@ export function ChatApp({ variant }: ChatAppProps) {
       </div>
 
       {uiTab === 'agent' ? (
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <AgentPanel modelReady={modelReady} />
         </div>
       ) : (

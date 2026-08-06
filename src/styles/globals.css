@@ -117,3 +117,30 @@
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
 }
+
+/* Chat / agent markdown — wrap long URLs, never force horizontal scroll */
+.prose-localmind {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.prose-localmind pre,
+.prose-localmind code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.prose-localmind a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.prose-localmind p,
+.prose-localmind li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+

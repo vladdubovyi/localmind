@@ -75,7 +75,10 @@ export function toolCallLabel(name: string, args: Record<string, unknown>): stri
     const url = typeof args.url === 'string' ? args.url : '';
     return url ? `Opening ${url}…` : 'Opening tab…';
   }
-  if (name === 'tabs_navigate') return 'Navigating…';
+  if (name === 'tabs_navigate') {
+    const url = typeof args.url === 'string' ? args.url : '';
+    return url ? `Navigating to ${url}…` : 'Navigating…';
+  }
   return `Running ${def}…`;
 }
 

@@ -8,6 +8,19 @@ function isGmail(): boolean {
   return location.hostname.includes('mail.google.com');
 }
 
+/** Strip Gmail zero-width / tracking junk so snippets are readable. */
+function cleanSnippet(text: string, max = 140): string {
+  const cleaned = text
+    .replace(/[\u200B-\u200D\uFEFF\u00A0\u2060]/g, '')
+    .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
+    .replace(/^[\s\-–—·•]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return '';
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 1)}…`;
+}
+
 export function gmailDomList(query?: string): GmailMessageSummary[] {
   if (!isGmail()) throw new Error('Not on Gmail');
 
@@ -38,7 +51,7 @@ export function gmailDomList(query?: string): GmailMessageSummary[] {
       row.querySelector('.yP, .zF')?.getAttribute('email') ||
       row.querySelector('.yP, .zF')?.textContent?.trim() ||
       '';
-    const snippet = row.querySelector('.y2')?.textContent?.trim() || '';
+    const snippet = cleanSnippet(row.querySelector('.y2')?.textContent || '');
     const id =
       row.getAttribute('data-legacy-message-id') ||
       row.querySelector('[data-legacy-message-id]')?.getAttribute('data-legacy-message-id') ||

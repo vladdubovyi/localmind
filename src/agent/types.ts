@@ -37,7 +37,7 @@ export interface ToolResult {
 
 export interface AgentStep {
   id: string;
-  kind: 'thought' | 'tool_call' | 'tool_result' | 'confirm' | 'final' | 'error';
+  kind: 'user' | 'thought' | 'tool_call' | 'tool_result' | 'confirm' | 'final' | 'error';
   content: string;
   toolCall?: ToolCall;
   toolResult?: ToolResult;

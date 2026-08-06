@@ -1,4 +1,11 @@
-import type { AgentSettings, GmailDraft, ToolCall, ToolResult } from '@/agent/types';
+import { cleanDisplayText } from '@/agent/formatStep';
+import type {
+  AgentSettings,
+  GmailDraft,
+  GmailMessageSummary,
+  ToolCall,
+  ToolResult,
+} from '@/agent/types';
 import {
   gmailApiConfigured,
   gmailCreateDraft,
@@ -7,6 +14,21 @@ import {
   gmailSendMessage,
 } from '@/agent/gmail/api';
 import { gmailDomCompose, gmailDomList, gmailDomRead } from '@/content/gmailDom';
+
+function sanitizeGmailList(data: unknown): GmailMessageSummary[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((item, i) => {
+    const row = item as Partial<GmailMessageSummary>;
+    return {
+      id: String(row.id ?? `msg-${i}`),
+      threadId: row.threadId,
+      from: cleanDisplayText(String(row.from ?? ''), 80),
+      subject: cleanDisplayText(String(row.subject ?? '(no subject)'), 120),
+      snippet: cleanDisplayText(String(row.snippet ?? ''), 140),
+      date: row.date,
+    };
+  });
+}
 
 async function findGmailTab(): Promise<chrome.tabs.Tab | undefined> {
   const tabs = await chrome.tabs.query({
@@ -141,7 +163,7 @@ export async function executeGmailTools(
             String(call.arguments.query ?? ''),
             Number(call.arguments.maxResults ?? 10),
           );
-          return { ok: true, data, toolCall: call };
+          return { ok: true, data: sanitizeGmailList(data), toolCall: call };
         }
         case 'gmail_read': {
           const id = String(call.arguments.id ?? '');
@@ -182,11 +204,12 @@ export async function executeGmailTools(
   switch (call.name) {
     case 'gmail_list': {
       const result = await sessionCall('list', { query: call.arguments.query });
-      const list = Array.isArray(result.data) ? result.data : [];
+      const list = sanitizeGmailList(result.data);
       const max = Number(call.arguments.maxResults ?? 10);
+      const limit = Number.isFinite(max) && max > 0 ? Math.min(25, Math.floor(max)) : 10;
       return {
         ok: result.ok,
-        data: list.slice(0, Number.isFinite(max) ? max : 10),
+        data: list.slice(0, limit),
         error: result.error,
         toolCall: call,
       };

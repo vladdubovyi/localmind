@@ -12,13 +12,15 @@ import { useState } from 'react';
 import { useAgent } from '@/hooks/useAgent';
 import { useAgentSettings } from '@/hooks/useAgentSettings';
 import { getTool } from '@/agent/tools';
+import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
 
 interface AgentPanelProps {
   modelReady: boolean;
+  surface?: 'popup' | 'sidebar';
 }
 
-export function AgentPanel({ modelReady }: AgentPanelProps) {
+export function AgentPanel({ modelReady, surface = 'sidebar' }: AgentPanelProps) {
   const {
     settings,
     permissions,
@@ -36,6 +38,20 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     'Open Wikipedia WebGPU, read the page, and summarize what WebGPU is in 3 bullets.',
   );
   const [showSettings, setShowSettings] = useState(false);
+
+  const enableAgentSafe = async () => {
+    // Permission dialogs close the action popup — hand off to the side panel.
+    if (surface === 'popup') {
+      await openSidePanelFromPage();
+      try {
+        window.close();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    await enableAgent();
+  };
 
   if (!settings) {
     return (
@@ -76,9 +92,9 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
                 type="button"
                 disabled={busy}
                 className="rounded-lg bg-accent px-2 py-1 font-medium text-ink"
-                onClick={() => void enableAgent()}
+                onClick={() => void enableAgentSafe()}
               >
-                Enable + grant permissions
+                {surface === 'popup' ? 'Enable in side panel' : 'Enable + grant permissions'}
               </button>
             )}
           </div>

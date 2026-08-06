@@ -6,6 +6,7 @@ import {
   Globe,
   Mail,
   MessageCircle,
+  PanelRightOpen,
   SkipForward,
   Sparkles,
 } from 'lucide-react';
@@ -17,11 +18,18 @@ import {
 } from '@/agent/permissions';
 import { saveAgentSettings } from '@/storage/agentSettings';
 import { completeOnboarding } from '@/storage/onboarding';
+import {
+  clearWizardStep,
+  getWizardStep,
+  saveWizardStep,
+} from '@/storage/sessionIntent';
+import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
 
 type StepId = 'welcome' | 'browser' | 'gmail' | 'ready';
 
 interface SetupWizardProps {
+  variant: 'popup' | 'sidebar';
   onFinished: () => void;
 }
 
@@ -33,8 +41,18 @@ interface StepResult {
 
 const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'ready'];
 
-export function SetupWizard({ onFinished }: SetupWizardProps) {
+async function handOffToSidePanel() {
+  await openSidePanelFromPage();
+  try {
+    window.close();
+  } catch {
+    // ignore
+  }
+}
+
+export function SetupWizard({ variant, onFinished }: SetupWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
+  const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [results, setResults] = useState<StepResult>({
@@ -44,17 +62,29 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
   });
 
   const step = STEPS[stepIndex];
+  const isPopup = variant === 'popup';
 
   useEffect(() => {
-    void getAgentPermissionState().then((p) => {
+    void (async () => {
+      const [savedStep, perms] = await Promise.all([
+        getWizardStep(),
+        getAgentPermissionState(),
+      ]);
+      setStepIndex(Math.min(savedStep, STEPS.length - 1));
       setResults((r) => ({
         ...r,
-        grantedBrowser: p.tabs && p.allUrls,
-        grantedGmail: p.identity,
+        grantedBrowser: perms.tabs && perms.allUrls,
+        grantedGmail: perms.identity,
         grantedDebugger: false,
       }));
-    });
+      setReady(true);
+    })();
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    void saveWizardStep(stepIndex);
+  }, [stepIndex, ready]);
 
   const finish = async (skipped: boolean) => {
     setBusy(true);
@@ -68,6 +98,7 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         grantedGmail: results.grantedGmail,
         grantedDebugger: results.grantedDebugger,
       });
+      await clearWizardStep();
       onFinished();
     } finally {
       setBusy(false);
@@ -85,7 +116,20 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
 
   const chatNow = () => void finish(true);
 
+  /** Chrome closes the action popup when the permission dialog opens. */
+  const continueInSidePanel = async () => {
+    setBusy(true);
+    setStatus('Opening side panel — continue permissions there.');
+    await saveWizardStep(stepIndex);
+    await handOffToSidePanel();
+    setBusy(false);
+  };
+
   const grantBrowser = async () => {
+    if (isPopup) {
+      await continueInSidePanel();
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
@@ -100,6 +144,10 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
   };
 
   const grantGmail = async () => {
+    if (isPopup) {
+      await continueInSidePanel();
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
@@ -111,6 +159,14 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
       setBusy(false);
     }
   };
+
+  if (!ready) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-muted">
+        <div className="animate-pulse-soft">Preparing setup…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -134,6 +190,13 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
       </div>
 
       <div className="relative flex-1 overflow-y-auto px-5 py-4">
+        {isPopup && (step === 'browser' || step === 'gmail') && (
+          <div className="mb-4 rounded-2xl border border-accent/30 bg-accent/10 px-3 py-2.5 text-xs leading-relaxed text-fg-dim">
+            Chrome closes the toolbar popup when asking for permissions. Continue in the
+            side panel — it stays open through the prompt.
+          </div>
+        )}
+
         {step === 'welcome' && (
           <StepBody
             icon={<Sparkles size={22} />}
@@ -203,7 +266,16 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         {step === 'browser' && (
           <>
             <Primary disabled={busy} onClick={() => void grantBrowser()}>
-              {results.grantedBrowser ? 'Continue' : 'Allow browser access'}
+              {results.grantedBrowser ? (
+                'Continue'
+              ) : isPopup ? (
+                <>
+                  <PanelRightOpen size={16} />
+                  Continue in side panel
+                </>
+              ) : (
+                'Allow browser access'
+              )}
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
               <SkipForward size={14} /> Skip for now
@@ -214,7 +286,16 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         {step === 'gmail' && (
           <>
             <Primary disabled={busy} onClick={() => void grantGmail()}>
-              {results.grantedGmail ? 'Continue' : 'Allow Gmail access'}
+              {results.grantedGmail ? (
+                'Continue'
+              ) : isPopup ? (
+                <>
+                  <PanelRightOpen size={16} />
+                  Continue in side panel
+                </>
+              ) : (
+                'Allow Gmail access'
+              )}
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
               <SkipForward size={14} /> Skip for now

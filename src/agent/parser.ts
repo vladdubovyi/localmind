@@ -15,6 +15,39 @@ function makeCall(name: string, args: Record<string, unknown>): ToolCall {
   };
 }
 
+/**
+ * Parse `tool_name{…}` / `tool_name {…}` (with or without space).
+ * Local models often emit: tabs_navigate{"url":"https://…"}
+ */
+function parseNameBraceCalls(text: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const re = /\b([a-z][a-z0-9_]{2,})\s*\{/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const name = match[1];
+    if (!getTool(name)) continue;
+    const braceStart = match.index + match[0].length - 1;
+    const objs = extractJsonObjects(text.slice(braceStart));
+    if (!objs.length) continue;
+    const raw = objs[0];
+    let args: Record<string, unknown> = parseShorthandArgBody(raw);
+    try {
+      const parsed = parseJsonLenient(raw) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        // Full {"name":"…","arguments":{…}} objects are handled elsewhere
+        if (typeof parsed.name === 'string' && getTool(parsed.name)) continue;
+        args = parsed;
+      }
+    } catch {
+      // keep shorthand args
+    }
+    calls.push(makeCall(name, args));
+    // Advance past this object to avoid overlapping matches
+    re.lastIndex = braceStart + raw.length;
+  }
+  return calls;
+}
+
 /** Extract top-level JSON objects with string-aware brace matching. */
 function extractJsonObjects(text: string): string[] {
   const out: string[] = [];
@@ -144,19 +177,15 @@ export function parseToolCalls(text: string): ToolCall[] {
     }
   }
 
-  // Shorthand: gmail_list {query:"newer_than:14d", maxResults:5}
-  // Also: tabs_navigate {url:"mail.google.com"}
+  // Shorthand / glued: gmail_list {…}, tabs_navigate{"url":"…"}, tabs_create{url:"…"}
   if (!calls.length) {
-    for (const m of text.matchAll(/\b([a-z][a-z0-9_]{2,})\s+(\{[\s\S]*?\})/gi)) {
-      const name = m[1];
-      if (!getTool(name)) continue;
-      const args = parseShorthandArgBody(m[2]);
-      calls.push(makeCall(name, args));
+    for (const call of parseNameBraceCalls(textRepaired)) calls.push(call);
+    if (!calls.length) {
+      for (const call of parseNameBraceCalls(text)) calls.push(call);
     }
   }
 
   // Bare tool name alone on a line — skipped (too many false positives)
-
 
   if (!calls.length) {
     for (const source of [textRepaired, text]) {
@@ -187,10 +216,10 @@ export function stripToolCallMarkup(text: string): string {
     .replace(/TOOL_CALL:\s*\{[\s\S]*?\}(?:\n|$)/gi, '')
     .replace(/\b([a-z][a-z0-9_]{2,})\s*\(\s*\{[\s\S]*?\}\s*\)/gi, (full, name: string) =>
       getTool(name) ? '' : full,
-    )
-    .replace(/\b([a-z][a-z0-9_]{2,})\s+\{[\s\S]*?\}/gi, (full, name: string) =>
-      getTool(name) ? '' : full,
     );
+
+  // Strip tool_name{…} / tool_name {…} including glued forms
+  out = stripNameBraceMarkup(out);
 
   for (const obj of extractJsonObjects(out.replace(/^>\s*/gm, ''))) {
     if (tryParseObject(obj)) {
@@ -204,6 +233,28 @@ export function stripToolCallMarkup(text: string): string {
     .replace(/^>\s*$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function stripNameBraceMarkup(text: string): string {
+  const removals: Array<{ start: number; end: number }> = [];
+  const re = /\b([a-z][a-z0-9_]{2,})\s*\{/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const name = match[1];
+    if (!getTool(name)) continue;
+    const braceStart = match.index + match[0].length - 1;
+    const objs = extractJsonObjects(text.slice(braceStart));
+    if (!objs.length) continue;
+    const end = braceStart + objs[0].length;
+    removals.push({ start: match.index, end });
+    re.lastIndex = end;
+  }
+  if (!removals.length) return text;
+  let out = text;
+  for (const r of removals.sort((a, b) => b.start - a.start)) {
+    out = out.slice(0, r.start) + out.slice(r.end);
+  }
+  return out;
 }
 
 function escapeRegExp(s: string): string {
@@ -222,6 +273,7 @@ export function buildAgentSystemPrompt(base?: string): string {
     '{"name":"gmail_list","arguments":{"query":"newer_than:14d","maxResults":5}}',
     '</tool_call>',
     'For web pages: tabs_create → page_read (with returned tab id) → final answer.',
+    'To open a link in a new tab, call tabs_create with the full https URL — do not only print the tool name.',
     'Never invent tab IDs. Do not wrap tool calls in markdown or prose.',
     'When finished, answer in markdown without a tool call.',
     'Do not send email unless the user explicitly asked you to send it.',

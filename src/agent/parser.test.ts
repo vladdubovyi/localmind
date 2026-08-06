@@ -97,4 +97,26 @@ I'll open the page first.
   assert(calls[0].arguments.url === 'https://mail.google.com', 'shorthand nav: url normalized');
 }
 
+// Glued (user-reported): tabs_navigate{"url":"…"} with no space
+{
+  const sample = `tabs_navigate{"url":"https://mail.google.com/mail/subscriptions"}`;
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'glued nav: expected one call');
+  assert(calls[0].name === 'tabs_navigate', 'glued nav: name');
+  assert(
+    calls[0].arguments.url === 'https://mail.google.com/mail/subscriptions',
+    'glued nav: url',
+  );
+  const stripped = stripToolCallMarkup(sample);
+  assert(!stripped.includes('tabs_navigate'), 'glued nav: stripped name');
+  assert(!stripped.includes('subscriptions'), 'glued nav: stripped url');
+}
+
+{
+  const sample = `tabs_create{"url":"https://example.com/path"}`;
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'glued create: expected one call');
+  assert(calls[0].name === 'tabs_create', 'glued create: name');
+}
+
 console.log('agent parser tests passed');

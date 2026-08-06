@@ -13,6 +13,30 @@ function assertHttpUrl(url: string): string {
   return parsed.toString();
 }
 
+function waitForTabComplete(tabId: number, timeoutMs = 15000): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (
+      id: number,
+      info: chrome.tabs.TabChangeInfo,
+    ) => {
+      if (id === tabId && info.status === 'complete') finish();
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    // Already complete?
+    void chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === 'complete') finish();
+    }).catch(() => finish());
+    setTimeout(finish, timeoutMs);
+  });
+}
+
 export async function executeTabTools(call: ToolCall): Promise<ToolResult> {
   switch (call.name) {
     case 'tabs_list': {
@@ -33,7 +57,20 @@ export async function executeTabTools(call: ToolCall): Promise<ToolResult> {
       const url = assertHttpUrl(String(call.arguments.url ?? ''));
       const active = call.arguments.active !== false;
       const tab = await chrome.tabs.create({ url, active });
-      return { ok: true, data: { id: tab.id, url: tab.pendingUrl ?? url }, toolCall: call };
+      if (tab.id != null) {
+        await waitForTabComplete(tab.id);
+      }
+      const refreshed = tab.id != null ? await chrome.tabs.get(tab.id) : tab;
+      return {
+        ok: true,
+        data: {
+          id: refreshed.id,
+          url: refreshed.url ?? url,
+          title: refreshed.title,
+          hint: 'Next: page_read with this tab id, e.g. {"name":"page_read","arguments":{"tabId":ID}}',
+        },
+        toolCall: call,
+      };
     }
     case 'tabs_activate': {
       const tabId = Number(call.arguments.tabId);
@@ -54,6 +91,7 @@ export async function executeTabTools(call: ToolCall): Promise<ToolResult> {
       }
       if (tabId == null) throw new Error('No tab to navigate');
       const tab = await chrome.tabs.update(tabId, { url });
+      if (tab?.id != null) await waitForTabComplete(tab.id);
       return { ok: true, data: { id: tab?.id, url }, toolCall: call };
     }
     default:

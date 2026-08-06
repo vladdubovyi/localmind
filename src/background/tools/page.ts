@@ -8,7 +8,9 @@ async function resolveTabId(tabIdArg: unknown): Promise<number> {
       const tab = await chrome.tabs.get(requested);
       if (tab?.id != null) return tab.id;
     } catch {
-      // Model-invented IDs are common; fall back to the active tab.
+      throw new Error(
+        `No tab with id: ${requested}. Use the id returned by tabs_create/tabs_list, or omit tabId to read the active tab.`,
+      );
     }
   }
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });

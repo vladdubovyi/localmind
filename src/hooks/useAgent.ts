@@ -35,14 +35,25 @@ function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResul
     result.ok
       ? JSON.stringify(result.data ?? { ok: true }).slice(0, 6000)
       : `ERROR: ${result.error}`,
+    'Output ONLY one <tool_call> … </tool_call> OR the final markdown answer.',
+    'Do not invent fake user/assistant dialogue.',
   ];
 
   if (!result.ok) {
     lines.push(
       'That tool failed. Choose a different next step that still advances the original goal.',
-      'Do not invent tab IDs. Prefer tabs_create / tabs_list, then page_read without tabId.',
+      'Do not invent tab IDs. Prefer tabs_create, then page_read with the returned id (or omit tabId).',
       'Do not switch to unrelated tools (e.g. Gmail) unless the goal is about email.',
     );
+  } else if (call.name === 'tabs_create') {
+    const id = (result.data as { id?: number } | undefined)?.id;
+    lines.push(
+      id != null
+        ? `Next call page_read with {"tabId":${id}} (the tab just opened). Then summarize.`
+        : 'Next call page_read (omit tabId if needed), then summarize.',
+    );
+  } else if (call.name === 'page_read' || call.name === 'page_query') {
+    lines.push('If you have enough page content, give the final answer now. Do not call more tools unless needed.');
   } else {
     lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
   }

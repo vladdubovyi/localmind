@@ -63,7 +63,8 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   confirmModerate: true,
   allowDebugger: false,
   gmailClientId: '',
-  gmailMode: 'auto',
+  /** Session (open Gmail tab) by default — no OAuth client ID required. */
+  gmailMode: 'session',
 };
 
 export type AgentRuntimeMessage =

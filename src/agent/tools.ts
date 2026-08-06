@@ -88,16 +88,17 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   },
   {
     name: 'gmail_list',
-    description: 'List recent Gmail messages (API if OAuth configured, else Gmail tab session).',
+    description:
+      'List recent Gmail messages from the open Gmail tab (default). No API key needed. Opens mail.google.com if needed.',
     risk: 'safe',
     parameters: {
-      query: { type: 'string', description: 'Gmail search query, e.g. newer_than:7d' },
+      query: { type: 'string', description: 'Gmail search query, e.g. newer_than:7d or label:inbox' },
       maxResults: { type: 'number', description: 'Max messages (default 10)' },
     },
   },
   {
     name: 'gmail_read',
-    description: 'Read a Gmail message by id.',
+    description: 'Read a Gmail message by id from the open Gmail tab (or API if configured).',
     risk: 'safe',
     parameters: {
       id: { type: 'string', description: 'Message id', required: true },
@@ -105,7 +106,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   },
   {
     name: 'gmail_draft',
-    description: 'Create a Gmail draft (does not send).',
+    description: 'Create a Gmail draft in the open Gmail tab (does not send).',
     risk: 'moderate',
     confirmLabel: 'Create an email draft',
     parameters: {
@@ -116,7 +117,8 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   },
   {
     name: 'gmail_send',
-    description: 'Send an email (always requires explicit user confirmation).',
+    description:
+      'Send via API if configured; in session mode opens a draft for you to send manually.',
     risk: 'dangerous',
     confirmLabel: 'Send an email',
     parameters: {

@@ -98,51 +98,108 @@ export function gmailDomRead(id: string): { id: string; body: string; subject: s
   return { id, subject, body: body.slice(0, 12000) };
 }
 
-export async function gmailDomCompose(draft: GmailDraft): Promise<{ opened: boolean }> {
+export async function gmailDomCompose(
+  draft: GmailDraft,
+): Promise<{ opened: boolean; filled: { to: boolean; subject: boolean; body: boolean } }> {
   if (!isGmail()) throw new Error('Not on Gmail');
 
-  // Compose button
-  const compose =
-    document.querySelector<HTMLElement>('div[gh="cm"]') ||
-    document.querySelector<HTMLElement>('div[role="button"][aria-label*="Compose"]') ||
-    Array.from(document.querySelectorAll('div[role="button"]')).find((b) =>
-      /compose/i.test(b.textContent || ''),
+  const filled = { to: false, subject: false, body: false };
+
+  // Prefer Reply if a message is open (better To/Subject), else Compose
+  const replyBtn =
+    document.querySelector<HTMLElement>('div[role="button"][aria-label^="Reply"]') ||
+    document.querySelector<HTMLElement>('div[data-tooltip="Reply"]') ||
+    Array.from(document.querySelectorAll<HTMLElement>('div[role="button"]')).find((b) =>
+      /^reply$/i.test((b.getAttribute('aria-label') || b.textContent || '').trim()),
     );
 
-  compose?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 600));
+  const composeBtn =
+    document.querySelector<HTMLElement>('div[gh="cm"]') ||
+    document.querySelector<HTMLElement>('div[role="button"][aria-label*="Compose"]') ||
+    Array.from(document.querySelectorAll<HTMLElement>('div[role="button"]')).find((b) =>
+      /compose/i.test(b.getAttribute('aria-label') || b.textContent || ''),
+    );
 
-  const to =
+  const useReply = Boolean(replyBtn && document.querySelector('h2.hP, .a3s'));
+  const opener = useReply ? replyBtn : composeBtn;
+  if (!opener) {
+    throw new Error('Could not find Gmail Compose/Reply. Open mail.google.com and try again.');
+  }
+
+  opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+  await new Promise((r) => setTimeout(r, 900));
+
+  const findTo = () =>
     document.querySelector<HTMLElement>('textarea[name="to"]') ||
-    document.querySelector<HTMLElement>('input[peoplekit-id]') ||
+    document.querySelector<HTMLElement>('input[name="to"]') ||
+    document.querySelector<HTMLElement>('div[aria-label="To recipients"]') ||
+    document.querySelector<HTMLElement>('div[aria-label^="To"][role="textbox"]') ||
+    document.querySelector<HTMLElement>('[peoplekit-id]') ||
     document.querySelector<HTMLElement>('div[aria-label*="To"]');
-  const subject = document.querySelector<HTMLInputElement>('input[name="subjectbox"]');
-  const body =
-    document.querySelector<HTMLElement>('div[aria-label*="Message Body"]') ||
-    document.querySelector<HTMLElement>('div[role="textbox"][aria-label*="Body"]');
 
-  const typeInto = (el: HTMLElement | null, text: string) => {
-    if (!el) return;
+  const findSubject = () =>
+    document.querySelector<HTMLInputElement>('input[name="subjectbox"]') ||
+    document.querySelector<HTMLInputElement>('input[aria-label*="Subject"]');
+
+  const findBody = () =>
+    document.querySelector<HTMLElement>('div[aria-label*="Message Body"]') ||
+    document.querySelector<HTMLElement>('div[role="textbox"][aria-label*="Body"]') ||
+    document.querySelector<HTMLElement>('div[contenteditable="true"][aria-label*="Body"]') ||
+    document.querySelector<HTMLElement>('div[g_editable="true"]');
+
+  // Wait briefly for the compose window
+  for (let i = 0; i < 8; i++) {
+    if (findBody() || findSubject() || findTo()) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  const insertText = (el: HTMLElement, text: string) => {
     el.focus();
-    if ('value' in el) {
-      (el as HTMLInputElement).value = text;
+    try {
+      document.execCommand('selectAll', false);
+    } catch {
+      // ignore
+    }
+    const ok = document.execCommand('insertText', false, text);
+    if (!ok) {
+      if ('value' in el) {
+        (el as HTMLInputElement).value = text;
+      } else {
+        el.textContent = text;
+      }
       el.dispatchEvent(new Event('input', { bubbles: true }));
-    } else {
-      el.textContent = text;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
     }
   };
 
-  // To field often needs special handling
-  if (to) {
-    to.focus();
-    document.execCommand('insertText', false, draft.to);
-  }
-  typeInto(subject, draft.subject);
-  if (body) {
-    body.focus();
-    document.execCommand('insertText', false, draft.body);
+  const toEl = findTo();
+  if (toEl && draft.to && !useReply) {
+    insertText(toEl, draft.to);
+    toEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    filled.to = true;
+  } else if (useReply) {
+    filled.to = true;
   }
 
-  return { opened: true };
+  const subjectEl = findSubject();
+  if (subjectEl && draft.subject && !useReply) {
+    insertText(subjectEl, draft.subject);
+    filled.subject = true;
+  } else if (useReply || (subjectEl && subjectEl.value)) {
+    filled.subject = true;
+  }
+
+  const bodyEl = findBody();
+  if (bodyEl && draft.body) {
+    insertText(bodyEl, draft.body);
+    filled.body = true;
+  }
+
+  if (!filled.body) {
+    throw new Error(
+      'Opened Gmail compose but could not fill the message body. Click Compose manually and retry.',
+    );
+  }
+
+  return { opened: true, filled };
 }

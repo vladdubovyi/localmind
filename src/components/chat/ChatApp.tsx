@@ -5,9 +5,14 @@ import { BrandMark } from '@/components/common/BrandMark';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { PageActions } from '@/components/chat/PageActions';
+import { ModelRestoring } from '@/components/onboarding/ModelRestoring';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
+import {
+  isRestoringEngine,
+  shouldShowFullOnboarding,
+} from '@/ai/engineLifecycle';
 import { useChat } from '@/hooks/useChat';
 import { usePageContext } from '@/hooks/usePageContext';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
@@ -215,12 +220,7 @@ export function ChatApp({ variant }: ChatAppProps) {
     );
   }
 
-  if (
-    phase === 'needs_download' ||
-    phase === 'cached' ||
-    phase === 'downloading' ||
-    phase === 'error'
-  ) {
+  if (shouldShowFullOnboarding(phase, loadingFromCache)) {
     return (
       <div className={cn('relative h-full', variant === 'popup' ? 'w-[380px]' : 'w-full')}>
         <Onboarding
@@ -228,9 +228,26 @@ export function ChatApp({ variant }: ChatAppProps) {
           progress={progress}
           error={error}
           isDownloading={phase === 'downloading'}
-          alreadyCached={loadingFromCache || phase === 'cached'}
+          alreadyCached={false}
           onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
           onDownload={(id) => void downloadAndLoad(id)}
+        />
+      </div>
+    );
+  }
+
+  if (isRestoringEngine(phase, loadingFromCache)) {
+    return (
+      <div
+        className={cn(
+          'relative h-full',
+          variant === 'popup' ? 'w-[380px]' : 'w-full',
+        )}
+      >
+        <ModelRestoring
+          progress={progress}
+          error={error}
+          onRetry={() => void downloadAndLoad(settings.selectedModelId)}
         />
       </div>
     );

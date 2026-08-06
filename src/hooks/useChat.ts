@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAIProvider } from '@/ai/webllm';
 import { isModelInCache } from '@/ai/modelCache';
+import type { EnginePhase } from '@/ai/engineLifecycle';
 import { buildPageContextBlock } from '@/ai/contextManager';
 import {
   buildPageGroundedPrompt,
@@ -31,14 +32,7 @@ import type {
 import { getSelectionAction, selectionActionTitle } from '@/prompts/selection';
 import { truncate, uid } from '@/utils';
 
-export type EnginePhase =
-  | 'idle'
-  | 'checking'
-  | 'needs_download'
-  | 'cached'
-  | 'downloading'
-  | 'ready'
-  | 'error';
+export type { EnginePhase };
 
 export type ChatMode = 'chat' | 'page';
 

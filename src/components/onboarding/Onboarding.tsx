@@ -52,7 +52,7 @@ export function Onboarding({
         <Feature
           icon={<WifiOff size={16} />}
           title="Offline after download"
-          body="Models cache locally via WebLLM + browser storage."
+          body="Models cache locally once; the engine stays warm in the background worker."
         />
         <Feature
           icon={<Cpu size={16} />}

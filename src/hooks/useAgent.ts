@@ -33,6 +33,19 @@ function inferMaxResults(goal: string): number | undefined {
 }
 
 function enrichToolCall(goal: string, call: ToolCall): ToolCall {
+  // "open a new tab" → always create, even if the model said navigate
+  if (
+    call.name === 'tabs_navigate' &&
+    /\bnew\s+tab\b/i.test(goal) &&
+    typeof call.arguments.url === 'string'
+  ) {
+    return {
+      ...call,
+      name: 'tabs_create',
+      arguments: { url: call.arguments.url, active: true },
+    };
+  }
+
   if (call.name !== 'gmail_list') return call;
   const args = { ...call.arguments };
   if (args.maxResults == null) {
@@ -69,6 +82,10 @@ function looksLikeMalformedToolCall(text: string): boolean {
     const m = text.match(/\b([a-z][a-z0-9_]+)\s*\(\s*\{/i);
     if (m && getTool(m[1])) return true;
   }
+  if (/\b[a-z][a-z0-9_]+\s*\{/.test(text)) {
+    const m = text.match(/\b([a-z][a-z0-9_]+)\s*\{/i);
+    if (m && getTool(m[1])) return true;
+  }
   return false;
 }
 
@@ -76,14 +93,29 @@ function isEmailGoal(goal: string): boolean {
   return /\b(email|emails|gmail|inbox|mail|messages?)\b/i.test(goal);
 }
 
+function isOpenLinkGoal(goal: string): boolean {
+  return (
+    /\b(open|navigate|go\s+to|visit)\b/i.test(goal) &&
+    /\b(link|url|tab|page|http|subscription)/i.test(goal)
+  );
+}
+
 /** Model said it would use a tool but didn't emit a call. */
 function narratesToolUse(text: string): boolean {
-  return /\b(gmail_list|page_read|tabs_create|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+  return /\b(gmail_list|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
     text,
   );
 }
 
 function nudgeToolExample(goal: string): string {
+  if (isOpenLinkGoal(goal)) {
+    return [
+      '<tool_call>',
+      '{"name":"tabs_create","arguments":{"url":"https://EXAMPLE_URL_FROM_CONTEXT"}}',
+      '</tool_call>',
+      'Replace EXAMPLE_URL_FROM_CONTEXT with the real https URL from the conversation.',
+    ].join('\n');
+  }
   if (isEmailGoal(goal)) {
     const max = inferMaxResults(goal) ?? 5;
     return [
@@ -97,6 +129,19 @@ function nudgeToolExample(goal: string): string {
     '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
     '</tool_call>',
   ].join('\n');
+}
+
+/** Compact prior transcript so follow-up goals (e.g. open a link) keep context. */
+function priorConversationContext(steps: AgentStep[]): string {
+  const parts: string[] = [];
+  for (const s of steps.slice(-24)) {
+    if (s.kind === 'user') parts.push(`User: ${s.content}`);
+    else if (s.kind === 'final') parts.push(`Assistant: ${s.content}`);
+    else if (s.kind === 'tool_result' && s.toolCall) {
+      parts.push(`Tool ${s.toolCall.name} result:\n${s.content.slice(0, 1800)}`);
+    }
+  }
+  return parts.join('\n\n').slice(0, 7000);
 }
 
 function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResult): string {
@@ -120,10 +165,21 @@ function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResul
     );
   } else if (call.name === 'tabs_create') {
     const id = (result.data as { id?: number } | undefined)?.id;
+    if (isOpenLinkGoal(goal) && !/\bsummar/i.test(goal)) {
+      lines.push(
+        'The new tab is open. Give a brief final confirmation to the user.',
+        'Do not call more tools unless they asked you to read or summarize the page.',
+      );
+    } else {
+      lines.push(
+        id != null
+          ? `Next call page_read with {"tabId":${id}} (the tab just opened). Then summarize.`
+          : 'Next call page_read (omit tabId if needed), then summarize.',
+      );
+    }
+  } else if (call.name === 'tabs_navigate') {
     lines.push(
-      id != null
-        ? `Next call page_read with {"tabId":${id}} (the tab just opened). Then summarize.`
-        : 'Next call page_read (omit tabId if needed), then summarize.',
+      'Navigation completed. Confirm briefly for the user. Do not call more tools unless they asked for a page summary.',
     );
   } else if (call.name === 'page_read' || call.name === 'page_query') {
     lines.push('If you have enough page content, give the final answer now. Do not call more tools unless needed.');
@@ -151,12 +207,24 @@ export function useAgent() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
   const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
+  const stepsRef = useRef<AgentStep[]>([]);
 
   const pushStep = useCallback((step: Omit<AgentStep, 'id' | 'createdAt'>) => {
     const full: AgentStep = { ...step, id: uid('step'), createdAt: Date.now() };
-    setSteps((prev) => [...prev, full]);
+    setSteps((prev) => {
+      const next = [...prev, full];
+      stepsRef.current = next;
+      return next;
+    });
     return full;
   }, []);
+
+  const clearHistory = useCallback(() => {
+    if (running) return;
+    stepsRef.current = [];
+    setSteps([]);
+    setError(null);
+  }, [running]);
 
   const waitForConfirm = useCallback((call: ToolCall) => {
     setPendingConfirm(call);
@@ -182,10 +250,13 @@ export function useAgent() {
     async (goal: string) => {
       abortRef.current = false;
       setError(null);
-      setSteps([]);
       setRunning(true);
 
-      // Show the user message immediately (ChatGPT-style transcript).
+      // Keep prior transcript (ChatGPT-style history); capture before appending.
+      const priorSteps = stepsRef.current;
+      const priorContext = priorConversationContext(priorSteps);
+
+      // Show the user message immediately and leave it in the chat.
       pushStep({ kind: 'user', content: goal });
 
       try {
@@ -207,9 +278,19 @@ export function useAgent() {
           toolsPromptBlock(),
         ].join('\n');
 
+        const userTurn = priorContext
+          ? [
+              'Earlier in this agent conversation (use for context — especially URLs/subjects):',
+              priorContext,
+              '',
+              `New request: ${goal}`,
+              'Execute tools as needed. Prefer tabs_create when asked to open a link in a new tab.',
+            ].join('\n')
+          : goal;
+
         const history: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
           { role: 'system', content: system },
-          { role: 'user', content: goal },
+          { role: 'user', content: userTurn },
         ];
 
         let stepsLeft = agentSettings.maxSteps;
@@ -238,7 +319,8 @@ export function useAgent() {
               !gotSuccessfulTool &&
               (looksLikeMalformedToolCall(reply) ||
                 narratesToolUse(reply) ||
-                (isEmailGoal(goal) && stepsLeft > 0));
+                (isEmailGoal(goal) && stepsLeft > 0) ||
+                (isOpenLinkGoal(goal) && stepsLeft > 0));
 
             if (shouldNudge) {
               formatNudgesLeft -= 1;
@@ -345,6 +427,7 @@ export function useAgent() {
     run,
     stop,
     resolveConfirm,
+    clearHistory,
     setSteps,
   };
 }

@@ -1,5 +1,5 @@
 /**
- * Built-in prompt library (Milestone 3+ wiring).
+ * Built-in prompt library.
  */
 export interface PromptTemplate {
   id: string;
@@ -50,6 +50,19 @@ export const PROMPT_LIBRARY: PromptTemplate[] = [
     title: 'Improve grammar',
     description: 'Polish grammar while preserving meaning.',
     template: 'Improve grammar and clarity without changing meaning:\n\n{{text}}',
+  },
+  {
+    id: 'explain',
+    title: 'Explain',
+    description: 'Clarify meaning and jargon.',
+    template: 'Explain the following clearly and precisely:\n\n{{text}}',
+  },
+  {
+    id: 'rewrite',
+    title: 'Rewrite',
+    description: 'Clearer rewrite with the same meaning.',
+    template:
+      'Rewrite the following to be clearer and more natural. Return only the rewrite:\n\n{{text}}',
   },
 ];
 

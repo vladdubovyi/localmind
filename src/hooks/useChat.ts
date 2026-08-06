@@ -21,8 +21,10 @@ import type {
   Conversation,
   DownloadProgress,
   PageContext,
+  PendingSelectionAction,
   Role,
 } from '@/types';
+import { getSelectionAction, selectionActionTitle } from '@/prompts/selection';
 import { truncate, uid } from '@/utils';
 
 export type EnginePhase =
@@ -49,6 +51,7 @@ interface GenerateOptions {
   pageUrl?: string;
   pageTitle?: string;
   maxTokens?: number;
+  selection?: ChatMessage['selection'];
 }
 
 export function useChat(options: UseChatOptions = {}) {
@@ -179,6 +182,7 @@ export function useChat(options: UseChatOptions = {}) {
       pageUrl,
       pageTitle,
       maxTokens,
+      selection,
     }: GenerateOptions) => {
       if (!settings || generatingRef.current || phase !== 'ready') return;
 
@@ -197,6 +201,7 @@ export function useChat(options: UseChatOptions = {}) {
         content: '',
         createdAt: Date.now(),
         status: 'streaming',
+        selection,
       };
 
       let working: Conversation = {
@@ -361,6 +366,45 @@ export function useChat(options: UseChatOptions = {}) {
     [settings, conversation, phase, generate],
   );
 
+  const runSelectionAction = useCallback(
+    async (pending: PendingSelectionAction) => {
+      if (!settings || !conversation) return;
+      if (phase !== 'ready') {
+        setError('Model is not ready yet. Download / load AI first.');
+        return;
+      }
+
+      const def = getSelectionAction(pending.action);
+      if (!def) {
+        setError(`Unknown selection action: ${pending.action}`);
+        return;
+      }
+
+      const clipped = pending.text.slice(0, 8000);
+      const label = selectionActionTitle(pending.action);
+
+      await generate({
+        userDisplayContent: `${label}: “${truncate(clipped, 72)}”`,
+        modelUserContent: def.buildPrompt(clipped),
+        systemPrompt: buildSystemPrompt(settings.generation.systemPrompt),
+        conversationBase: conversation,
+        pageUrl: pending.url,
+        pageTitle: pending.title,
+        title:
+          conversation.messages.length === 0
+            ? truncate(`${label}: ${clipped}`, 48)
+            : undefined,
+        selection: {
+          action: pending.action,
+          originalText: clipped,
+          tabId: pending.tabId,
+          canReplace: pending.canReplace && def.canReplace,
+        },
+      });
+    },
+    [settings, conversation, phase, generate],
+  );
+
   const regenerate = useCallback(
     async (page?: PageContext | null) => {
       if (!conversation || generatingRef.current || !settings) return;
@@ -442,6 +486,7 @@ export function useChat(options: UseChatOptions = {}) {
     updateSettings,
     send,
     summarizePage,
+    runSelectionAction,
     stop,
     regenerate,
     newChat,

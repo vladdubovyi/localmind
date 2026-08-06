@@ -18,15 +18,27 @@ function formatGmailList(data: unknown): string {
   return data
     .slice(0, 10)
     .map((item, i) => {
-      const row = item as { from?: string; subject?: string; snippet?: string };
+      const row = item as { id?: string; from?: string; subject?: string; snippet?: string };
+      const id = String(row.id ?? '');
       const from = cleanDisplayText(String(row.from ?? 'Unknown'), 60);
       const subject = cleanDisplayText(String(row.subject ?? '(no subject)'), 100);
       const snippet = cleanDisplayText(String(row.snippet ?? ''), 100);
-      // Skip snippets that are empty after stripping Gmail tracking junk
       const showSnippet = snippet.length > 2;
-      return `${i + 1}. **${subject}**\n   From: ${from}${showSnippet ? `\n   ${snippet}` : ''}`;
+      return `${i + 1}. **${subject}**\n   From: ${from}${id ? `\n   id: ${id}` : ''}${
+        showSnippet ? `\n   ${snippet}` : ''
+      }`;
     })
     .join('\n\n');
+}
+
+function formatGmailRead(data: unknown): string {
+  if (!data || typeof data !== 'object') return 'Email read.';
+  const msg = data as { id?: string; subject?: string; body?: string; from?: string };
+  const subject = cleanDisplayText(String(msg.subject ?? '(no subject)'), 120);
+  const body = cleanDisplayText(String(msg.body ?? ''), 1200);
+  return `**${subject}**${msg.from ? `\nFrom: ${cleanDisplayText(String(msg.from), 80)}` : ''}${
+    body ? `\n\n${body}` : '\n\n(No body text found — open the message in Gmail and retry.)'
+  }`;
 }
 
 function formatPageRead(data: unknown): string {
@@ -42,6 +54,7 @@ function formatPageRead(data: unknown): string {
 export function formatToolResultContent(name: string, result: ToolResult): string {
   if (!result.ok) return result.error || 'Tool failed';
   if (name === 'gmail_list') return formatGmailList(result.data);
+  if (name === 'gmail_read') return formatGmailRead(result.data);
   if (name === 'page_read') return formatPageRead(result.data);
   if (name === 'tabs_create') {
     const d = result.data as { id?: number; url?: string; title?: string } | undefined;
@@ -70,6 +83,7 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
 export function toolCallLabel(name: string, args: Record<string, unknown>): string {
   const def = name.replace(/_/g, ' ');
   if (name === 'gmail_list') return 'Checking Gmail…';
+  if (name === 'gmail_read') return 'Reading email…';
   if (name === 'page_read') return 'Reading page…';
   if (name === 'tabs_create') {
     const url = typeof args.url === 'string' ? args.url : '';

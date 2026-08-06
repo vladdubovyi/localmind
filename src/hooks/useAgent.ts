@@ -5,6 +5,19 @@ import {
   isJsonLookingFinal,
   toolCallLabel,
 } from '@/agent/formatStep';
+import {
+  detectIntent,
+  inferMaxResults,
+  isEmailGoal,
+  isOpenLinkGoal,
+  isSummarizeGoal,
+  looksLikeHallucinatedEmails,
+  matchEmailFromGoal,
+  nudgeToolExample,
+  priorHasGmail,
+  resolveEmailTarget,
+  rewriteToolCallForIntent,
+} from '@/agent/goalIntent';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
@@ -20,50 +33,17 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
   });
 }
 
-/** Pull "last 5 emails" style counts from the user goal. */
-function inferMaxResults(goal: string): number | undefined {
-  const m =
-    goal.match(/\b(?:last|top|first|recent)\s+(\d{1,2})\s+(?:emails?|messages?|mails?)\b/i) ||
-    goal.match(/\b(\d{1,2})\s+(?:emails?|messages?|mails?)\b/i) ||
-    goal.match(/\bwhich\s+(\d{1,2})\s+(?:emails?|messages?)\b/i);
-  if (!m) return undefined;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1) return undefined;
-  return Math.min(25, Math.floor(n));
-}
-
-function enrichToolCall(goal: string, call: ToolCall): ToolCall {
-  // "open a new tab" → always create, even if the model said navigate
-  if (
-    call.name === 'tabs_navigate' &&
-    /\bnew\s+tab\b/i.test(goal) &&
-    typeof call.arguments.url === 'string'
-  ) {
-    return {
-      ...call,
-      name: 'tabs_create',
-      arguments: { url: call.arguments.url, active: true },
-    };
-  }
-
-  if (call.name !== 'gmail_list') return call;
-  const args = { ...call.arguments };
-  if (args.maxResults == null) {
-    const inferred = inferMaxResults(goal);
-    if (inferred != null) args.maxResults = inferred;
-  }
-  if ((args.query == null || args.query === '') && isEmailGoal(goal)) {
-    args.query = 'newer_than:14d';
-  }
-  return { ...call, arguments: args };
-}
-
 function humanizeFinal(content: string): string {
   const trimmed = content.trim();
   if (!isJsonLookingFinal(trimmed)) return content;
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object' && 'subject' in (parsed[0] as object)) {
+    if (
+      Array.isArray(parsed) &&
+      parsed[0] &&
+      typeof parsed[0] === 'object' &&
+      'subject' in (parsed[0] as object)
+    ) {
       return formatToolResultContent('gmail_list', { ok: true, data: parsed });
     }
   } catch {
@@ -89,49 +69,14 @@ function looksLikeMalformedToolCall(text: string): boolean {
   return false;
 }
 
-function isEmailGoal(goal: string): boolean {
-  return /\b(email|emails|gmail|inbox|mail|messages?)\b/i.test(goal);
-}
-
-function isOpenLinkGoal(goal: string): boolean {
-  return (
-    /\b(open|navigate|go\s+to|visit)\b/i.test(goal) &&
-    /\b(link|url|tab|page|http|subscription)/i.test(goal)
-  );
-}
-
 /** Model said it would use a tool but didn't emit a call. */
 function narratesToolUse(text: string): boolean {
-  return /\b(gmail_list|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+  return /\b(gmail_list|gmail_read|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
     text,
   );
 }
 
-function nudgeToolExample(goal: string): string {
-  if (isOpenLinkGoal(goal)) {
-    return [
-      '<tool_call>',
-      '{"name":"tabs_create","arguments":{"url":"https://EXAMPLE_URL_FROM_CONTEXT"}}',
-      '</tool_call>',
-      'Replace EXAMPLE_URL_FROM_CONTEXT with the real https URL from the conversation.',
-    ].join('\n');
-  }
-  if (isEmailGoal(goal)) {
-    const max = inferMaxResults(goal) ?? 5;
-    return [
-      '<tool_call>',
-      `{"name":"gmail_list","arguments":{"query":"newer_than:14d","maxResults":${max}}}`,
-      '</tool_call>',
-    ].join('\n');
-  }
-  return [
-    '<tool_call>',
-    '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
-    '</tool_call>',
-  ].join('\n');
-}
-
-/** Compact prior transcript so follow-up goals (e.g. open a link) keep context. */
+/** Compact prior transcript so follow-up goals keep context. */
 function priorConversationContext(steps: AgentStep[]): string {
   const parts: string[] = [];
   for (const s of steps.slice(-24)) {
@@ -144,7 +89,47 @@ function priorConversationContext(steps: AgentStep[]): string {
   return parts.join('\n\n').slice(0, 7000);
 }
 
-function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResult): string {
+function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: string): string {
+  if (!priorContext) return goal;
+
+  const intent = detectIntent(goal, priorSteps);
+  const matched = resolveEmailTarget(goal, priorSteps);
+  const lines = [
+    'Earlier in this agent conversation (use for context — especially email ids/subjects/URLs):',
+    priorContext,
+    '',
+    `New request: ${goal}`,
+  ];
+
+  if (intent === 'email_read') {
+    lines.push(
+      'This is an email follow-up. Call gmail_read with the message id from gmail_list.',
+      matched
+        ? `Best matching message id: ${matched.id} (subject: ${matched.subject}).`
+        : 'If you lack an id, call gmail_list first.',
+      'Do NOT open Wikipedia, WebGPU, or Gmail atom/feed URLs.',
+      'Do NOT invent email body text — only summarize tool results.',
+    );
+  } else if (intent === 'email_list') {
+    lines.push(
+      'Call gmail_list only. Do not navigate to atom feeds. Do not invent senders/subjects.',
+    );
+  } else if (intent === 'open_link') {
+    lines.push('Prefer tabs_create with the real https URL from context.');
+  } else {
+    lines.push('Execute tools only if needed for this request. Stay on-topic.');
+  }
+
+  return lines.join('\n');
+}
+
+function continueAfterToolPrompt(
+  goal: string,
+  priorSteps: AgentStep[],
+  call: ToolCall,
+  result: ToolResult,
+): string {
+  const intent = detectIntent(goal, priorSteps);
   const formatted = result.ok
     ? formatToolResultContent(call.name, result)
     : `ERROR: ${result.error}`;
@@ -153,19 +138,68 @@ function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResul
     `Tool ${call.name} result (already fetched — use this data):`,
     formatted.slice(0, 4000),
     'Output ONLY one <tool_call> … </tool_call> OR the final markdown answer for the user.',
-    'Do not invent fake user/assistant dialogue.',
+    'Do not invent fake emails, dialogues, or tool results.',
     'Do not dump raw JSON in the final answer.',
+    'Do not open Wikipedia/WebGPU unless the user asked for that.',
   ];
 
   if (!result.ok) {
+    if (intent === 'email_list' || intent === 'email_read') {
+      lines.push(
+        'Stay on email tools. Prefer gmail_list or gmail_read. Never use Gmail atom/feed URLs.',
+      );
+    } else {
+      lines.push(
+        'That tool failed. Choose a different next step that still advances the original goal.',
+        'Do not invent tab IDs.',
+      );
+    }
+  } else if (call.name === 'gmail_list') {
+    if (intent === 'email_read' || isSummarizeGoal(goal)) {
+      const list = Array.isArray(result.data)
+        ? (result.data as import('@/agent/types').GmailMessageSummary[])
+        : [];
+      const matched =
+        matchEmailFromGoal(goal, list) ||
+        resolveEmailTarget(goal, [
+          ...priorSteps,
+          {
+            id: 'tmp',
+            kind: 'tool_result',
+            content: '',
+            createdAt: Date.now(),
+            toolCall: call,
+            toolResult: result,
+          },
+        ]);
+      lines.push(
+        matched
+          ? `Next call gmail_read with {"id":"${matched.id}"} then summarize that email only.`
+          : 'Next call gmail_read with the matching message id from the list, then summarize.',
+        'Do NOT open unrelated tabs.',
+      );
+    } else {
+      const max = Number(call.arguments.maxResults);
+      const n = Number.isFinite(max) && max > 0 ? Math.floor(max) : inferMaxResults(goal);
+      lines.push(
+        n != null
+          ? `You already have the inbox list. Write the FINAL answer now as a short numbered list of the ${n} emails.`
+          : 'You already have the inbox list. Write the FINAL answer now as a short numbered list.',
+        'Format each item as: **Subject** — From (short clean snippet). Include only real tool data.',
+        'Do NOT call gmail_list again. Do NOT invent emails. Do NOT output JSON.',
+      );
+    }
+  } else if (call.name === 'gmail_read') {
     lines.push(
-      'That tool failed. Choose a different next step that still advances the original goal.',
-      'Do not invent tab IDs. Prefer tabs_create, then page_read with the returned id (or omit tabId).',
-      'Do not switch to unrelated tools (e.g. Gmail) unless the goal is about email.',
+      'Summarize this email for the user now in a few sentences. Do not call more tools. Do not open other pages.',
     );
   } else if (call.name === 'tabs_create') {
     const id = (result.data as { id?: number } | undefined)?.id;
-    if (isOpenLinkGoal(goal) && !/\bsummar/i.test(goal)) {
+    if (intent === 'email_list' || intent === 'email_read') {
+      lines.push(
+        'Wrong tool for email. Ignore this tab. Call gmail_list or gmail_read instead. Do not page_read Wikipedia.',
+      );
+    } else if (isOpenLinkGoal(goal) && !isSummarizeGoal(goal)) {
       lines.push(
         'The new tab is open. Give a brief final confirmation to the user.',
         'Do not call more tools unless they asked you to read or summarize the page.',
@@ -178,21 +212,23 @@ function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResul
       );
     }
   } else if (call.name === 'tabs_navigate') {
-    lines.push(
-      'Navigation completed. Confirm briefly for the user. Do not call more tools unless they asked for a page summary.',
-    );
+    if (intent === 'email_list' || intent === 'email_read') {
+      lines.push('Wrong approach for email. Call gmail_list or gmail_read. Never use atom feeds.');
+    } else {
+      lines.push(
+        'Navigation completed. Confirm briefly for the user. Do not call more tools unless they asked for a page summary.',
+      );
+    }
   } else if (call.name === 'page_read' || call.name === 'page_query') {
-    lines.push('If you have enough page content, give the final answer now. Do not call more tools unless needed.');
-  } else if (call.name === 'gmail_list') {
-    const max = Number(call.arguments.maxResults);
-    const n = Number.isFinite(max) && max > 0 ? Math.floor(max) : inferMaxResults(goal);
-    lines.push(
-      n != null
-        ? `You already have the inbox list. Write the FINAL answer now as a short numbered list of the ${n} emails the user asked for.`
-        : 'You already have the inbox list. Write the FINAL answer now as a short numbered list.',
-      'Format each item as: **Subject** — From (one short clean snippet).',
-      'Do NOT call gmail_list again. Do NOT output JSON.',
-    );
+    if (intent === 'email_list' || intent === 'email_read') {
+      lines.push(
+        'This page read is unrelated to the email goal. Call gmail_read (or gmail_list) and summarize the email only.',
+      );
+    } else {
+      lines.push(
+        'If you have enough page content, give the final answer now. Do not call more tools unless needed.',
+      );
+    }
   } else {
     lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
   }
@@ -252,11 +288,10 @@ export function useAgent() {
       setError(null);
       setRunning(true);
 
-      // Keep prior transcript (ChatGPT-style history); capture before appending.
       const priorSteps = stepsRef.current;
       const priorContext = priorConversationContext(priorSteps);
+      const intent = detectIntent(goal, priorSteps);
 
-      // Show the user message immediately and leave it in the chat.
       pushStep({ kind: 'user', content: goal });
 
       try {
@@ -278,23 +313,14 @@ export function useAgent() {
           toolsPromptBlock(),
         ].join('\n');
 
-        const userTurn = priorContext
-          ? [
-              'Earlier in this agent conversation (use for context — especially URLs/subjects):',
-              priorContext,
-              '',
-              `New request: ${goal}`,
-              'Execute tools as needed. Prefer tabs_create when asked to open a link in a new tab.',
-            ].join('\n')
-          : goal;
-
         const history: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
           { role: 'system', content: system },
-          { role: 'user', content: userTurn },
+          { role: 'user', content: buildUserTurn(goal, priorSteps, priorContext) },
         ];
 
         let stepsLeft = agentSettings.maxSteps;
-        let formatNudgesLeft = 1;
+        let formatNudgesLeft = 2;
+        let gotSuccessfulGmail = priorHasGmail(priorSteps);
         let gotSuccessfulTool = false;
 
         while (stepsLeft > 0 && !abortRef.current) {
@@ -302,7 +328,7 @@ export function useAgent() {
 
           const reply = await provider.chat({
             messages: history,
-            temperature: Math.min(appSettings.generation.temperature, 0.3),
+            temperature: Math.min(appSettings.generation.temperature, 0.2),
             topP: appSettings.generation.topP,
             maxTokens: Math.min(appSettings.generation.maxTokens, 768),
             stream: false,
@@ -314,29 +340,49 @@ export function useAgent() {
           const visible = stripToolCallMarkup(reply);
 
           if (!calls.length) {
+            const hallucinated =
+              looksLikeHallucinatedEmails(visible || reply) && !gotSuccessfulGmail;
+            const needsEmailTool =
+              (intent === 'email_list' || intent === 'email_read') && !gotSuccessfulGmail;
+            const needsRead =
+              intent === 'email_read' &&
+              gotSuccessfulGmail &&
+              !stepsRef.current.some(
+                (s) =>
+                  s.kind === 'tool_result' && s.toolCall?.name === 'gmail_read' && s.toolResult?.ok,
+              ) &&
+              isSummarizeGoal(goal);
+
             const shouldNudge =
               formatNudgesLeft > 0 &&
-              !gotSuccessfulTool &&
-              (looksLikeMalformedToolCall(reply) ||
+              (hallucinated ||
+                needsEmailTool ||
+                needsRead ||
+                looksLikeMalformedToolCall(reply) ||
                 narratesToolUse(reply) ||
-                (isEmailGoal(goal) && stepsLeft > 0) ||
-                (isOpenLinkGoal(goal) && stepsLeft > 0));
+                ((isEmailGoal(goal) || isOpenLinkGoal(goal)) &&
+                  !gotSuccessfulTool &&
+                  stepsLeft > 0));
 
             if (shouldNudge) {
               formatNudgesLeft -= 1;
               pushStep({
                 kind: 'thought',
                 content:
-                  visible ||
-                  'Model talked about a tool instead of calling it — requesting a real tool call.',
+                  hallucinated
+                    ? 'Refusing invented emails — requesting a real gmail tool call.'
+                    : visible ||
+                      'Model talked about a tool instead of calling it — requesting a real tool call.',
               });
               history.push({ role: 'assistant', content: reply });
               history.push({
                 role: 'user',
                 content: [
                   `Original goal: ${goal}`,
-                  'Do not narrate. Output ONLY a valid tool call now:',
-                  nudgeToolExample(goal),
+                  hallucinated
+                    ? 'Those emails were invented. You MUST call a real tool. Never fabricate inbox contents.'
+                    : 'Do not narrate. Output ONLY a valid tool call now:',
+                  nudgeToolExample(goal, stepsRef.current.length ? stepsRef.current : priorSteps),
                 ].join('\n'),
               });
               continue;
@@ -350,8 +396,20 @@ export function useAgent() {
             pushStep({ kind: 'thought', content: visible });
           }
 
-          // Execute first tool call only (keeps local models reliable)
-          const call = enrichToolCall(goal, calls[0]);
+          const rawCall = calls[0];
+          const call = rewriteToolCallForIntent(
+            goal,
+            stepsRef.current.length ? stepsRef.current : priorSteps,
+            rawCall,
+          );
+
+          if (call.name !== rawCall.name) {
+            pushStep({
+              kind: 'thought',
+              content: `Corrected ${rawCall.name} → ${call.name} for this goal.`,
+            });
+          }
+
           pushStep({
             kind: 'tool_call',
             content: toolCallLabel(call.name, call.arguments),
@@ -381,7 +439,12 @@ export function useAgent() {
             result = await executeTool(call, true);
           }
 
-          if (result.ok) gotSuccessfulTool = true;
+          if (result.ok) {
+            gotSuccessfulTool = true;
+            if (call.name === 'gmail_list' || call.name === 'gmail_read') {
+              gotSuccessfulGmail = true;
+            }
+          }
 
           pushStep({
             kind: result.ok ? 'tool_result' : 'error',
@@ -395,7 +458,7 @@ export function useAgent() {
           history.push({ role: 'assistant', content: reply });
           history.push({
             role: 'user',
-            content: continueAfterToolPrompt(goal, call, result),
+            content: continueAfterToolPrompt(goal, stepsRef.current, call, result),
           });
         }
 

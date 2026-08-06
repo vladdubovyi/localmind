@@ -10,6 +10,17 @@ function assertHttpUrl(url: string): string {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Only http(s) URLs are allowed.');
   }
+  // Gmail Atom/JSON feeds are not a valid inbox API for this agent
+  if (
+    parsed.hostname.includes('mail.google.com') &&
+    (/\/feed\b/i.test(parsed.pathname) ||
+      /atom/i.test(parsed.pathname + parsed.search) ||
+      /alt=json/i.test(parsed.search))
+  ) {
+    throw new Error(
+      'Gmail feed/atom URLs are not supported. Use the gmail_list or gmail_read tools instead.',
+    );
+  }
   return parsed.toString();
 }
 

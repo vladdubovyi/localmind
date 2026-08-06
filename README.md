@@ -16,6 +16,15 @@ LocalMind is a Chrome extension (Manifest V3) that runs an LLM fully on-device w
 - Settings: temperature, top-p, max tokens
 - Extensible `AIProvider` abstraction for future fallbacks
 
+## Milestone 2 (shipped)
+
+- **Ask this page** — ground answers in the active tab (DOM → clean → chunk → retrieve → LLM)
+- **Summarize page** — TLDR / Bullet Points / Key Facts / Action Items
+- Content script + `scripting.executeScript` fallback for page extraction
+- Page context chip (title, extraction stats, refresh)
+- Optional auto-summarize when entering Ask-this-page mode
+- Restricted-page handling (`chrome://`, Web Store, etc.)
+
 ## Quick start
 
 ```bash
@@ -45,13 +54,25 @@ src/
 ├── content/        # DOM extractor (Milestone 2+)
 ├── popup/          # Popup chat UI
 ├── sidebar/        # Persistent side panel
-├── ai/             # AIProvider + WebLLM engine + prompts
-├── components/     # Chat, onboarding, settings
+├── ai/             # AIProvider + WebLLM engine + prompts + context manager
+├── components/     # Chat, onboarding, settings, page actions
 ├── storage/        # IndexedDB (settings, chats, model meta)
 ├── models/         # Model catalog + device recommendations
 ├── prompts/        # Prompt library (wired in later milestones)
 ├── embeddings/     # Stub → Milestone 4
 └── vector/         # Stub → Milestone 4
+```
+
+### Page understanding (Milestone 2)
+
+```
+Active tab DOM
+  → clean (strip nav/chrome)
+  → extract (title, headings, paragraphs, lists, tables)
+  → chunk
+  → keyword retrieve (embeddings in M4)
+  → grounded LLM prompt
+  → answer / structured summary
 ```
 
 ### AI layer

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAIProvider } from '@/ai/webllm';
-import { buildSystemPrompt } from '@/ai/prompts';
+import { buildPageContextBlock } from '@/ai/contextManager';
+import {
+  buildPageGroundedPrompt,
+  buildPageSystemPrompt,
+  buildSummarizePrompt,
+  buildSystemPrompt,
+} from '@/ai/prompts';
 import {
   getConversation,
   getModelMeta,
@@ -9,7 +15,14 @@ import {
   saveSettings,
   setModelMeta,
 } from '@/storage/db';
-import type { AppSettings, ChatMessage, Conversation, DownloadProgress } from '@/types';
+import type {
+  AppSettings,
+  ChatMessage,
+  Conversation,
+  DownloadProgress,
+  PageContext,
+  Role,
+} from '@/types';
 import { truncate, uid } from '@/utils';
 
 export type EnginePhase =
@@ -21,8 +34,21 @@ export type EnginePhase =
   | 'ready'
   | 'error';
 
+export type ChatMode = 'chat' | 'page';
+
 interface UseChatOptions {
   conversationId?: string;
+}
+
+interface GenerateOptions {
+  userDisplayContent: string;
+  modelUserContent: string;
+  systemPrompt: string;
+  conversationBase: Conversation;
+  title?: string;
+  pageUrl?: string;
+  pageTitle?: string;
+  maxTokens?: number;
 }
 
 export function useChat(options: UseChatOptions = {}) {
@@ -32,6 +58,7 @@ export function useChat(options: UseChatOptions = {}) {
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [mode, setMode] = useState<ChatMode>('chat');
   const generatingRef = useRef(false);
 
   useEffect(() => {
@@ -67,7 +94,6 @@ export function useChat(options: UseChatOptions = {}) {
         const meta = await getModelMeta(s.selectedModelId);
         if (cancelled) return;
 
-        // Previously downloaded — show load CTA (WebLLM serves from browser cache).
         if (meta?.status === 'ready') {
           setPhase('cached');
           return;
@@ -143,18 +169,23 @@ export function useChat(options: UseChatOptions = {}) {
     setIsGenerating(false);
   }, []);
 
-  const send = useCallback(
-    async (content: string) => {
-      if (!settings || !conversation || !content.trim() || generatingRef.current) return;
-      if (phase !== 'ready') {
-        setError('Model is not ready yet.');
-        return;
-      }
+  const generate = useCallback(
+    async ({
+      userDisplayContent,
+      modelUserContent,
+      systemPrompt,
+      conversationBase,
+      title,
+      pageUrl,
+      pageTitle,
+      maxTokens,
+    }: GenerateOptions) => {
+      if (!settings || generatingRef.current || phase !== 'ready') return;
 
       const userMessage: ChatMessage = {
         id: uid('msg'),
         role: 'user',
-        content: content.trim(),
+        content: userDisplayContent,
         createdAt: Date.now(),
         status: 'complete',
       };
@@ -168,15 +199,16 @@ export function useChat(options: UseChatOptions = {}) {
         status: 'streaming',
       };
 
-      const title =
-        conversation.messages.length === 0
-          ? truncate(content, 48)
-          : conversation.title;
-
       let working: Conversation = {
-        ...conversation,
-        title,
-        messages: [...conversation.messages, userMessage, assistantMessage],
+        ...conversationBase,
+        title:
+          title ??
+          (conversationBase.messages.length === 0
+            ? truncate(userDisplayContent, 48)
+            : conversationBase.title),
+        pageUrl: pageUrl ?? conversationBase.pageUrl,
+        pageTitle: pageTitle ?? conversationBase.pageTitle,
+        messages: [...conversationBase.messages, userMessage, assistantMessage],
         updatedAt: Date.now(),
       };
       await persistConversation(working);
@@ -187,22 +219,26 @@ export function useChat(options: UseChatOptions = {}) {
 
       try {
         const provider = getAIProvider();
-        const history = working.messages
-          .filter((m) => m.id !== assistantId)
-          .map((m) => ({ role: m.role, content: m.content }));
+        const prior = conversationBase.messages.map((m) => ({
+          role: m.role as Role,
+          content: m.content,
+        }));
+
+        // For page-grounded turns, send the enriched prompt only for the latest user message
+        const historyForModel = [
+          ...prior,
+          { role: 'user' as const, content: modelUserContent },
+        ];
 
         const full = await provider.chat(
           {
             messages: [
-              {
-                role: 'system',
-                content: buildSystemPrompt(settings.generation.systemPrompt),
-              },
-              ...history,
+              { role: 'system', content: systemPrompt },
+              ...historyForModel,
             ],
             temperature: settings.generation.temperature,
             topP: settings.generation.topP,
-            maxTokens: settings.generation.maxTokens,
+            maxTokens: maxTokens ?? settings.generation.maxTokens,
             stream: true,
           },
           (chunk) => {
@@ -256,122 +292,132 @@ export function useChat(options: UseChatOptions = {}) {
         setIsGenerating(false);
       }
     },
-    [settings, conversation, phase, persistConversation],
+    [settings, phase, persistConversation],
   );
 
-  const regenerate = useCallback(async () => {
-    if (!conversation || generatingRef.current) return;
-    const lastUserIdx = [...conversation.messages]
-      .map((m, i) => ({ m, i }))
-      .reverse()
-      .find((x) => x.m.role === 'user')?.i;
-    if (lastUserIdx === undefined) return;
+  const send = useCallback(
+    async (content: string, page?: PageContext | null) => {
+      if (!settings || !conversation || !content.trim()) return;
+      if (phase !== 'ready') {
+        setError('Model is not ready yet.');
+        return;
+      }
 
-    const lastUser = conversation.messages[lastUserIdx];
-    const trimmed: Conversation = {
-      ...conversation,
-      messages: conversation.messages.slice(0, lastUserIdx),
-      updatedAt: Date.now(),
-    };
-    await persistConversation(trimmed);
-    // send() reads conversation from state; schedule after state flush via microtask content pass
-    // Direct generation with trimmed history to avoid stale closure:
-    if (phase !== 'ready' || !settings) return;
+      const usePage = mode === 'page' && page;
+      let modelUserContent = content.trim();
+      let systemPrompt = buildSystemPrompt(settings.generation.systemPrompt);
 
-    const userMessage: ChatMessage = {
-      id: uid('msg'),
-      role: 'user',
-      content: lastUser.content,
-      createdAt: Date.now(),
-      status: 'complete',
-    };
-    const assistantId = uid('msg');
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      createdAt: Date.now(),
-      status: 'streaming',
-    };
+      if (usePage) {
+        const { context } = buildPageContextBlock(page, content);
+        modelUserContent = buildPageGroundedPrompt(context, content.trim());
+        systemPrompt = buildPageSystemPrompt(settings.generation.systemPrompt);
+      }
 
-    let working: Conversation = {
-      ...trimmed,
-      messages: [...trimmed.messages, userMessage, assistantMessage],
-      updatedAt: Date.now(),
-    };
-    await persistConversation(working);
+      await generate({
+        userDisplayContent: usePage
+          ? `📄 ${content.trim()}`
+          : content.trim(),
+        modelUserContent,
+        systemPrompt,
+        conversationBase: conversation,
+        pageUrl: page?.url,
+        pageTitle: page?.title,
+        title:
+          conversation.messages.length === 0
+            ? usePage
+              ? truncate(`Ask: ${content}`, 48)
+              : truncate(content, 48)
+            : undefined,
+      });
+    },
+    [settings, conversation, phase, mode, generate],
+  );
 
-    generatingRef.current = true;
-    setIsGenerating(true);
-    setError(null);
+  const summarizePage = useCallback(
+    async (page: PageContext) => {
+      if (!settings || !conversation) return;
+      if (phase !== 'ready') {
+        setError('Model is not ready yet.');
+        return;
+      }
 
-    try {
-      const provider = getAIProvider();
-      const history = working.messages
-        .filter((m) => m.id !== assistantId)
-        .map((m) => ({ role: m.role, content: m.content }));
+      const { context } = buildPageContextBlock(page);
+      const modelUserContent = buildSummarizePrompt(context);
 
-      const full = await provider.chat(
-        {
-          messages: [
-            {
-              role: 'system',
-              content: buildSystemPrompt(settings.generation.systemPrompt),
-            },
-            ...history,
-          ],
-          temperature: settings.generation.temperature,
-          topP: settings.generation.topP,
-          maxTokens: settings.generation.maxTokens,
-          stream: true,
-        },
-        (chunk) => {
-          if (!chunk.content) return;
-          working = {
-            ...working,
-            messages: working.messages.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: m.content + chunk.content }
-                : m,
-            ),
-            updatedAt: Date.now(),
-          };
-          setConversation(working);
-        },
-      );
+      await generate({
+        userDisplayContent: `Summarize this page: ${page.title}`,
+        modelUserContent,
+        systemPrompt: buildPageSystemPrompt(settings.generation.systemPrompt),
+        conversationBase: conversation,
+        pageUrl: page.url,
+        pageTitle: page.title,
+        title:
+          conversation.messages.length === 0
+            ? truncate(`Summary: ${page.title}`, 48)
+            : undefined,
+        maxTokens: Math.max(settings.generation.maxTokens, 1024),
+      });
+    },
+    [settings, conversation, phase, generate],
+  );
 
-      working = {
-        ...working,
-        messages: working.messages.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: full || m.content, status: 'complete' as const }
-            : m,
-        ),
+  const regenerate = useCallback(
+    async (page?: PageContext | null) => {
+      if (!conversation || generatingRef.current || !settings) return;
+      const lastUserIdx = [...conversation.messages]
+        .map((m, i) => ({ m, i }))
+        .reverse()
+        .find((x) => x.m.role === 'user')?.i;
+      if (lastUserIdx === undefined) return;
+
+      const lastUser = conversation.messages[lastUserIdx];
+      const trimmed: Conversation = {
+        ...conversation,
+        messages: conversation.messages.slice(0, lastUserIdx),
         updatedAt: Date.now(),
       };
-      await persistConversation(working);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Generation failed';
-      working = {
-        ...working,
-        messages: working.messages.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content: m.content || `Error: ${message}`,
-                status: 'error' as const,
-              }
-            : m,
-        ),
-        updatedAt: Date.now(),
-      };
-      await persistConversation(working);
-      setError(message);
-    } finally {
-      generatingRef.current = false;
-      setIsGenerating(false);
-    }
-  }, [conversation, phase, settings, persistConversation]);
+      await persistConversation(trimmed);
+
+      const display = lastUser.content;
+      const isSummary = display.startsWith('Summarize this page:');
+      const question = display.replace(/^📄\s*/, '');
+
+      if (isSummary && page) {
+        const { context } = buildPageContextBlock(page);
+        await generate({
+          userDisplayContent: `Summarize this page: ${page.title}`,
+          modelUserContent: buildSummarizePrompt(context),
+          systemPrompt: buildPageSystemPrompt(settings.generation.systemPrompt),
+          conversationBase: trimmed,
+          pageUrl: page.url,
+          pageTitle: page.title,
+          maxTokens: Math.max(settings.generation.maxTokens, 1024),
+        });
+        return;
+      }
+
+      if ((mode === 'page' || display.startsWith('📄')) && page) {
+        const { context } = buildPageContextBlock(page, question);
+        await generate({
+          userDisplayContent: `📄 ${question}`,
+          modelUserContent: buildPageGroundedPrompt(context, question),
+          systemPrompt: buildPageSystemPrompt(settings.generation.systemPrompt),
+          conversationBase: trimmed,
+          pageUrl: page.url,
+          pageTitle: page.title,
+        });
+        return;
+      }
+
+      await generate({
+        userDisplayContent: display,
+        modelUserContent: question,
+        systemPrompt: buildSystemPrompt(settings.generation.systemPrompt),
+        conversationBase: trimmed,
+      });
+    },
+    [conversation, settings, mode, persistConversation, generate],
+  );
 
   const newChat = useCallback(() => {
     setConversation({
@@ -390,9 +436,12 @@ export function useChat(options: UseChatOptions = {}) {
     progress,
     error,
     isGenerating,
+    mode,
+    setMode,
     downloadAndLoad,
     updateSettings,
     send,
+    summarizePage,
     stop,
     regenerate,
     newChat,

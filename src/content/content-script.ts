@@ -10,7 +10,7 @@ import {
   pageType,
   showAgentBanner,
 } from '@/content/pageActions';
-import { gmailDomCompose, gmailDomList, gmailDomRead } from '@/content/gmailDom';
+import { gmailDomDispatch } from '@/content/gmailDom';
 import {
   mountSelectionMenu,
   replaceSavedSelection,
@@ -112,24 +112,16 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage | AgentRuntimeMess
   if (message?.type === 'GMAIL_SESSION') {
     (async () => {
       try {
-        if (message.action === 'list') {
-          sendResponse({ ok: true, data: gmailDomList(message.query) });
-          return;
-        }
-        if (message.action === 'read') {
-          sendResponse({ ok: true, data: gmailDomRead(String(message.id ?? '')) });
-          return;
-        }
-        if (message.action === 'compose') {
-          if (!message.draft) {
-            sendResponse({ ok: false, error: 'Missing draft' });
-            return;
-          }
-          const data = await gmailDomCompose(message.draft);
-          sendResponse({ ok: true, data });
-          return;
-        }
-        sendResponse({ ok: false, error: 'Unknown gmail action' });
+        const data = await gmailDomDispatch(message.action as import('@/content/gmailDom').GmailDomAction, {
+          query: message.query,
+          id: message.id,
+          draft: message.draft,
+          body: message.body,
+          label: message.label,
+          maxResults: message.maxResults,
+          limit: message.limit,
+        });
+        sendResponse({ ok: true, data });
       } catch (e) {
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
       }

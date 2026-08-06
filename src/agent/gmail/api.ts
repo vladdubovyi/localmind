@@ -53,6 +53,7 @@ async function fetchAccessToken(settings: AgentSettings, interactive: boolean): 
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/gmail.modify',
   ].join(' ');
 
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -231,6 +232,155 @@ export async function gmailSendMessage(
   });
   const json = (await res.json()) as { id?: string };
   return { id: json.id ?? '' };
+}
+
+export async function gmailModifyMessage(
+  settings: AgentSettings,
+  id: string,
+  body: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): Promise<void> {
+  await gmailFetch(settings, `users/me/messages/${id}/modify`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function gmailGetThread(
+  settings: AgentSettings,
+  id: string,
+): Promise<{ id: string; subject: string; messages: Array<{ id: string; from: string; body: string }> }> {
+  // Try as thread id first; if the caller passed a message id, resolve threadId.
+  let threadId = id;
+  try {
+    const msg = await gmailGetMessage(settings, id);
+    // gmailGetMessage doesn't return threadId — fetch metadata
+    const detail = await gmailFetch(settings, `users/me/messages/${id}?format=minimal`);
+    const json = (await detail.json()) as { threadId?: string };
+    if (json.threadId) threadId = json.threadId;
+    void msg;
+  } catch {
+    // assume id is already a thread id
+  }
+
+  const res = await gmailFetch(settings, `users/me/threads/${threadId}?format=full`);
+  const json = (await res.json()) as {
+    id: string;
+    messages?: Array<{
+      id: string;
+      snippet?: string;
+      payload?: {
+        headers?: Array<{ name: string; value: string }>;
+        body?: { data?: string };
+        parts?: Array<{ mimeType?: string; body?: { data?: string } }>;
+      };
+    }>;
+  };
+
+  const decode = (data?: string) => {
+    if (!data) return '';
+    const b64 = data.replace(/-/g, '+').replace(/_/g, '/');
+    try {
+      return decodeURIComponent(
+        Array.prototype.map
+          .call(atob(b64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join(''),
+      );
+    } catch {
+      try {
+        return atob(b64);
+      } catch {
+        return '';
+      }
+    }
+  };
+
+  const messages = (json.messages ?? []).slice(0, 20).map((m) => {
+    let body = decode(m.payload?.body?.data);
+    if (!body && m.payload?.parts) {
+      const textPart = m.payload.parts.find((p) => p.mimeType === 'text/plain');
+      body = decode(textPart?.body?.data) || m.snippet || '';
+    }
+    return {
+      id: m.id,
+      from: header(m.payload?.headers, 'From'),
+      body: body.slice(0, 4000),
+    };
+  });
+
+  const subject =
+    header(json.messages?.[0]?.payload?.headers, 'Subject') ||
+    messages[0]?.body.slice(0, 40) ||
+    '';
+
+  return { id: json.id, subject, messages };
+}
+
+export async function gmailGetAttachments(
+  settings: AgentSettings,
+  id: string,
+): Promise<{ attachments: Array<{ name: string; mimeType?: string; size?: number; attachmentId?: string }> }> {
+  const detail = await gmailFetch(settings, `users/me/messages/${id}?format=full`);
+  const msg = (await detail.json()) as {
+    payload?: {
+      filename?: string;
+      mimeType?: string;
+      body?: { size?: number; attachmentId?: string };
+      parts?: Array<{
+        filename?: string;
+        mimeType?: string;
+        body?: { size?: number; attachmentId?: string };
+        parts?: unknown[];
+      }>;
+    };
+  };
+
+  const attachments: Array<{
+    name: string;
+    mimeType?: string;
+    size?: number;
+    attachmentId?: string;
+  }> = [];
+
+  const walk = (
+    parts?: Array<{
+      filename?: string;
+      mimeType?: string;
+      body?: { size?: number; attachmentId?: string };
+      parts?: unknown[];
+    }>,
+  ) => {
+    if (!parts) return;
+    for (const p of parts) {
+      if (p.filename && p.body?.attachmentId) {
+        attachments.push({
+          name: p.filename,
+          mimeType: p.mimeType,
+          size: p.body.size,
+          attachmentId: p.body.attachmentId,
+        });
+      }
+      if (Array.isArray(p.parts)) {
+        walk(
+          p.parts as Array<{
+            filename?: string;
+            mimeType?: string;
+            body?: { size?: number; attachmentId?: string };
+            parts?: unknown[];
+          }>,
+        );
+      }
+    }
+  };
+  walk(msg.payload?.parts);
+  if (msg.payload?.filename && msg.payload.body?.attachmentId) {
+    attachments.push({
+      name: msg.payload.filename,
+      mimeType: msg.payload.mimeType,
+      size: msg.payload.body.size,
+      attachmentId: msg.payload.body.attachmentId,
+    });
+  }
+  return { attachments };
 }
 
 export async function connectGmail(settings: AgentSettings): Promise<void> {

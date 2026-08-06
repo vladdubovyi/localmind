@@ -64,14 +64,25 @@ export function gmailDomList(query?: string): GmailMessageSummary[] {
 export function gmailDomRead(id: string): { id: string; body: string; subject: string } {
   if (!isGmail()) throw new Error('Not on Gmail');
 
-  // Try open by clicking matching row
+  // Try open by clicking matching row (id, or subject fragment from dom-* ids)
   const rows = Array.from(document.querySelectorAll('tr.zA'));
-  const match = rows.find((row) => {
-    const rid =
-      row.getAttribute('data-legacy-message-id') ||
-      row.querySelector('[data-legacy-message-id]')?.getAttribute('data-legacy-message-id');
-    return rid === id || row.textContent?.includes(id);
-  });
+  const needle = id.replace(/^dom-\d+-?/i, '').trim().toLowerCase();
+  const match =
+    rows.find((row) => {
+      const rid =
+        row.getAttribute('data-legacy-message-id') ||
+        row.querySelector('[data-legacy-message-id]')?.getAttribute('data-legacy-message-id');
+      return rid === id || (rid != null && row.textContent?.includes(id));
+    }) ||
+    (needle
+      ? rows.find((row) => {
+          const subject =
+            row.querySelector('.bog')?.textContent?.trim().toLowerCase() ||
+            row.textContent?.trim().toLowerCase() ||
+            '';
+          return subject.includes(needle) || needle.includes(subject.slice(0, 24));
+        })
+      : undefined);
   match?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
   const subject =

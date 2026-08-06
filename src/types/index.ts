@@ -27,6 +27,8 @@ export interface Conversation {
 
 export type ModelStatus = 'not_downloaded' | 'downloading' | 'ready' | 'loading' | 'error';
 
+export type ModelTier = 'high' | 'balanced' | 'light';
+
 export interface ModelInfo {
   id: string;
   label: string;
@@ -36,6 +38,10 @@ export interface ModelInfo {
   vramMb: number;
   recommendedRamGb: number;
   description: string;
+  /** UI grouping — high-end models need more VRAM/RAM. */
+  tier?: ModelTier;
+  /** Short chip shown in the picker, e.g. "Highest quality". */
+  badge?: string;
 }
 
 export interface DownloadProgress {

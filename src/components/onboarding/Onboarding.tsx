@@ -1,8 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { Download, Shield, WifiOff, Cpu } from 'lucide-react';
 import { BrandMark } from '@/components/common/BrandMark';
-import { MODELS, estimateDownloadMinutes, getModelById } from '@/models/catalog';
-import type { DownloadProgress } from '@/types';
+import {
+  MODEL_TIER_LABEL,
+  MODEL_TIER_ORDER,
+  estimateDownloadMinutes,
+  getModelById,
+  modelsByTier,
+} from '@/models/catalog';
+import type { DownloadProgress, ModelInfo } from '@/types';
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities';
 import { cn, formatBytes } from '@/utils';
 
@@ -65,44 +71,33 @@ export function Onboarding({
         />
       </div>
 
-      <div className="mt-5 space-y-2 px-5">
-        <div className="text-xs font-medium uppercase tracking-wider text-muted">
-          Choose model
-        </div>
-        <div className="space-y-2">
-          {MODELS.map((m) => {
-            const active = m.id === picked;
-            const isRecommended = m.id === recommended.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                disabled={isDownloading}
-                onClick={() => {
-                  setPicked(m.id);
-                  onSelectModel(m.id);
-                }}
-                className={cn(
-                  'w-full rounded-2xl border px-3 py-3 text-left transition',
-                  active
-                    ? 'border-accent/50 bg-accent/10 ring-1 ring-accent/30'
-                    : 'border-border bg-panel hover:border-border hover:bg-panel-elevated',
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium text-fg">{m.label}</div>
-                  <div className="text-xs text-muted">{m.sizeLabel}</div>
-                </div>
-                <p className="mt-1 text-xs text-muted">{m.description}</p>
-                {isRecommended && (
-                  <span className="mt-2 inline-block text-[11px] font-medium text-accent">
-                    Recommended for this device
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+      <div className="mt-5 space-y-4 px-5 animate-fade-up [animation-delay:180ms]">
+        {MODEL_TIER_ORDER.map((tier) => {
+          const tierModels = modelsByTier(tier);
+          if (tierModels.length === 0) return null;
+          return (
+            <div key={tier} className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted">
+                {MODEL_TIER_LABEL[tier]}
+              </div>
+              <div className="space-y-2">
+                {tierModels.map((m) => (
+                  <ModelOption
+                    key={m.id}
+                    model={m}
+                    active={m.id === picked}
+                    recommended={m.id === recommended.id}
+                    disabled={isDownloading}
+                    onSelect={() => {
+                      setPicked(m.id);
+                      onSelectModel(m.id);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="mt-auto space-y-3 p-5">
@@ -150,10 +145,61 @@ export function Onboarding({
         <p className="text-center text-[11px] text-muted">
           {alreadyCached
             ? 'Model found in local cache. Loading uses WebGPU on this device.'
-            : 'Downloads are saved in this browser and resume if interrupted.'}
+            : model.tier === 'high'
+              ? 'High-end models need a stronger GPU. If load fails, try a Balanced option.'
+              : 'Downloads are saved in this browser and resume if interrupted.'}
         </p>
       </div>
     </div>
+  );
+}
+
+function ModelOption({
+  model,
+  active,
+  recommended,
+  disabled,
+  onSelect,
+}: {
+  model: ModelInfo;
+  active: boolean;
+  recommended: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onSelect}
+      className={cn(
+        'w-full rounded-2xl border px-3 py-3 text-left transition',
+        active
+          ? 'border-accent/50 bg-accent/10 ring-1 ring-accent/30'
+          : 'border-border bg-panel hover:border-border hover:bg-panel-elevated',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-medium text-fg">{model.label}</div>
+        <div className="shrink-0 text-xs text-muted">{model.sizeLabel}</div>
+      </div>
+      <p className="mt-1 text-xs text-muted">{model.description}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {model.badge && (
+          <span className="text-[11px] font-medium text-accent">{model.badge}</span>
+        )}
+        {recommended && (
+          <span className="text-[11px] font-medium text-accent">
+            Recommended for this device
+          </span>
+        )}
+        {model.tier === 'high' && (
+          <span className="text-[11px] text-muted">
+            ~{model.recommendedRamGb}+ GB RAM
+          </span>
+        )}
+      </div>
+    </button>
   );
 }
 

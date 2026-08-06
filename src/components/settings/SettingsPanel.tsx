@@ -1,6 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Settings2, X } from 'lucide-react';
-import { MODELS } from '@/models/catalog';
+import {
+  MODEL_TIER_LABEL,
+  MODEL_TIER_ORDER,
+  modelsByTier,
+} from '@/models/catalog';
 import type { AppSettings } from '@/types';
 import { cn } from '@/utils';
 
@@ -47,11 +51,20 @@ export function SettingsPanel({
             onChange={(e) => setLocalModel(e.target.value)}
             className="w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           >
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.sizeLabel})
-              </option>
-            ))}
+            {MODEL_TIER_ORDER.map((tier) => {
+              const tierModels = modelsByTier(tier);
+              if (tierModels.length === 0) return null;
+              return (
+                <optgroup key={tier} label={MODEL_TIER_LABEL[tier]}>
+                  {tierModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} ({m.sizeLabel})
+                      {m.badge ? ` · ${m.badge}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
           <button
             type="button"

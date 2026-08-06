@@ -6,10 +6,12 @@ import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { PageActions } from '@/components/chat/PageActions';
 import { Onboarding } from '@/components/onboarding/Onboarding';
+import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { useChat } from '@/hooks/useChat';
 import { usePageContext } from '@/hooks/usePageContext';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
+import { completeOnboarding, getOnboardingState } from '@/storage/onboarding';
 import type { ChatMessage, PendingSelectionAction } from '@/types';
 import { cn } from '@/utils';
 
@@ -55,11 +57,30 @@ export function ChatApp({ variant }: ChatAppProps) {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('chat');
+  const [setupDone, setSetupDone] = useState<boolean | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const queuedSelection = useRef<PendingSelectionAction | null>(null);
 
   const pageCtx = usePageContext(mode === 'page');
   const autoSummarizeFired = useRef(false);
+
+  useEffect(() => {
+    if (phase === 'checking') return;
+    void (async () => {
+      const state = await getOnboardingState();
+      if (state.completed) {
+        setSetupDone(true);
+        return;
+      }
+      // Returning installs (pre-setup-wizard): don't interrupt users who already have a model.
+      if (phase === 'ready' || phase === 'cached') {
+        await completeOnboarding({ skipped: true });
+        setSetupDone(true);
+        return;
+      }
+      setSetupDone(false);
+    })();
+  }, [phase]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -183,10 +204,18 @@ export function ChatApp({ variant }: ChatAppProps) {
     [setMode, setError],
   );
 
-  if (!settings || !conversation || phase === 'checking') {
+  if (!settings || !conversation || phase === 'checking' || setupDone === null) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">
         <div className="animate-pulse-soft">Starting LocalMind…</div>
+      </div>
+    );
+  }
+
+  if (!setupDone) {
+    return (
+      <div className={cn('relative h-full', variant === 'popup' ? 'w-[380px]' : 'w-full')}>
+        <SetupWizard onFinished={() => setSetupDone(true)} />
       </div>
     );
   }

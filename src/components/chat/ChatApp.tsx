@@ -8,10 +8,26 @@ import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { useChat } from '@/hooks/useChat';
 import { usePageContext } from '@/hooks/usePageContext';
+import { usePendingSelection } from '@/hooks/usePendingSelection';
+import type { ChatMessage, PendingSelectionAction } from '@/types';
 import { cn } from '@/utils';
 
 interface ChatAppProps {
   variant: 'popup' | 'sidebar';
+}
+
+/** Strip common model wrappers before replacing into the page. */
+function plainReplacementText(content: string): string {
+  let text = content.trim();
+  const fence = text.match(/^```(?:\w+)?\n([\s\S]*?)\n```$/);
+  if (fence) text = fence[1].trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith('“') && text.endsWith('”'))
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
 }
 
 export function ChatApp({ variant }: ChatAppProps) {
@@ -28,6 +44,7 @@ export function ChatApp({ variant }: ChatAppProps) {
     updateSettings,
     send,
     summarizePage,
+    runSelectionAction,
     stop,
     regenerate,
     newChat,
@@ -36,8 +53,8 @@ export function ChatApp({ variant }: ChatAppProps) {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const queuedSelection = useRef<PendingSelectionAction | null>(null);
 
-  // Load page context when Ask-this-page is on, or lazily for Summarize.
   const pageCtx = usePageContext(mode === 'page');
   const autoSummarizeFired = useRef(false);
 
@@ -47,7 +64,6 @@ export function ChatApp({ variant }: ChatAppProps) {
     el.scrollTop = el.scrollHeight;
   }, [conversation?.messages, isGenerating]);
 
-  // Optional: auto-summarize once when entering Ask-this-page with an empty chat
   useEffect(() => {
     if (
       !settings?.autoSummarize ||
@@ -78,6 +94,27 @@ export function ChatApp({ variant }: ChatAppProps) {
       autoSummarizeFired.current = false;
     }
   }, [mode]);
+
+  const handlePendingSelection = useCallback(
+    async (pending: PendingSelectionAction) => {
+      if (phase !== 'ready') {
+        queuedSelection.current = pending;
+        setError('Load the model first, then the selection action will run.');
+        return;
+      }
+      await runSelectionAction(pending);
+    },
+    [phase, runSelectionAction, setError],
+  );
+
+  usePendingSelection(variant === 'sidebar' || variant === 'popup', handlePendingSelection);
+
+  useEffect(() => {
+    if (phase !== 'ready' || !queuedSelection.current) return;
+    const pending = queuedSelection.current;
+    queuedSelection.current = null;
+    void runSelectionAction(pending);
+  }, [phase, runSelectionAction]);
 
   const openSidePanel = async () => {
     try {
@@ -117,6 +154,22 @@ export function ChatApp({ variant }: ChatAppProps) {
     }
     await summarizePage(page);
   }, [ensurePage, summarizePage, setError, pageCtx.error]);
+
+  const handleReplaceSelection = useCallback(async (message: ChatMessage) => {
+    const tabId = message.selection?.tabId;
+    if (tabId == null) {
+      throw new Error('No tab linked to this selection. Try selecting again from the page.');
+    }
+    const text = plainReplacementText(message.content);
+    const result = await chrome.runtime.sendMessage({
+      type: 'REPLACE_SELECTION_IN_TAB',
+      tabId,
+      text,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error ?? 'Could not replace selection on the page.');
+    }
+  }, []);
 
   const handleModeChange = useCallback(
     (next: typeof mode) => {
@@ -212,6 +265,7 @@ export function ChatApp({ variant }: ChatAppProps) {
                 idx === messages.length - 1
               }
               onRegenerate={() => void regenerate(pageCtx.page)}
+              onReplaceSelection={handleReplaceSelection}
             />
           ))
         )}
@@ -306,8 +360,8 @@ function EmptyState({
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <h2 className="font-display text-xl text-fg">What do you want to explore?</h2>
-      <p className="mt-2 max-w-[28ch] text-sm text-muted">
-        Your model is ready. Switch to Ask this page to ground answers in the open tab.
+      <p className="mt-2 max-w-[32ch] text-sm text-muted">
+        Select text on any page for Explain, Rewrite, Translate, and more — or chat here.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
         {prompts.map((p) => (

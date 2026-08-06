@@ -16,14 +16,13 @@ LocalMind is a Chrome extension (Manifest V3) that runs an LLM fully on-device w
 - Settings: temperature, top-p, max tokens
 - Extensible `AIProvider` abstraction for future fallbacks
 
-## Milestone 2 (shipped)
+## Milestone 3 (shipped)
 
-- **Ask this page** — ground answers in the active tab (DOM → clean → chunk → retrieve → LLM)
-- **Summarize page** — TLDR / Bullet Points / Key Facts / Action Items
-- Content script + `scripting.executeScript` fallback for page extraction
-- Page context chip (title, extraction stats, refresh)
-- Optional auto-summarize when entering Ask-this-page mode
-- Restricted-page handling (`chrome://`, Web Store, etc.)
+- Floating selection toolbar on highlighted text
+- Actions: Explain, Summarize, Rewrite, Translate, ELI5, Improve
+- Right-click context menu → side panel handoff
+- **Replace on page** for Rewrite / Translate / Improve
+- Service worker / content script entry rename (CRXJS load fix)
 
 ## Quick start
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Check, Copy, RefreshCw } from 'lucide-react';
+import { Check, Copy, RefreshCw, Replace } from 'lucide-react';
 import type { ChatMessage } from '@/types';
 import { cn } from '@/utils';
 
@@ -9,20 +9,40 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onRegenerate?: () => void;
   showRegenerate?: boolean;
+  onReplaceSelection?: (message: ChatMessage) => void | Promise<void>;
 }
 
 export function MessageBubble({
   message,
   onRegenerate,
   showRegenerate,
+  onReplaceSelection,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [replaced, setReplaced] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
   const isUser = message.role === 'user';
+  const canReplace =
+    !isUser &&
+    message.status === 'complete' &&
+    Boolean(message.selection?.canReplace && message.content);
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const replace = async () => {
+    if (!onReplaceSelection) return;
+    setReplaceError(null);
+    try {
+      await onReplaceSelection(message);
+      setReplaced(true);
+      window.setTimeout(() => setReplaced(false), 2000);
+    } catch (e) {
+      setReplaceError(e instanceof Error ? e.message : 'Replace failed');
+    }
   };
 
   return (
@@ -105,15 +125,25 @@ export function MessageBubble({
         </div>
 
         {!isUser && message.status === 'complete' && message.content && (
-          <div className="mt-1.5 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              onClick={copy}
+              onClick={() => void copy()}
               className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-muted hover:bg-panel hover:text-fg"
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
+            {canReplace && onReplaceSelection && (
+              <button
+                type="button"
+                onClick={() => void replace()}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-accent hover:bg-accent/10"
+              >
+                {replaced ? <Check size={12} /> : <Replace size={12} />}
+                {replaced ? 'Replaced' : 'Replace on page'}
+              </button>
+            )}
             {showRegenerate && onRegenerate && (
               <button
                 type="button"
@@ -125,6 +155,9 @@ export function MessageBubble({
               </button>
             )}
           </div>
+        )}
+        {replaceError && (
+          <div className="mt-1 text-[11px] text-danger">{replaceError}</div>
         )}
       </div>
     </div>

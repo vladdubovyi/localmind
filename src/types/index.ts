@@ -6,6 +6,13 @@ export interface ChatMessage {
   content: string;
   createdAt: number;
   status?: 'streaming' | 'complete' | 'error' | 'cancelled';
+  /** Selection-action metadata for replace-on-page. */
+  selection?: {
+    action: SelectionAction;
+    originalText: string;
+    tabId?: number;
+    canReplace: boolean;
+  };
 }
 
 export interface Conversation {
@@ -75,7 +82,17 @@ export type RuntimeMessage =
   | { type: 'OPEN_SIDE_PANEL' }
   | { type: 'GET_PAGE_CONTEXT' }
   | { type: 'PAGE_CONTEXT_RESULT'; payload: PageContext }
-  | { type: 'SELECTION_ACTION'; action: SelectionAction; text: string }
+  | {
+      type: 'SELECTION_ACTION';
+      action: SelectionAction;
+      text: string;
+      url?: string;
+      title?: string;
+      canReplace?: boolean;
+    }
+  | { type: 'REPLACE_SELECTION'; text: string }
+  | { type: 'REPLACE_SELECTION_IN_TAB'; tabId: number; text: string }
+  | { type: 'GET_SELECTION' }
   | { type: 'PING' };
 
 export type SelectionAction =
@@ -85,6 +102,16 @@ export type SelectionAction =
   | 'translate'
   | 'eli5'
   | 'improve';
+
+export interface PendingSelectionAction {
+  action: SelectionAction;
+  text: string;
+  url?: string;
+  title?: string;
+  tabId?: number;
+  canReplace: boolean;
+  createdAt: number;
+}
 
 export interface PageContext {
   url: string;

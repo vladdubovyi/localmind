@@ -13,6 +13,7 @@ import { usePageContext } from '@/hooks/usePageContext';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
 import { completeOnboarding, getOnboardingState } from '@/storage/onboarding';
 import type { ChatMessage, PendingSelectionAction } from '@/types';
+import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
 
 interface ChatAppProps {
@@ -42,6 +43,7 @@ export function ChatApp({ variant }: ChatAppProps) {
     progress,
     error,
     isGenerating,
+    loadingFromCache,
     mode,
     setMode,
     downloadAndLoad,
@@ -53,7 +55,7 @@ export function ChatApp({ variant }: ChatAppProps) {
     regenerate,
     newChat,
     setError,
-  } = useChat();
+  } = useChat({ surface: variant });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('chat');
@@ -142,8 +144,8 @@ export function ChatApp({ variant }: ChatAppProps) {
   }, [phase, runSelectionAction]);
 
   const openSidePanel = async () => {
+    await openSidePanelFromPage();
     try {
-      await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
       window.close();
     } catch {
       // ignore
@@ -215,7 +217,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   if (!setupDone) {
     return (
       <div className={cn('relative h-full', variant === 'popup' ? 'w-[380px]' : 'w-full')}>
-        <SetupWizard onFinished={() => setSetupDone(true)} />
+        <SetupWizard variant={variant} onFinished={() => setSetupDone(true)} />
       </div>
     );
   }
@@ -233,7 +235,8 @@ export function ChatApp({ variant }: ChatAppProps) {
           progress={progress}
           error={error}
           isDownloading={phase === 'downloading'}
-          alreadyCached={phase === 'cached'}
+          alreadyCached={loadingFromCache || phase === 'cached'}
+          surface={variant}
           onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
           onDownload={(id) => void downloadAndLoad(id)}
         />
@@ -280,7 +283,7 @@ export function ChatApp({ variant }: ChatAppProps) {
 
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1">
-          <AgentPanel modelReady={modelReady} />
+          <AgentPanel modelReady={modelReady} surface={variant} />
         </div>
       ) : (
         <>

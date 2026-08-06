@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAIProvider } from '@/ai/webllm';
+import { isModelInCache } from '@/ai/modelCache';
 import { buildPageContextBlock } from '@/ai/contextManager';
 import {
   buildPageGroundedPrompt,
@@ -15,6 +16,11 @@ import {
   saveSettings,
   setModelMeta,
 } from '@/storage/db';
+import {
+  consumePendingModelLoad,
+  setPendingModelLoad,
+} from '@/storage/sessionIntent';
+import { openSidePanelFromPage } from '@/utils/sidePanel';
 import type {
   AppSettings,
   ChatMessage,
@@ -40,6 +46,8 @@ export type ChatMode = 'chat' | 'page';
 
 interface UseChatOptions {
   conversationId?: string;
+  /** Where this hook is running — downloads/permissions are durable in sidebar */
+  surface?: 'popup' | 'sidebar';
 }
 
 interface GenerateOptions {
@@ -55,6 +63,7 @@ interface GenerateOptions {
 }
 
 export function useChat(options: UseChatOptions = {}) {
+  const surface = options.surface ?? 'sidebar';
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [phase, setPhase] = useState<EnginePhase>('checking');
@@ -62,7 +71,9 @@ export function useChat(options: UseChatOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [mode, setMode] = useState<ChatMode>('chat');
+  const [loadingFromCache, setLoadingFromCache] = useState(false);
   const generatingRef = useRef(false);
+  const autoLoadStarted = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,14 +105,24 @@ export function useChat(options: UseChatOptions = {}) {
           return;
         }
 
-        const meta = await getModelMeta(s.selectedModelId);
+        const [meta, inCache] = await Promise.all([
+          getModelMeta(s.selectedModelId),
+          isModelInCache(s.selectedModelId),
+        ]);
         if (cancelled) return;
 
-        if (meta?.status === 'ready') {
+        // Heal desynced meta: Cache API is the source of truth after a successful download.
+        if (inCache && meta?.status !== 'ready') {
+          await setModelMeta(s.selectedModelId, 'ready');
+        }
+
+        if (inCache || meta?.status === 'ready') {
+          setLoadingFromCache(true);
           setPhase('cached');
           return;
         }
 
+        setLoadingFromCache(false);
         setPhase('needs_download');
       } catch (e) {
         if (!cancelled) {
@@ -125,15 +146,49 @@ export function useChat(options: UseChatOptions = {}) {
     async (modelId?: string) => {
       if (!settings) return;
       const id = modelId ?? settings.selectedModelId;
+
+      // Popup documents are destroyed when they lose focus — move heavy work
+      // to the side panel so Cache API writes can finish.
+      if (surface === 'popup') {
+        await setPendingModelLoad(id);
+        await openSidePanelFromPage();
+        try {
+          window.close();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      const inCache = await isModelInCache(id);
+      const meta = await getModelMeta(id);
+      const fromCache = inCache || meta?.status === 'ready';
+      setLoadingFromCache(fromCache);
       setPhase('downloading');
       setError(null);
-      setProgress({ progress: 0, text: 'Starting…', timeElapsed: 0 });
-      await setModelMeta(id, 'downloading');
+      setProgress({
+        progress: 0,
+        text: fromCache ? 'Loading from local cache…' : 'Starting download…',
+        timeElapsed: 0,
+      });
+
+      // Never clobber a known-good 'ready' flag — popup teardown used to leave
+      // status stuck on 'downloading' and force a fake re-download next open.
+      if (!fromCache) {
+        await setModelMeta(id, 'downloading');
+      }
 
       try {
         const provider = getAIProvider();
         await provider.downloadModel(id, (p) => {
-          setProgress(p);
+          setProgress({
+            ...p,
+            text: fromCache
+              ? p.text?.includes('Loading') || p.text?.includes('cache')
+                ? p.text
+                : `Loading from cache… ${p.text}`
+              : p.text,
+          });
         });
         await setModelMeta(id, 'ready');
         if (settings.selectedModelId !== id) {
@@ -143,15 +198,55 @@ export function useChat(options: UseChatOptions = {}) {
         }
         setPhase('ready');
         setProgress(null);
+        setLoadingFromCache(false);
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Download failed';
         setError(message);
-        await setModelMeta(id, 'error', message);
-        setPhase('error');
+        // Keep ready meta if we were only reloading from cache and failed mid-load.
+        if (!fromCache) {
+          await setModelMeta(id, 'error', message);
+        }
+        setPhase(fromCache ? 'cached' : 'error');
       }
     },
-    [settings],
+    [settings, surface],
   );
+
+  // Side panel: pick up downloads/loads handed off from the popup.
+  useEffect(() => {
+    if (surface !== 'sidebar' || !settings) return;
+
+    const runPendingOrAutoCache = async () => {
+      const pending = await consumePendingModelLoad();
+      if (pending) {
+        if (pending !== settings.selectedModelId) {
+          const next = { ...settings, selectedModelId: pending };
+          setSettings(next);
+          await saveSettings(next);
+        }
+        autoLoadStarted.current = true;
+        await downloadAndLoad(pending);
+        return;
+      }
+      // Auto-hydrate from cache in the durable side panel so reopen feels instant.
+      if (!autoLoadStarted.current && phase === 'cached') {
+        autoLoadStarted.current = true;
+        await downloadAndLoad(settings.selectedModelId);
+      }
+    };
+
+    void runPendingOrAutoCache();
+
+    const onStorage = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string,
+    ) => {
+      if (area !== 'local' || !changes.pendingModelLoad?.newValue) return;
+      void runPendingOrAutoCache();
+    };
+    chrome.storage.onChanged.addListener(onStorage);
+    return () => chrome.storage.onChanged.removeListener(onStorage);
+  }, [surface, settings, phase, downloadAndLoad]);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
     setSettings((prev) => {
@@ -480,6 +575,7 @@ export function useChat(options: UseChatOptions = {}) {
     progress,
     error,
     isGenerating,
+    loadingFromCache,
     mode,
     setMode,
     downloadAndLoad,

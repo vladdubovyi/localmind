@@ -80,4 +80,21 @@ I'll open the page first.
   );
 }
 
+// Shorthand (user-reported): gmail_list {query:"...", maxResults:5}
+{
+  const sample = `gmail_list {query:"newer_than:14d", maxResults:5}`;
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'shorthand: expected one call');
+  assert(calls[0].name === 'gmail_list', 'shorthand: name');
+  assert(calls[0].arguments.query === 'newer_than:14d', 'shorthand: query');
+  assert(calls[0].arguments.maxResults === 5, 'shorthand: maxResults');
+}
+
+{
+  const sample = `tabs_navigate {url:"mail.google.com"}`;
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'shorthand nav: expected one call');
+  assert(calls[0].arguments.url === 'https://mail.google.com', 'shorthand nav: url normalized');
+}
+
 console.log('agent parser tests passed');

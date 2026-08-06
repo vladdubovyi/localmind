@@ -1,3 +1,4 @@
+import { parseJsonLenient, repairToolJson } from './jsonRepair';
 import { getTool } from './tools';
 import type { ToolCall } from './types';
 
@@ -57,7 +58,7 @@ function tryParseObject(raw: string): ToolCall | null {
 
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(candidate) as {
+      const parsed = parseJsonLenient(candidate) as {
         name?: string;
         tool?: string;
         arguments?: Record<string, unknown>;
@@ -67,10 +68,11 @@ function tryParseObject(raw: string): ToolCall | null {
       const name = parsed.name ?? parsed.tool;
       if (!name || typeof name !== 'string') continue;
       if (!getTool(name)) continue;
+      const args = parsed.arguments ?? parsed.args ?? parsed.parameters ?? {};
       return {
         id: toolId(),
         name,
-        arguments: parsed.arguments ?? parsed.args ?? parsed.parameters ?? {},
+        arguments: typeof args === 'object' && args ? args : {},
       };
     } catch {
       // try next
@@ -84,14 +86,32 @@ function tryParseObject(raw: string): ToolCall | null {
  * Local models rarely follow a single format, so we accept several shapes.
  */
 export function parseToolCalls(text: string): ToolCall[] {
+  // Repair common local-model JSON typos before brace extraction.
+  const textRepaired = repairToolJson(text);
   const calls: ToolCall[] = [];
   const push = (raw: string) => {
     const call = tryParseObject(raw);
     if (call) calls.push(call);
   };
 
-  for (const m of text.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi)) {
-    push(m[1]);
+  for (const source of [text, textRepaired]) {
+    for (const m of source.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi)) {
+      push(m[1]);
+    }
+  }
+
+  // Unclosed <tool_call> … (common with small models) — use brace-aware extract
+  if (!calls.length) {
+    for (const source of [textRepaired, text]) {
+      const idx = source.search(/<tool_call>/i);
+      if (idx < 0) continue;
+      const after = source.slice(idx + '<tool_call>'.length);
+      for (const obj of extractJsonObjects(repairToolJson(after))) {
+        push(obj);
+        if (calls.length) break;
+      }
+      if (calls.length) break;
+    }
   }
 
   for (const m of text.matchAll(
@@ -112,7 +132,7 @@ export function parseToolCalls(text: string): ToolCall[] {
     const name = m[1];
     if (!getTool(name)) continue;
     try {
-      const args = JSON.parse(m[2]) as Record<string, unknown>;
+      const args = parseJsonLenient(m[2]) as Record<string, unknown>;
       calls.push({ id: toolId(), name, arguments: args });
     } catch {
       // ignore
@@ -120,8 +140,11 @@ export function parseToolCalls(text: string): ToolCall[] {
   }
 
   if (!calls.length) {
-    for (const obj of extractJsonObjects(text.replace(/^>\s*/gm, ''))) {
-      push(obj);
+    for (const source of [textRepaired, text]) {
+      for (const obj of extractJsonObjects(repairToolJson(source.replace(/^>\s*/gm, '')))) {
+        push(obj);
+      }
+      if (calls.length) break;
     }
   }
 
@@ -170,14 +193,15 @@ export function buildAgentSystemPrompt(base?: string): string {
     base?.trim() ||
       "You are LocalMind Agent, a private on-device assistant that can control the user's Chrome browser via tools.",
     'Never invent tool results. Never ask for passwords or try to log into accounts.',
+    'Never invent fake user messages, dialogues, or roleplay. Only output a tool call OR the final answer.',
     'Pick tools that match the user goal. Do not call Gmail tools unless the user asked about email.',
-    'Never invent tab IDs. Omit tabId to use the active tab, or call tabs_list / tabs_create first.',
-    'Typical web research flow: tabs_create → page_read → final answer.',
-    'When you need a tool, output ONLY one tool call and nothing else, using this exact format:',
+    'Never invent tab IDs. After tabs_create, use the returned id with page_read. Otherwise omit tabId.',
+    'Typical web research flow: tabs_create → page_read (with that tab id) → final answer in 3 bullets.',
+    'JSON must be valid. Example (note the quotes around keys AND values):',
     '<tool_call>',
     '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
     '</tool_call>',
-    'Do not wrap the tool call in markdown, blockquotes, or prose. Do not invent results — wait for the tool response.',
+    'Do not wrap the tool call in markdown, blockquotes, or prose.',
     'When finished, answer the user in markdown without a tool call.',
     'Do not send email unless the user explicitly asked you to send it.',
   ].join('\n');

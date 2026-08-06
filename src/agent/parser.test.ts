@@ -66,4 +66,18 @@ I'll open the page first.
   assert(parseToolCalls(sample).length === 0, 'unknown tool ignored');
 }
 
+// Bare / blockquote / typo JSON (user-reported tabs_create typo)
+{
+  const sample = `<tool_call>
+{"name":"tabs_create","arguments":{"url:"https://en.wikipedia.org/wiki/WebGPU"}}
+`;
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'typo json: expected one call');
+  assert(calls[0].name === 'tabs_create', 'typo json: name');
+  assert(
+    calls[0].arguments.url === 'https://en.wikipedia.org/wiki/WebGPU',
+    'typo json: url repaired',
+  );
+}
+
 console.log('agent parser tests passed');

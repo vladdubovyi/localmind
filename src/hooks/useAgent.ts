@@ -28,6 +28,32 @@ function looksLikeMalformedToolCall(text: string): boolean {
   return false;
 }
 
+function isEmailGoal(goal: string): boolean {
+  return /\b(email|emails|gmail|inbox|mail|messages?)\b/i.test(goal);
+}
+
+/** Model said it would use a tool but didn't emit a call. */
+function narratesToolUse(text: string): boolean {
+  return /\b(gmail_list|page_read|tabs_create|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+    text,
+  );
+}
+
+function nudgeToolExample(goal: string): string {
+  if (isEmailGoal(goal)) {
+    return [
+      '<tool_call>',
+      '{"name":"gmail_list","arguments":{"query":"newer_than:14d","maxResults":5}}',
+      '</tool_call>',
+    ].join('\n');
+  }
+  return [
+    '<tool_call>',
+    '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
+    '</tool_call>',
+  ].join('\n');
+}
+
 function continueAfterToolPrompt(goal: string, call: ToolCall, result: ToolResult): string {
   const lines = [
     `Original goal: ${goal}`,
@@ -146,25 +172,27 @@ export function useAgent() {
           const visible = stripToolCallMarkup(reply);
 
           if (!calls.length) {
-            if (formatNudgesLeft > 0 && looksLikeMalformedToolCall(reply)) {
+            const shouldNudge =
+              formatNudgesLeft > 0 &&
+              (looksLikeMalformedToolCall(reply) ||
+                narratesToolUse(reply) ||
+                (isEmailGoal(goal) && stepsLeft > 0));
+
+            if (shouldNudge) {
               formatNudgesLeft -= 1;
               pushStep({
                 kind: 'thought',
                 content:
                   visible ||
-                  'Model attempted a tool call in the wrong format — asking once for the XML format.',
+                  'Model talked about a tool instead of calling it — requesting a real tool call.',
               });
               history.push({ role: 'assistant', content: reply });
               history.push({
                 role: 'user',
                 content: [
                   `Original goal: ${goal}`,
-                  'Your last message was not a valid tool call.',
-                  'Reply with ONLY this XML (no prose). Pick a tool that matches the goal:',
-                  '<tool_call>',
-                  '{"name":"tabs_create","arguments":{"url":"https://en.wikipedia.org/wiki/WebGPU"}}',
-                  '</tool_call>',
-                  'Or answer the user in markdown if you are done.',
+                  'Do not narrate. Output ONLY a valid tool call now:',
+                  nudgeToolExample(goal),
                 ].join('\n'),
               });
               continue;

@@ -6,66 +6,133 @@ import {
   gmailListMessages,
   gmailSendMessage,
 } from '@/agent/gmail/api';
+import { gmailDomCompose, gmailDomList, gmailDomRead } from '@/content/gmailDom';
 
 async function findGmailTab(): Promise<chrome.tabs.Tab | undefined> {
   const tabs = await chrome.tabs.query({
     url: ['https://mail.google.com/*', 'https://gmail.com/*'],
   });
-  return tabs[0];
+  return tabs.find((t) => t.id != null) ?? tabs[0];
+}
+
+function waitForTabComplete(tabId: number, timeoutMs = 20000): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (id: number, info: { status?: string }) => {
+      if (id === tabId && info.status === 'complete') finish();
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    void chrome.tabs
+      .get(tabId)
+      .then((tab) => {
+        if (tab.status === 'complete') finish();
+      })
+      .catch(() => finish());
+    setTimeout(finish, timeoutMs);
+  });
+}
+
+async function ensureGmailTab(): Promise<chrome.tabs.Tab> {
+  let tab = await findGmailTab();
+  if (!tab?.id) {
+    tab = await chrome.tabs.create({
+      url: 'https://mail.google.com/',
+      active: true,
+    });
+    if (tab.id != null) await waitForTabComplete(tab.id);
+    // Give the inbox DOM a moment after "complete"
+    await new Promise((r) => setTimeout(r, 1200));
+  } else {
+    await chrome.tabs.update(tab.id!, { active: true });
+  }
+  if (!tab.id) throw new Error('Could not open a Gmail tab');
+  return tab;
 }
 
 async function sessionCall(
   action: 'list' | 'read' | 'compose',
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const tab = await findGmailTab();
-  if (!tab?.id) {
-    // Open Gmail for the user
-    const created = await chrome.tabs.create({
-      url: 'https://mail.google.com/',
-      active: true,
-    });
-    return {
-      ok: false,
-      error:
-        'Opened Gmail. Sign in if needed, then retry the tool once the inbox is visible.',
-      data: { tabId: created.id },
-    };
-  }
+  const tab = await ensureGmailTab();
+  const tabId = tab.id!;
 
-  await chrome.tabs.update(tab.id, { active: true });
-
+  // Prefer content-script message bus
   try {
-    const result = await chrome.tabs.sendMessage(tab.id, {
+    const result = await chrome.tabs.sendMessage(tabId, {
       type: 'GMAIL_SESSION',
       action,
       query: args.query,
       id: args.id,
       draft: args.draft,
     });
-    return {
-      ok: Boolean(result?.ok),
-      data: result?.data,
-      error: result?.error,
-    };
+    if (result) {
+      return {
+        ok: Boolean(result.ok),
+        data: result.data,
+        error: result.error,
+      };
+    }
   } catch {
+    // fall through to executeScript
+  }
+
+  // Fallback: inject DOM helpers directly (no OAuth / no content-script required)
+  try {
+    if (action === 'list') {
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: gmailDomList,
+        args: [args.query != null ? String(args.query) : ''],
+      });
+      return { ok: true, data: injected[0]?.result ?? [] };
+    }
+    if (action === 'read') {
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: gmailDomRead,
+        args: [String(args.id ?? '')],
+      });
+      return { ok: true, data: injected[0]?.result };
+    }
+    if (action === 'compose') {
+      const draft = args.draft as GmailDraft;
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: gmailDomCompose,
+        args: [draft],
+      });
+      const data = await injected[0]?.result;
+      return { ok: true, data };
+    }
+  } catch (e) {
     return {
       ok: false,
       error:
-        'Could not reach the Gmail tab content script. Refresh mail.google.com and retry.',
+        e instanceof Error
+          ? e.message
+          : 'Could not read Gmail. Open mail.google.com, sign in, and retry.',
     };
   }
+
+  return { ok: false, error: 'Unknown Gmail session action' };
 }
 
 export async function executeGmailTools(
   call: ToolCall,
   settings: AgentSettings,
 ): Promise<ToolResult> {
+  // OAuth API only when explicitly configured — otherwise always use the Gmail tab.
   const preferApi =
-    settings.gmailMode === 'api' ||
-    (settings.gmailMode === 'auto' && gmailApiConfigured(settings));
+    (settings.gmailMode === 'api' || settings.gmailMode === 'auto') &&
+    gmailApiConfigured(settings);
 
-  if (preferApi && gmailApiConfigured(settings)) {
+  if (preferApi) {
     try {
       switch (call.name) {
         case 'gmail_list': {
@@ -101,26 +168,29 @@ export async function executeGmailTools(
         }
       }
     } catch (e) {
-      // Fall back to session mode on API failure when auto
-      if (settings.gmailMode !== 'auto') {
+      if (settings.gmailMode === 'api') {
         return {
           ok: false,
           error: e instanceof Error ? e.message : String(e),
           toolCall: call,
         };
       }
+      // auto → fall through to session
     }
   }
 
-  // Session / DOM mode
   switch (call.name) {
-    case 'gmail_list':
+    case 'gmail_list': {
+      const result = await sessionCall('list', { query: call.arguments.query });
+      const list = Array.isArray(result.data) ? result.data : [];
+      const max = Number(call.arguments.maxResults ?? 10);
       return {
-        ...(await sessionCall('list', {
-          query: call.arguments.query,
-        })),
+        ok: result.ok,
+        data: list.slice(0, Number.isFinite(max) ? max : 10),
+        error: result.error,
         toolCall: call,
       };
+    }
     case 'gmail_read':
       return {
         ...(await sessionCall('read', { id: call.arguments.id })),
@@ -128,8 +198,6 @@ export async function executeGmailTools(
       };
     case 'gmail_draft':
     case 'gmail_send': {
-      // DOM compose opens a draft; send still requires user to hit Send in Gmail
-      // for safety in session mode (we never auto-click Send).
       const draft: GmailDraft = {
         to: String(call.arguments.to ?? ''),
         subject: String(call.arguments.subject ?? ''),

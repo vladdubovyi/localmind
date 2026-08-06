@@ -113,18 +113,23 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
               }
               className="w-full rounded-lg border border-border bg-ink px-2 py-1 text-fg"
             >
-              <option value="auto">Auto (API if connected, else Gmail tab)</option>
-              <option value="api">API only (OAuth)</option>
-              <option value="session">Session only (Gmail tab DOM)</option>
+              <option value="session">Gmail tab (default — no API key)</option>
+              <option value="auto">Auto (API if client ID set, else tab)</option>
+              <option value="api">API only (requires OAuth client ID)</option>
             </select>
           </label>
 
+          <p className="text-[11px] leading-relaxed text-muted">
+            Default: reads your open Gmail tab while you&apos;re signed in. OAuth client ID is
+            optional and only needed for API mode.
+          </p>
+
           <label className="block space-y-1 text-fg-dim">
-            Google OAuth client ID
+            Google OAuth client ID (optional)
             <input
               type="text"
               value={settings.gmailClientId}
-              placeholder="xxx.apps.googleusercontent.com"
+              placeholder="Only for API mode — leave blank for tab mode"
               onChange={(e) => void update({ gmailClientId: e.target.value })}
               className="w-full rounded-lg border border-border bg-ink px-2 py-1 font-mono text-[11px] text-fg"
             />
@@ -133,11 +138,11 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={busy}
-              className="rounded-lg bg-panel-elevated px-2 py-1 ring-1 ring-border"
+              disabled={busy || !settings.gmailClientId.trim()}
+              className="rounded-lg bg-panel-elevated px-2 py-1 ring-1 ring-border disabled:opacity-40"
               onClick={() => void connectGmailOAuth()}
             >
-              Connect Gmail
+              Connect Gmail API
             </button>
             <button
               type="button"

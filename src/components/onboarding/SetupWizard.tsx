@@ -6,7 +6,6 @@ import {
   Globe,
   Mail,
   MessageCircle,
-  Shield,
   SkipForward,
   Sparkles,
 } from 'lucide-react';
@@ -14,14 +13,13 @@ import { BrandMark } from '@/components/common/BrandMark';
 import {
   getAgentPermissionState,
   requestBrowserPermissions,
-  requestDebuggerPermission,
   requestGmailPermissions,
 } from '@/agent/permissions';
 import { saveAgentSettings } from '@/storage/agentSettings';
 import { completeOnboarding } from '@/storage/onboarding';
 import { cn } from '@/utils';
 
-type StepId = 'welcome' | 'browser' | 'gmail' | 'debugger' | 'ready';
+type StepId = 'welcome' | 'browser' | 'gmail' | 'ready';
 
 interface SetupWizardProps {
   onFinished: () => void;
@@ -33,7 +31,7 @@ interface StepResult {
   grantedDebugger: boolean;
 }
 
-const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'debugger', 'ready'];
+const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'ready'];
 
 export function SetupWizard({ onFinished }: SetupWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
@@ -53,7 +51,7 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         ...r,
         grantedBrowser: p.tabs && p.allUrls,
         grantedGmail: p.identity,
-        grantedDebugger: p.debugger,
+        grantedDebugger: false,
       }));
     });
   }, []);
@@ -108,20 +106,6 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
       const ok = await requestGmailPermissions();
       setResults((r) => ({ ...r, grantedGmail: ok || r.grantedGmail }));
       setStatus(ok ? 'Gmail permission granted.' : 'Skipped for now.');
-      goNext();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const grantDebugger = async () => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const ok = await requestDebuggerPermission();
-      setResults((r) => ({ ...r, grantedDebugger: ok || r.grantedDebugger }));
-      if (ok) await saveAgentSettings({ allowDebugger: true });
-      setStatus(ok ? 'Debugger permission granted.' : 'Skipped for now.');
       goNext();
     } finally {
       setBusy(false);
@@ -190,19 +174,6 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
           </StepBody>
         )}
 
-        {step === 'debugger' && (
-          <StepBody
-            icon={<Shield size={22} />}
-            title="Advanced debugger (optional)"
-            body="Only for hard sites where normal page tools fail. Chrome will show a strong warning. Most people should skip this."
-          >
-            <PermissionCard
-              granted={results.grantedDebugger}
-              items={['chrome.debugger attach', 'Deep DOM snapshots', 'Not required for chat or Gmail']}
-            />
-          </StepBody>
-        )}
-
         {step === 'ready' && (
           <StepBody
             icon={<Bot size={22} />}
@@ -212,7 +183,6 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
             <div className="mt-4 space-y-2 rounded-2xl border border-border bg-panel/70 px-3 py-3 text-sm">
               <StatusRow label="Browser / Agent" ok={results.grantedBrowser} />
               <StatusRow label="Gmail OAuth" ok={results.grantedGmail} />
-              <StatusRow label="Debugger" ok={results.grantedDebugger} />
             </div>
           </StepBody>
         )}
@@ -248,17 +218,6 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
               <SkipForward size={14} /> Skip for now
-            </Secondary>
-          </>
-        )}
-
-        {step === 'debugger' && (
-          <>
-            <Primary disabled={busy} onClick={() => void grantDebugger()}>
-              {results.grantedDebugger ? 'Continue' : 'Allow debugger'}
-            </Primary>
-            <Secondary disabled={busy} onClick={goNext}>
-              <SkipForward size={14} /> Skip (recommended)
             </Secondary>
           </>
         )}

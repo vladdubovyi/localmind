@@ -139,11 +139,13 @@ export class WebLLMProvider extends BaseAIProvider {
 }
 
 async function hasWebGPU(): Promise<boolean> {
-  if (!('gpu' in navigator)) return false;
+  if (!('gpu' in navigator) || !navigator.gpu) return false;
   try {
     const adapter = await navigator.gpu.requestAdapter();
     return Boolean(adapter);
   } catch {
+    // Environments without a GPU adapter reject; never let that surface as an
+    // unhandled extension error on chrome://extensions.
     return false;
   }
 }

@@ -11,23 +11,10 @@ export function useDeviceCapabilities() {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!('gpu' in navigator)) {
-        if (!cancelled) setWebgpu(false);
-        return;
-      }
-      try {
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!cancelled) setWebgpu(Boolean(adapter));
-      } catch {
-        if (!cancelled) setWebgpu(false);
-      }
-    })();
+    // Avoid calling requestAdapter() on popup open — without a GPU Chrome
+    // reports "No available adapters" on the extension Errors page.
+    setWebgpu('gpu' in navigator);
     setRecommended(recommendModelForDevice(memoryGb));
-    return () => {
-      cancelled = true;
-    };
   }, [memoryGb]);
 
   return { webgpu, memoryGb, recommended };

@@ -125,15 +125,6 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       body: { type: 'string', description: 'Plain-text body', required: true },
     },
   },
-  {
-    name: 'debugger_snapshot',
-    description: 'Advanced: capture DOM snapshot via chrome.debugger (optional permission).',
-    risk: 'dangerous',
-    confirmLabel: 'Attach debugger to this tab',
-    parameters: {
-      tabId: { type: 'number', description: 'Optional tab id' },
-    },
-  },
 ];
 
 export function getTool(name: string): AgentToolDefinition | undefined {

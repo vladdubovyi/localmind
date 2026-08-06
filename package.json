@@ -10,7 +10,9 @@
     "lint": "oxlint src",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
-    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts"
+    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:ui": "npm run build && playwright test --ui"
   },
   "dependencies": {
     "@fontsource/fraunces": "^5.3.0",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.7.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/chrome": "^0.2.5",
     "@types/node": "^24.13.3",

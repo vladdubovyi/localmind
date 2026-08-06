@@ -92,15 +92,6 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-2 text-fg-dim">
-            Allow debugger tools
-            <input
-              type="checkbox"
-              checked={settings.allowDebugger}
-              onChange={(e) => void update({ allowDebugger: e.target.checked })}
-            />
-          </label>
-
           <label className="block space-y-1 text-fg-dim">
             Max steps
             <input
@@ -160,7 +151,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
           {permissions && (
             <div className="rounded-lg bg-ink/60 px-2 py-1.5 text-[11px] text-muted">
               tabs:{permissions.tabs ? '✓' : '·'} identity:{permissions.identity ? '✓' : '·'}{' '}
-              hosts:{permissions.allUrls ? '✓' : '·'} debugger:{permissions.debugger ? '✓' : '·'}
+              hosts:{permissions.allUrls ? '✓' : '·'}
             </div>
           )}
 

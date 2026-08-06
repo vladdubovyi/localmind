@@ -4,7 +4,6 @@ import { getAgentPermissionState } from '@/agent/permissions';
 import { executeTabTools } from '@/background/tools/tabs';
 import { executePageTools } from '@/background/tools/page';
 import { executeGmailTools } from '@/background/tools/gmail';
-import { executeDebuggerTools } from '@/background/tools/debugger';
 import { getAgentSettings } from '@/storage/agentSettings';
 
 function needsUserConfirm(risk: ToolRisk, confirmed: boolean): boolean {
@@ -59,13 +58,12 @@ export async function routeAgentTool(
       return await executeGmailTools(call, settings);
     }
     if (call.name.startsWith('debugger_')) {
-      if (!settings.allowDebugger) {
-        return { ok: false, error: 'Debugger tools are disabled in settings.', toolCall: call };
-      }
-      if (!perms.debugger) {
-        return { ok: false, error: 'Debugger permission not granted.', toolCall: call };
-      }
-      return await executeDebuggerTools(call);
+      return {
+        ok: false,
+        error:
+          'Debugger tools are unavailable: chrome.debugger cannot be an optional MV3 permission.',
+        toolCall: call,
+      };
     }
     return { ok: false, error: `Unhandled tool: ${call.name}`, toolCall: call };
   } catch (e) {

@@ -1,11 +1,12 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
-const version = '0.1.0';
+const version = '0.2.0';
 
 export default defineManifest({
   manifest_version: 3,
   name: 'LocalMind',
-  description: 'Private AI that lives inside your browser. No cloud. No API keys.',
+  description:
+    'Private AI that lives inside your browser. Chat, page tools, and optional local browser agent.',
   version,
   icons: {
     '16': 'public/icons/icon16.png',
@@ -42,6 +43,16 @@ export default defineManifest({
     'sidePanel',
     'contextMenus',
     'scripting',
+  ],
+  // Granted at runtime when Agent mode is enabled
+  optional_permissions: ['tabs', 'identity', 'debugger'],
+  optional_host_permissions: [
+    'http://*/*',
+    'https://*/*',
+    'https://mail.google.com/*',
+    'https://gmail.googleapis.com/*',
+    'https://www.googleapis.com/*',
+    'https://accounts.google.com/*',
   ],
   // Required for WebLLM model + wasm artifact downloads (then works offline from cache).
   host_permissions: [

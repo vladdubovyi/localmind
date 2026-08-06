@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { PanelRightOpen, Plus, Settings2 } from 'lucide-react';
+import { Bot, PanelRightOpen, Plus, Settings2 } from 'lucide-react';
+import { AgentPanel } from '@/components/agent/AgentPanel';
 import { BrandMark } from '@/components/common/BrandMark';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
@@ -16,7 +17,8 @@ interface ChatAppProps {
   variant: 'popup' | 'sidebar';
 }
 
-/** Strip common model wrappers before replacing into the page. */
+type UiTab = 'chat' | 'agent';
+
 function plainReplacementText(content: string): string {
   let text = content.trim();
   const fence = text.match(/^```(?:\w+)?\n([\s\S]*?)\n```$/);
@@ -52,6 +54,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   } = useChat();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [uiTab, setUiTab] = useState<UiTab>('chat');
   const scrollerRef = useRef<HTMLDivElement>(null);
   const queuedSelection = useRef<PendingSelectionAction | null>(null);
 
@@ -97,6 +100,7 @@ export function ChatApp({ variant }: ChatAppProps) {
 
   const handlePendingSelection = useCallback(
     async (pending: PendingSelectionAction) => {
+      setUiTab('chat');
       if (phase !== 'ready') {
         queuedSelection.current = pending;
         setError('Load the model first, then the selection action will run.');
@@ -121,7 +125,7 @@ export function ChatApp({ variant }: ChatAppProps) {
       await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
       window.close();
     } catch {
-      // ignore when not in extension context
+      // ignore
     }
   };
 
@@ -209,6 +213,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   }
 
   const messages = conversation.messages;
+  const modelReady = phase === 'ready';
 
   return (
     <div
@@ -234,59 +239,76 @@ export function ChatApp({ variant }: ChatAppProps) {
         </div>
       </header>
 
-      <PageActions
-        mode={mode}
-        onModeChange={handleModeChange}
-        page={pageCtx.page}
-        status={pageCtx.status}
-        stats={pageCtx.stats}
-        error={pageCtx.error}
-        disabled={isGenerating}
-        onRefresh={() => void pageCtx.refresh()}
-        onSummarize={() => void handleSummarize()}
-      />
-
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
-          <EmptyState
-            mode={mode}
-            pageTitle={pageCtx.page?.title}
-            onPrompt={(p) => void handleSend(p)}
-            onSummarize={() => void handleSummarize()}
-          />
-        ) : (
-          messages.map((m, idx) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              showRegenerate={
-                !isGenerating &&
-                m.role === 'assistant' &&
-                idx === messages.length - 1
-              }
-              onRegenerate={() => void regenerate(pageCtx.page)}
-              onReplaceSelection={handleReplaceSelection}
-            />
-          ))
-        )}
+      <div className="flex gap-1 border-b border-border-subtle px-3 py-1.5">
+        <TabChip active={uiTab === 'chat'} onClick={() => setUiTab('chat')} label="Chat" />
+        <TabChip
+          active={uiTab === 'agent'}
+          onClick={() => setUiTab('agent')}
+          label="Agent"
+          icon={<Bot size={12} />}
+        />
       </div>
 
-      {error && (
-        <div className="mx-3 mb-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-          {error}
+      {uiTab === 'agent' ? (
+        <div className="min-h-0 flex-1">
+          <AgentPanel modelReady={modelReady} />
         </div>
-      )}
+      ) : (
+        <>
+          <PageActions
+            mode={mode}
+            onModeChange={handleModeChange}
+            page={pageCtx.page}
+            status={pageCtx.status}
+            stats={pageCtx.stats}
+            error={pageCtx.error}
+            disabled={isGenerating}
+            onRefresh={() => void pageCtx.refresh()}
+            onSummarize={() => void handleSummarize()}
+          />
 
-      <ChatInput
-        isGenerating={isGenerating}
-        onSend={(v) => void handleSend(v)}
-        onStop={() => void stop()}
-        placeholder={
-          mode === 'page'
-            ? 'Ask anything about this page…'
-            : 'Message LocalMind…'
-        }
-      />
+          <div ref={scrollerRef} className="flex-1 overflow-y-auto">
+            {messages.length === 0 ? (
+              <EmptyState
+                mode={mode}
+                pageTitle={pageCtx.page?.title}
+                onPrompt={(p) => void handleSend(p)}
+                onSummarize={() => void handleSummarize()}
+                onOpenAgent={() => setUiTab('agent')}
+              />
+            ) : (
+              messages.map((m, idx) => (
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  showRegenerate={
+                    !isGenerating &&
+                    m.role === 'assistant' &&
+                    idx === messages.length - 1
+                  }
+                  onRegenerate={() => void regenerate(pageCtx.page)}
+                  onReplaceSelection={handleReplaceSelection}
+                />
+              ))
+            )}
+          </div>
+
+          {error && (
+            <div className="mx-3 mb-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {error}
+            </div>
+          )}
+
+          <ChatInput
+            isGenerating={isGenerating}
+            onSend={(v) => void handleSend(v)}
+            onStop={() => void stop()}
+            placeholder={
+              mode === 'page' ? 'Ask anything about this page…' : 'Message LocalMind…'
+            }
+          />
+        </>
+      )}
 
       <SettingsPanel
         settings={settings}
@@ -302,16 +324,44 @@ export function ChatApp({ variant }: ChatAppProps) {
   );
 }
 
+function TabChip({
+  active,
+  onClick,
+  label,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition',
+        active ? 'bg-accent text-ink' : 'text-muted hover:bg-panel hover:text-fg',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 function EmptyState({
   mode,
   pageTitle,
   onPrompt,
   onSummarize,
+  onOpenAgent,
 }: {
   mode: 'chat' | 'page';
   pageTitle?: string;
   onPrompt: (p: string) => void;
   onSummarize: () => void;
+  onOpenAgent: () => void;
 }) {
   if (mode === 'page') {
     const prompts = [
@@ -361,9 +411,16 @@ function EmptyState({
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <h2 className="font-display text-xl text-fg">What do you want to explore?</h2>
       <p className="mt-2 max-w-[32ch] text-sm text-muted">
-        Select text on any page for Explain, Rewrite, Translate, and more — or chat here.
+        Select text for rewrite tools, or open the Agent tab to control tabs and Gmail locally.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
+        <button
+          type="button"
+          onClick={onOpenAgent}
+          className="rounded-2xl border border-accent/40 bg-accent/10 px-3 py-2.5 text-left text-sm text-accent transition hover:bg-accent/20"
+        >
+          Open Browser Agent
+        </button>
         {prompts.map((p) => (
           <button
             key={p}

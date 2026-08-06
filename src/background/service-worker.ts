@@ -1,8 +1,15 @@
 /**
  * Background service worker (Manifest V3).
- * Coordinates side panel, context menus, selection handoff, and messaging.
+ * Coordinates side panel, context menus, selection handoff, and agent tools.
  * Inference runs in extension pages (popup/side panel) via WebGPU — not here.
  */
+import type { AgentRuntimeMessage } from '@/agent/types';
+import {
+  getAgentPermissionState,
+  requestAgentPermissions,
+} from '@/agent/permissions';
+import { routeAgentTool } from '@/background/tools/router';
+import { getAgentSettings } from '@/storage/agentSettings';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
 
 const SELECTION_MENU_ACTIONS = [
@@ -148,6 +155,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           error: e instanceof Error ? e.message : 'Could not reach the page',
         });
       }
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  // —— Agent ——
+  if (message?.type === 'AGENT_EXECUTE_TOOL') {
+    const msg = message as AgentRuntimeMessage & { type: 'AGENT_EXECUTE_TOOL' };
+    routeAgentTool(msg.call, Boolean(msg.confirmed))
+      .then((result) => sendResponse(result))
+      .catch((err: unknown) =>
+        sendResponse({
+          ok: false,
+          error: String(err),
+          toolCall: msg.call,
+        }),
+      );
+    return true;
+  }
+
+  if (message?.type === 'AGENT_REQUEST_PERMISSIONS') {
+    const includeDebugger = Boolean(
+      (message as { scopes?: string[] }).scopes?.includes('debugger'),
+    );
+    requestAgentPermissions(includeDebugger)
+      .then((granted) => sendResponse({ type: 'AGENT_PERMISSIONS_RESULT', granted }))
+      .catch(() => sendResponse({ type: 'AGENT_PERMISSIONS_RESULT', granted: false }));
+    return true;
+  }
+
+  if (message?.type === 'AGENT_GET_STATUS') {
+    (async () => {
+      const [settings, permissions] = await Promise.all([
+        getAgentSettings(),
+        getAgentPermissionState(),
+      ]);
+      sendResponse({
+        type: 'AGENT_STATUS',
+        agentEnabled: settings.enabled,
+        permissions,
+      });
     })().catch((err: unknown) => {
       sendResponse({ ok: false, error: String(err) });
     });

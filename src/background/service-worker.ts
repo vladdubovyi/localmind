@@ -1,7 +1,7 @@
 /**
  * Background service worker (Manifest V3).
- * Coordinates side panel, context menus, selection handoff, and agent tools.
- * Inference runs in extension pages (popup/side panel) via WebGPU — not here.
+ * Coordinates side panel, context menus, selection handoff, agent tools,
+ * and hosts the WebLLM WebGPU engine so models stay warm across panel closes.
  */
 import type { AgentRuntimeMessage } from '@/agent/types';
 import {
@@ -9,8 +9,11 @@ import {
   requestAgentPermissions,
 } from '@/agent/permissions';
 import { routeAgentTool } from '@/background/tools/router';
+import { registerWebllmServiceWorkerHandler } from '@/background/webllmHandler';
 import { getAgentSettings } from '@/storage/agentSettings';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
+
+registerWebllmServiceWorkerHandler();
 
 const SELECTION_MENU_ACTIONS = [
   { id: 'explain', title: 'Explain selection' },

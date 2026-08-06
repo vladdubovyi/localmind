@@ -61,7 +61,7 @@ export function SettingsPanel({
               onReloadModel(localModel);
             }}
           >
-            Load / re-download selected model
+            Load selected model
           </button>
         </Section>
 

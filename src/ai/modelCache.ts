@@ -1,7 +1,7 @@
 /**
- * WebLLM Cache API helpers — source of truth for whether a model was downloaded.
- * LocalMind IndexedDB modelMeta is a UX hint and can get out of sync when the
- * popup is closed mid-load.
+ * WebLLM Cache API helpers — source of truth for whether model *weights* were
+ * downloaded. The live WebGPU engine lives in the extension service worker;
+ * IndexedDB modelMeta is only a UX hint and can drift if a load is interrupted.
  */
 
 export async function isModelInCache(modelId: string): Promise<boolean> {

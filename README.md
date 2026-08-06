@@ -7,7 +7,7 @@ LocalMind is a Chrome extension (Manifest V3) that runs an LLM fully on-device w
 ## Shipped
 
 ### Milestone 1 — Core runtime
-Chrome extension + WebLLM download/cache + chat UI (markdown, copy, regenerate, stop).
+Chrome extension + WebLLM download/cache + chat UI (markdown, copy, regenerate, stop). Model weights persist in the browser Cache API; the WebGPU engine is hosted in the extension service worker so reopening the side panel reconnects instead of re-downloading.
 
 ### Milestone 2 — Page understanding
 **Ask this page** + **Summarize** (TLDR / bullets / facts / actions) with DOM → chunk → retrieve → LLM.

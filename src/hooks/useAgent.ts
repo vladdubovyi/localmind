@@ -99,6 +99,30 @@ export function useAgent() {
           const visible = stripToolCallMarkup(reply);
 
           if (!calls.length) {
+            // Small local models often emit almost-tool JSON without tags. Nudge once
+            // instead of treating that as the final answer.
+            const looksLikeToolAttempt =
+              /"name"\s*:\s*"[a-z_]+"|<tool|TOOL_CALL:|gmail_list|tabs_|page_/i.test(reply) &&
+              stepsLeft > 0;
+            if (looksLikeToolAttempt) {
+              pushStep({
+                kind: 'thought',
+                content:
+                  visible ||
+                  'Model attempted a tool call in the wrong format — retrying with a stricter reminder.',
+              });
+              history.push({ role: 'assistant', content: reply });
+              history.push({
+                role: 'user',
+                content: [
+                  'That was not a valid tool call. Reply with ONLY this XML (no prose, no markdown):',
+                  '<tool_call>',
+                  '{"name":"gmail_list","arguments":{"query":"label:inbox","maxResults":5}}',
+                  '</tool_call>',
+                ].join('\n'),
+              });
+              continue;
+            }
             pushStep({ kind: 'final', content: visible || reply });
             break;
           }
@@ -109,9 +133,20 @@ export function useAgent() {
 
           // Execute first tool call only (keeps local models reliable)
           const call = calls[0];
-          pushStep({ kind: 'tool_call', content: `${call.name}`, toolCall: call });
+          pushStep({
+            kind: 'tool_call',
+            content: `${call.name}(${JSON.stringify(call.arguments)})`,
+            toolCall: call,
+          });
 
           let result = await executeTool(call, false);
+          if (!result || typeof result !== 'object') {
+            result = {
+              ok: false,
+              error: 'No response from the background tool router. Try reloading the extension.',
+              toolCall: call,
+            };
+          }
 
           if (result.needsConfirm && result.toolCall) {
             pushStep({

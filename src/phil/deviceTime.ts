@@ -113,24 +113,19 @@ export function parseAbsoluteReminder(
 
   let hour = 15;
   let minute = 0;
-  if (clock) {
-    if (clock[6]) {
-      const word = clock[6].toLowerCase();
-      hour = word === 'noon' ? 12 : 0;
-      minute = 0;
-    } else if (clock[1] != null) {
-      hour = Number(clock[1]);
-      minute = clock[2] != null ? Number(clock[2]) : 0;
-      const mer = (clock[3] || '').toLowerCase();
-      if (mer === 'pm' && hour < 12) hour += 12;
-      if (mer === 'am' && hour === 12) hour = 0;
-    } else if (clock[4] != null) {
-      hour = Number(clock[4]);
-      minute = clock[5] != null ? Number(clock[5]) : 0;
-    }
-  } else if (matchedDay) {
-    hour = 9;
+  if (clock[6]) {
+    const word = clock[6].toLowerCase();
+    hour = word === 'noon' ? 12 : 0;
     minute = 0;
+  } else if (clock[1] != null) {
+    hour = Number(clock[1]);
+    minute = clock[2] != null ? Number(clock[2]) : 0;
+    const mer = (clock[3] || '').toLowerCase();
+    if (mer === 'pm' && hour < 12) hour += 12;
+    if (mer === 'am' && hour === 12) hour = 0;
+  } else if (clock[4] != null) {
+    hour = Number(clock[4]);
+    minute = clock[5] != null ? Number(clock[5]) : 0;
   }
 
   const baseUtc = zonedLocalToUtcMs(

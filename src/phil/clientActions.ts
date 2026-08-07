@@ -7,6 +7,7 @@ import type { PersistentProject, ProjectTemplate } from '@/phil/projectTypes';
 import type { Goal, Reminder } from '@/phil/types';
 import {
   getGoal,
+  getPhilSettings,
   getReminder,
   putGoal,
   putReminder,
@@ -30,17 +31,26 @@ function notifySw(message: Record<string, unknown>): void {
 
 export async function createReminderFromUi(input: {
   text: string;
-  when: number;
+  when?: number;
   repeat?: Reminder['repeat'];
   projectId?: string;
+  /** When true (default), apply Phil reminder defaults for omitted fields. */
+  applyDefaults?: boolean;
 }): Promise<Reminder> {
+  const settings = await getPhilSettings();
+  const applyDefaults = input.applyDefaults !== false;
   const now = Date.now();
   const projectId = input.projectId ?? (await getActiveProjectId()) ?? undefined;
+  const when =
+    input.when ??
+    (applyDefaults ? now + settings.reminderDefaultLeadMinutes * 60_000 : now + 30 * 60_000);
+  const repeat =
+    input.repeat ?? (applyDefaults ? settings.reminderDefaultRepeat : 'none');
   const reminder: Reminder = {
     id: uid('rem'),
     text: input.text.trim(),
-    when: input.when,
-    repeat: input.repeat ?? 'none',
+    when,
+    repeat,
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,

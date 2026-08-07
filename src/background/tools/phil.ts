@@ -75,18 +75,17 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
       const text = argString(call, 'text');
       const when = argNumber(call, 'when');
       const inMinutes = argNumber(call, 'inMinutes');
-      const repeat = (argString(call, 'repeat', 'none') || 'none') as
-        | 'none'
-        | 'daily'
-        | 'weekdays';
+      const repeatRaw = argString(call, 'repeat', '');
+      const repeat = repeatRaw
+        ? (repeatRaw as 'none' | 'daily' | 'weekdays')
+        : undefined;
       if (!text.trim()) {
         return { ok: false, error: 'text is required', toolCall: call };
       }
       const whenMs =
-        when ?? (inMinutes != null ? Date.now() + inMinutes * 60_000 : undefined);
-      if (whenMs == null) {
-        return { ok: false, error: 'Provide when (epoch ms) or inMinutes', toolCall: call };
-      }
+        when ??
+        (inMinutes != null ? Date.now() + inMinutes * 60_000 : undefined);
+      // Omit when so Phil reminder defaults apply (SET-05); still link active project (B2).
       const projectId = argString(call, 'projectId') || undefined;
       const reminder = await createReminder({ text, when: whenMs, repeat, projectId });
       return { ok: true, data: reminder, toolCall: call };
@@ -314,6 +313,12 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
         'briefingHour',
         'briefingMinute',
         'nudgeThresholdMs',
+        'notificationFrequency',
+        'reminderDefaultLeadMinutes',
+        'reminderDefaultRepeat',
+        'quietHoursEnabled',
+        'quietHoursStartHour',
+        'quietHoursEndHour',
         'locality',
       ] as const) {
         if (call.arguments[key] !== undefined) partial[key] = call.arguments[key];

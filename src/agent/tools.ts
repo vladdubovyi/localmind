@@ -361,6 +361,21 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       briefingHour: { type: 'number', description: 'Local hour 0–23' },
       briefingMinute: { type: 'number', description: 'Local minute 0–59' },
       nudgeThresholdMs: { type: 'number', description: 'Leisure ms before nudge' },
+      notificationFrequency: {
+        type: 'string',
+        description: 'off | low | normal | high',
+      },
+      reminderDefaultLeadMinutes: {
+        type: 'number',
+        description: 'Default minutes until reminder fires',
+      },
+      reminderDefaultRepeat: {
+        type: 'string',
+        description: 'none | daily | weekdays',
+      },
+      quietHoursEnabled: { type: 'boolean', description: 'Suppress notifications in quiet hours' },
+      quietHoursStartHour: { type: 'number', description: 'Quiet hours start (0–23, device TZ)' },
+      quietHoursEndHour: { type: 'number', description: 'Quiet hours end (0–23, device TZ)' },
       locality: { type: 'string', description: 'City/region bias for web research' },
     },
   },

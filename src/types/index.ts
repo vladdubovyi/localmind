@@ -62,6 +62,10 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   memoryEnabled: boolean;
   autoSummarize: boolean;
+  /** Opt-in diagnostics — default off (PRIV). */
+  analyticsEnabled?: boolean;
+  /** Opt-in crash reporting — default off (PRIV). */
+  crashReportingEnabled?: boolean;
   generation: GenerationSettings;
 }
 

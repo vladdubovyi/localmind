@@ -1,3 +1,5 @@
+import { parseAbsoluteReminder } from '../phil/deviceTime';
+
 /**
  * Lightweight intent helpers for Phil chat / agent goals.
  */
@@ -70,7 +72,8 @@ export function parseRecallQuery(goal: string): string {
 export function isReminderGoal(goal: string): boolean {
   return (
     /\b(remind|reminder|alarm)\b/i.test(goal) ||
-    /\b(in|after)\s+\d+\s*(minutes|mins|min|hours|hour|hrs|hr)\b/i.test(goal)
+    /\b(in|after)\s+\d+\s*(minutes|mins|min|hours|hour|hrs|hr)\b/i.test(goal) ||
+    parseAbsoluteReminder(goal) != null
   );
 }
 
@@ -151,6 +154,11 @@ export function offersToActWithoutTools(text: string): boolean {
 const TIME_UNIT = 'minutes|mins|min|hours|hour|hrs|hr';
 
 export function parseReminderInMinutes(goal: string): number | undefined {
+  const absolute = parseAbsoluteReminder(goal);
+  if (absolute) {
+    const mins = Math.round((absolute.when - Date.now()) / 60_000);
+    return mins >= 1 ? mins : undefined;
+  }
   const m = goal.match(
     new RegExp(`\\b(?:in|after)\\s+(\\d+)\\s*(${TIME_UNIT})\\b`, 'i'),
   );
@@ -164,6 +172,8 @@ export function parseReminderInMinutes(goal: string): number | undefined {
 
 /** Best-effort reminder body from natural language. */
 export function parseReminderText(goal: string): string {
+  const absolute = parseAbsoluteReminder(goal);
+  if (absolute?.text) return absolute.text;
   let t = goal.trim();
   t = t.replace(/^(please\s+)?(can you\s+)?/i, '');
   t = t.replace(
@@ -257,3 +267,11 @@ export function isProjectProgressGoal(goal: string): boolean {
   );
 }
 
+/** Absolute fire time (epoch ms) when phrase uses device TZ (SET-08). */
+export function parseReminderWhenMs(goal: string, now = new Date()): number | undefined {
+  const absolute = parseAbsoluteReminder(goal, now);
+  if (absolute) return absolute.when;
+  const mins = parseReminderInMinutes(goal);
+  if (mins == null) return undefined;
+  return now.getTime() + mins * 60_000;
+}

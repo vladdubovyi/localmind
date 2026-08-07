@@ -1,4 +1,9 @@
 import { categorizeDomain, domainFromUrl } from '@/phil/categories';
+import {
+  isInQuietHours,
+  nudgeCooldownMs,
+  proactiveAllowed,
+} from '@/phil/notificationPolicy';
 import type { FocusCategory } from '@/phil/types';
 import {
   getPhilSettings,
@@ -138,6 +143,8 @@ async function flushActive(now = Date.now()): Promise<void> {
 async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promise<void> {
   const settings = await getPhilSettings();
   if (!settings.nudgesEnabled) return;
+  if (!proactiveAllowed(settings.notificationFrequency)) return;
+  if (isInQuietHours(settings, new Date(now))) return;
 
   const goals = (await listGoals()).filter((g) => g.status === 'active');
   if (!goals.length) {
@@ -176,7 +183,7 @@ async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promis
   }
 
   if (leisureStreakMs < settings.nudgeThresholdMs) return;
-  if (now - lastNudgeAt < 10 * 60_000) return;
+  if (now - lastNudgeAt < nudgeCooldownMs(settings.notificationFrequency)) return;
 
   lastNudgeAt = now;
   leisureStreakMs = 0;

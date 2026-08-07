@@ -259,3 +259,10 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **E2E evidence (local):** `playwright test e2e/daily-review.spec.ts e2e/proactive.spec.ts e2e/projects-exec-assistant.spec.ts e2e/workflows-focus-coaching.spec.ts` → **19 passed, 1 skipped** (WF-10 owned by C1/C3). Green: DAY-01…06, PRO-01…07, PRJ-EA-01…03, WF-07, WF-19, WF-20.
 - **Suggested owner:** D1 for CI e2e evidence; C1 for Career/Job Hunt; C3 for WF-10 Japan playbook
 
+### 2026-08-07 — Agent C1 (Project template skills)
+- **Test IDs:** PRJ-CA-01…04, PRJ-JH-01…03, PRJ-RP-01…03, PRJ-LP-01…03, PRJ-GA-01…03
+- **Severity:** FYI
+- **Type:** deferred | missing-impl
+- **Summary:** Replaced B1 stub project template skills with real `registerSkill` implementations + playbooks; e2e driven via Projects UI harness.
+- **Detail:** Skills under `src/agent/skills/projects/` replace stubs. Storage playbooks/actions; briefing slices for career/life/job. E2e uses Projects tab + action buttons. Deferred: live alarms without UI Refresh; real tab browse without harness (C2); PRJ-EA (C2); Google SERP (C3).
+- **Suggested owner:** C2, D1, human PM

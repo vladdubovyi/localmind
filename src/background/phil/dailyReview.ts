@@ -166,6 +166,32 @@ export async function composeBriefingContent(): Promise<ComposedBriefing> {
         todayMilestone ? ` — today’s focus: ${todayMilestone.title}` : ''
       }`,
     );
+    if (activeProject.template === 'career') {
+      const study =
+        typeof activeProject.metrics.todayStudyTask === 'string'
+          ? activeProject.metrics.todayStudyTask
+          : 'Study task: system design practice';
+      lines.push(`- ${study}`);
+      if (activeProject.metrics.browseRelevance) {
+        lines.push('- System design browse classified as productive toward this project');
+      }
+    }
+    if (activeProject.template === 'life_move' && !activeProject.metrics.homePurchase) {
+      const items = (activeProject.metrics.briefingItems as string[] | undefined) ?? [
+        'Book flights this week',
+        'Schedule visa appointment within two weeks',
+        'Electricity providers not researched yet',
+      ];
+      lines.push('**Life Planner**');
+      for (const item of items) lines.push(`- ${item}`);
+    }
+    if (activeProject.template === 'job_hunt') {
+      const last = activeProject.metrics.lastJobSearch as { message?: string } | undefined;
+      if (last?.message) {
+        lines.push('**Job hunt — top matches**');
+        for (const line of last.message.split('\n').slice(0, 5)) lines.push(line);
+      }
+    }
     if (activeProject.template === 'exec_day') {
       lines.push('- Exec day mode: I’ll help you stay productive today with light nudges.');
     }

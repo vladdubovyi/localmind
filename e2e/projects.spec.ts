@@ -15,7 +15,9 @@ test.describe('Projects core (PRJ)', () => {
     });
     await expect(philPage.getByText(/I've set up your .* project/i).first()).toBeVisible();
     await expect(philPage.getByText(/Career Accelerator/i).first()).toBeVisible();
-    await expect(philPage.getByText(/Get started on/i).first()).toBeVisible();
+    await expect(
+      philPage.getByText(/Get started on|Map Staff Engineer|System design|roadmap/i).first(),
+    ).toBeVisible();
   });
 
   test('PRJ-02: Attach artifacts to a project', async ({ philPage }) => {

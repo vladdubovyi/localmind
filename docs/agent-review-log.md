@@ -244,3 +244,17 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Privacy dashboard + chrome.storage keyword memory shipped; Calendar Privacy enable is local flag until B3 OAuth.
 - **Detail:** Storage: `philMemories` in chrome.storage.local (SW-safe). Conversations remain IDB with keyword search. Embeddings/vector stubs are no-ops. History shown as not granted until C4. Analytics/crash default OFF; Feedback via GitHub + mailto.
 - **Suggested owner:** B3 (Calendar OAuth), C4 (history), D2 (feedback email)
+
+### 2026-08-07 — Agent C2 (Daily review + Proactive + Exec-day)
+- **Test IDs:** DAY-01…06, PRO-01…07, PRJ-EA-01…03, WF-07, WF-19, WF-20
+- **Severity:** FYI
+- **Type:** open-question | deferred
+- **Summary:** Shipped evening recap alarm, richer morning briefing, proactive detectors + Today inbox, exec-day coaching surfaces; ADR Q5 = dedicated detectors (not synthetic router utterances).
+- **Detail:**
+  - **Detectors:** `research_without_notes`, `similar_product_tabs`, `leisure_refocus`, `email_time_triage`, `travel_book_reminder`, `context_switching`, `stay_on_track_coach`, `suggest_break` (+ harness seeds).
+  - **ADR Q5 choice:** dedicated detectors write `philSuggestions`; frequency `off` blocks creation; quiet hours + caps via `notificationPolicy`. Router Factory untouched.
+  - **DAY:** morning compose adds priorities + goals completed + toward-goals focus; evening recap alarm (`eveningRecapHour`) + Today section; DAY-06 goal-relative Focus insights.
+  - **PRJ-EA / WF:** exec_day morning plan slice, day nudges, evening auto-recap; WF-07/19/20 harnessed on Today/Focus. WF-10 skipped (C1/C3).
+  - **E2E:** harness seeds via `__philProactive` / session flags.
+- **Suggested owner:** D1 for CI e2e evidence; C1 for Career/Job Hunt; C3 for WF-10 Japan playbook
+

@@ -19,9 +19,17 @@ import {
 import {
   cancelReminderAlarm,
   registerPhilAlarms,
-  scheduleMorningBriefingAlarm,
+  runEveningRecap,
+  scheduleDailyReviewAlarms,
   scheduleReminderAlarm,
 } from '@/background/phil/reminders';
+import {
+  acceptSuggestion,
+  dismissSuggestion,
+  registerProactiveEngine,
+  runProactiveEngine,
+  snoozeSuggestion,
+} from '@/background/phil/proactiveEngine';
 import { executePhilTools } from '@/background/tools/phil';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
@@ -156,8 +164,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'PHIL_RESCHEDULE_BRIEFING') {
     (async () => {
-      await scheduleMorningBriefingAlarm();
+      await scheduleDailyReviewAlarms();
       sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_RUN_EVENING_RECAP') {
+    (async () => {
+      await runEveningRecap({ notify: message.notify !== false });
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_RUN_PROACTIVE') {
+    (async () => {
+      const result = await runProactiveEngine({ harness: Boolean(message.harness) });
+      sendResponse({ ok: true, ...result });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_SUGGESTION_DISMISS') {
+    (async () => {
+      const next = await dismissSuggestion(String(message.id ?? ''));
+      sendResponse({ ok: Boolean(next), suggestion: next });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_SUGGESTION_SNOOZE') {
+    (async () => {
+      const ms = typeof message.ms === 'number' ? message.ms : undefined;
+      const next = await snoozeSuggestion(String(message.id ?? ''), ms);
+      sendResponse({ ok: Boolean(next), suggestion: next });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_SUGGESTION_ACCEPT') {
+    (async () => {
+      const next = await acceptSuggestion(String(message.id ?? ''));
+      sendResponse({ ok: Boolean(next), suggestion: next });
     })().catch((err: unknown) => {
       sendResponse({ ok: false, error: String(err) });
     });
@@ -315,6 +374,10 @@ installContextMenus();
     };
     __philExecuteTool?: typeof executePhilTools;
     __routeAgentTool?: typeof routeAgentTool;
+    __philProactive?: {
+      runProactiveEngine: typeof runProactiveEngine;
+      runEveningRecap: typeof runEveningRecap;
+    };
   }
 ).__philFocus = {
   resumeFocusTracking,
@@ -325,12 +388,24 @@ installContextMenus();
   executePhilTools;
 (globalThis as typeof globalThis & { __routeAgentTool?: typeof routeAgentTool }).__routeAgentTool =
   routeAgentTool;
+(
+  globalThis as typeof globalThis & {
+    __philProactive?: {
+      runProactiveEngine: typeof runProactiveEngine;
+      runEveningRecap: typeof runEveningRecap;
+    };
+  }
+).__philProactive = {
+  runProactiveEngine,
+  runEveningRecap,
+};
 
 // Defer Phil trackers so a storage/alarms glitch cannot block message handling.
 queueMicrotask(() => {
   try {
     registerFocusTracker();
     registerPhilAlarms();
+    registerProactiveEngine();
     // Important: listeners alone do not start a dwell after SW wake/install.
     void resumeFocusTracking();
   } catch (err) {

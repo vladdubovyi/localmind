@@ -360,6 +360,9 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       briefingEnabled: { type: 'boolean', description: 'Morning briefing notification' },
       briefingHour: { type: 'number', description: 'Local hour 0–23' },
       briefingMinute: { type: 'number', description: 'Local minute 0–59' },
+      eveningRecapEnabled: { type: 'boolean', description: 'Evening recap notification' },
+      eveningRecapHour: { type: 'number', description: 'Local hour 0–23 for evening recap' },
+      eveningRecapMinute: { type: 'number', description: 'Local minute 0–59 for evening recap' },
       nudgeThresholdMs: { type: 'number', description: 'Leisure ms before nudge' },
       notificationFrequency: {
         type: 'string',
@@ -382,6 +385,12 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'briefing_today',
     description: 'Compose today’s morning briefing from goals, reminders, and focus so far.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'briefing_evening',
+    description: 'Compose today’s evening recap (work completed, distractions, tomorrow priorities).',
     risk: 'safe',
     parameters: {},
   },

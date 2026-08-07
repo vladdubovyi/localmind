@@ -141,3 +141,24 @@ export async function completeGoalFromUi(id: string): Promise<Goal | undefined> 
 export function requestBriefingReschedule(): void {
   notifySw({ type: 'PHIL_RESCHEDULE_BRIEFING' });
 }
+
+export function requestEveningRecap(notify = true): void {
+  notifySw({ type: 'PHIL_RUN_EVENING_RECAP', notify });
+}
+
+export function requestProactiveTick(harness = false): void {
+  notifySw({ type: 'PHIL_RUN_PROACTIVE', harness });
+}
+
+export function dismissSuggestionFromUi(id: string): void {
+  notifySw({ type: 'PHIL_SUGGESTION_DISMISS', id });
+}
+
+export function snoozeSuggestionFromUi(id: string, ms?: number): void {
+  notifySw({ type: 'PHIL_SUGGESTION_SNOOZE', id, ms });
+}
+
+export function acceptSuggestionFromUi(id: string): void {
+  notifySw({ type: 'PHIL_SUGGESTION_ACCEPT', id });
+}
+

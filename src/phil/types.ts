@@ -58,11 +58,48 @@ export interface MorningBriefing {
   dateKey: string; // YYYY-MM-DD local
   content: string;
   createdAt: number;
+  kind?: 'morning' | 'evening';
   sources: {
     reminderCount: number;
     activeGoalCount: number;
+    completedGoalCount?: number;
     focusMs: { productive: number; leisure: number; neutral: number; blocked: number };
+    towardGoalsMs?: number;
+    suggestedPriorities?: string[];
   };
+}
+
+/** Proactive suggestion kinds (PRO-* detectors). */
+export type SuggestionKind =
+  | 'research_summary'
+  | 'compare_tabs'
+  | 'leisure_refocus'
+  | 'email_triage'
+  | 'smart_reminder'
+  | 'focus_break'
+  | 'context_switch'
+  | 'stay_on_track'
+  | 'focus_session';
+
+export type SuggestionStatus = 'active' | 'dismissed' | 'snoozed' | 'accepted';
+
+/**
+ * Proactive inbox item. Detectors write these directly (ADR Q5: dedicated
+ * detectors — not synthetic router utterances) so Wave-2 coaching works
+ * without changing Router Factory internals.
+ */
+export interface ProactiveSuggestion {
+  id: string;
+  kind: SuggestionKind;
+  detectorId: string;
+  title: string;
+  body: string;
+  status: SuggestionStatus;
+  createdAt: number;
+  updatedAt: number;
+  snoozeUntil?: number;
+  dismissUntil?: number;
+  meta?: Record<string, unknown>;
 }
 
 /** Proactive / nudge delivery frequency (SET-02/03). */
@@ -76,19 +113,18 @@ export interface PhilAssistantSettings {
   /** Local hour 0–23 for morning briefing. */
   briefingHour: number;
   briefingMinute: number;
+  /** Evening auto-recap (DAY-04/05, PRJ-EA-03). */
+  eveningRecapEnabled: boolean;
+  eveningRecapHour: number;
+  eveningRecapMinute: number;
   /** Continuous leisure ms before a goal nudge (SET-04 sensitivity). */
   nudgeThresholdMs: number;
   /** Caps proactive + nudge notifications (SET-02/03). */
   notificationFrequency: NotificationFrequency;
-  /** Default lead time when creating a reminder without an explicit when (SET-05). */
   reminderDefaultLeadMinutes: number;
-  /** Default repeat applied to new reminders when not overridden (SET-05). */
   reminderDefaultRepeat: Reminder['repeat'];
-  /** Suppress Chrome notifications during this local-hour window (SET-06). */
   quietHoursEnabled: boolean;
-  /** Inclusive start hour 0–23 in device TZ. */
   quietHoursStartHour: number;
-  /** Exclusive end hour 0–23 in device TZ (may wrap past midnight). */
   quietHoursEndHour: number;
   locality: string;
   categoryOverrides: Record<string, FocusCategory>;
@@ -101,6 +137,9 @@ export const DEFAULT_PHIL_SETTINGS: PhilAssistantSettings = {
   briefingEnabled: true,
   briefingHour: 8,
   briefingMinute: 0,
+  eveningRecapEnabled: true,
+  eveningRecapHour: 18,
+  eveningRecapMinute: 0,
   nudgeThresholdMs: 2 * 60_000,
   notificationFrequency: 'normal',
   reminderDefaultLeadMinutes: 30,

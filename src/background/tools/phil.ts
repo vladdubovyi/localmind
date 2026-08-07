@@ -3,18 +3,18 @@ import type { FocusCategory, Goal } from '@/phil/types';
 import {
   cancelReminder,
   createReminder,
-  scheduleMorningBriefingAlarm,
+  scheduleDailyReviewAlarms,
 } from '@/background/phil/reminders';
 import {
-  composeBriefingContent,
-  focusSummaryToday,
-} from '@/background/phil/focusTracker';
+  buildEveningBriefingRecord,
+  buildMorningBriefingRecord,
+} from '@/background/phil/dailyReview';
+import { focusSummaryToday } from '@/background/phil/focusTracker';
 import { runWebResearch } from '@/background/tools/webResearch';
 import {
   getPhilSettings,
   listGoals,
   listReminders,
-  localDateKey,
   putBriefing,
   putGoal,
   savePhilSettings,
@@ -319,6 +319,9 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
         'briefingEnabled',
         'briefingHour',
         'briefingMinute',
+        'eveningRecapEnabled',
+        'eveningRecapHour',
+        'eveningRecapMinute',
         'nudgeThresholdMs',
         'notificationFrequency',
         'reminderDefaultLeadMinutes',
@@ -331,23 +334,21 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
         if (call.arguments[key] !== undefined) partial[key] = call.arguments[key];
       }
       const next = await savePhilSettings(partial);
-      await scheduleMorningBriefingAlarm();
+      await scheduleDailyReviewAlarms();
       return { ok: true, data: next, toolCall: call };
     }
     case 'phil_settings_get': {
       return { ok: true, data: await getPhilSettings(), toolCall: call };
     }
     case 'briefing_today': {
-      const composed = await composeBriefingContent();
-      const briefing = {
-        id: uid('brief'),
-        dateKey: localDateKey(),
-        content: composed.content,
-        createdAt: Date.now(),
-        sources: composed.sources,
-      };
+      const briefing = await buildMorningBriefingRecord();
       await putBriefing(briefing);
       return { ok: true, data: briefing, toolCall: call };
+    }
+    case 'briefing_evening': {
+      const recap = await buildEveningBriefingRecord();
+      await putBriefing(recap);
+      return { ok: true, data: recap, toolCall: call };
     }
     case 'web_research': {
       return await runWebResearch(call);

@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  composeBriefingContent,
   focusSnapshotFromStorage,
   type FocusSnapshot,
 } from '@/background/phil/focusTracker';
+import {
+  buildEveningBriefingRecord,
+  buildMorningBriefingRecord,
+  goalRelativeFocus,
+} from '@/background/phil/dailyReview';
 import { EmptyState, EmptyStateCenter } from '@/components/common/EmptyState';
 import {
+  acceptSuggestionFromUi,
   cancelReminderFromUi,
   completeGoalFromUi,
   createGoalFromUi,
   createReminderFromUi,
+  dismissSuggestionFromUi,
   requestBriefingReschedule,
+  requestEveningRecap,
+  requestProactiveTick,
+  snoozeSuggestionFromUi,
 } from '@/phil/clientActions';
 import {
   SENSITIVITY_PRESETS,
@@ -22,6 +31,7 @@ import type {
   MorningBriefing,
   NotificationFrequency,
   PhilAssistantSettings,
+  ProactiveSuggestion,
   Reminder,
 } from '@/phil/types';
 import {
@@ -29,10 +39,10 @@ import {
   getPhilSettings,
   listGoals,
   listReminders,
+  listVisibleSuggestions,
   localDateKey,
   putBriefing,
   savePhilSettings,
-  uid,
 } from '@/storage/phil';
 import { cn } from '@/utils';
 
@@ -87,7 +97,8 @@ function usePhilStorageRefresh(onChange: () => void): void {
         changes.philBriefings ||
         changes.philFocusLive ||
         changes.philProjects ||
-        changes.philActiveProject
+        changes.philActiveProject ||
+        changes.philSuggestions
       ) {
         onChange();
       }
@@ -99,43 +110,84 @@ function usePhilStorageRefresh(onChange: () => void): void {
 
 export function TodayPanel() {
   const [content, setContent] = useState<string>('Loading…');
+  const [evening, setEvening] = useState<string | null>(null);
   const [sources, setSources] = useState<MorningBriefing['sources'] | null>(null);
+  const [suggestions, setSuggestions] = useState<ProactiveSuggestion[]>([]);
+  const [eveningNote, setEveningNote] = useState<string | null>(null);
 
   const refresh = useCallback(async (force = false) => {
     if (!force) {
-      const existing = await getBriefingByDate(localDateKey());
+      const existing = await getBriefingByDate(localDateKey(), 'morning');
       if (existing && Date.now() - existing.createdAt < 30 * 60_000) {
         setContent(existing.content);
         setSources(existing.sources);
-        return;
+      } else {
+        const briefing = await buildMorningBriefingRecord();
+        await putBriefing(briefing);
+        setContent(briefing.content);
+        setSources(briefing.sources);
       }
+    } else {
+      const briefing = await buildMorningBriefingRecord();
+      await putBriefing(briefing);
+      setContent(briefing.content);
+      setSources(briefing.sources);
     }
-    const composed = await composeBriefingContent();
-    const briefing: MorningBriefing = {
-      id: uid('brief'),
-      dateKey: localDateKey(),
-      content: composed.content,
-      createdAt: Date.now(),
-      sources: composed.sources,
-    };
-    await putBriefing(briefing);
-    setContent(briefing.content);
-    setSources(briefing.sources);
+
+    const eveningExisting = await getBriefingByDate(localDateKey(), 'evening');
+    setEvening(eveningExisting?.content ?? null);
+    setSuggestions(await listVisibleSuggestions());
+
+    try {
+      const session = await chrome.storage.session.get([
+        'philEveningNotification',
+        'philProactiveHarness',
+      ]);
+      const note = session.philEveningNotification as { message?: string } | undefined;
+      if (note?.message) setEveningNote(note.message);
+      if (session.philProactiveHarness) requestProactiveTick(true);
+    } catch {
+      // ignore
+    }
   }, []);
 
   useEffect(() => {
     void refresh();
+    requestProactiveTick(false);
   }, [refresh]);
   usePhilStorageRefresh(() => {
     void refresh();
   });
+
+  const onDismiss = (id: string) => {
+    dismissSuggestionFromUi(id);
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  };
+  const onSnooze = (id: string) => {
+    snoozeSuggestionFromUi(id, 60_000);
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  };
+  const onAccept = (id: string) => {
+    acceptSuggestionFromUi(id);
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const composeEvening = async () => {
+    const recap = await buildEveningBriefingRecord();
+    await putBriefing(recap);
+    setEvening(recap.content);
+    requestEveningRecap(true);
+    setEveningNote('evening notification / evening briefing ready');
+  };
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="font-display text-lg text-fg">Today</h2>
-          <p className="mt-1 text-xs text-muted">Goals, reminders, and focus so far.</p>
+          <p className="mt-1 text-xs text-muted">
+            Morning briefing, priorities, proactive inbox, and evening recap.
+          </p>
         </div>
         <button
           type="button"
@@ -145,33 +197,90 @@ export function TodayPanel() {
           Refresh
         </button>
       </div>
+
+      {suggestions.length > 0 && (
+        <section className="mt-4 min-w-0" aria-label="Proactive suggestions">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Phil noticed</h3>
+          <ul className="mt-2 space-y-2">
+            {suggestions.map((s) => (
+              <li
+                key={s.id}
+                className="min-w-0 rounded-xl border border-border-subtle bg-panel/50 px-3 py-2"
+              >
+                <div className="text-sm font-medium text-fg">{s.title}</div>
+                <p className="mt-1 text-xs leading-relaxed text-fg-dim">{s.body}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="text-xs text-accent hover:underline" onClick={() => onAccept(s.id)}>
+                    Accept
+                  </button>
+                  <button type="button" className="text-xs text-muted hover:underline" onClick={() => onSnooze(s.id)}>
+                    Snooze
+                  </button>
+                  <button type="button" className="text-xs text-danger hover:underline" onClick={() => onDismiss(s.id)}>
+                    Dismiss
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <pre className="mt-4 max-w-full whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-fg-dim [overflow-wrap:anywhere]">
         {content}
       </pre>
       {sources && (
         <p className="mt-4 text-[11px] text-muted">
           {sources.activeGoalCount} active goal(s) · {sources.reminderCount} reminder(s)
+          {sources.completedGoalCount != null ? ` · ${sources.completedGoalCount} completed` : ''}
         </p>
       )}
+
+      <section className="mt-6 min-w-0" aria-label="Evening recap">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Evening recap</h3>
+          <button
+            type="button"
+            onClick={() => void composeEvening()}
+            className="shrink-0 rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:border-accent/40 hover:text-fg"
+          >
+            Compose evening summary
+          </button>
+        </div>
+        {eveningNote && (
+          <p className="mt-2 text-[11px] text-accent">Evening notification path ready — {eveningNote}</p>
+        )}
+        {evening ? (
+          <pre className="mt-2 max-w-full whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-fg-dim [overflow-wrap:anywhere]">
+            {evening}
+          </pre>
+        ) : (
+          <p className="mt-2 text-xs text-muted">
+            Evening summary appears here after the evening briefing alarm or when you compose it.
+          </p>
+        )}
+      </section>
     </div>
   );
 }
 
 export function FocusPanel() {
   const [summary, setSummary] = useState<FocusSnapshot | null>(null);
+  const [relative, setRelative] = useState<Awaited<ReturnType<typeof goalRelativeFocus>> | null>(
+    null,
+  );
 
   const refresh = useCallback(async () => {
     const snapshot = await focusSnapshotFromStorage();
     setSummary(withLiveElapsed(snapshot));
+    setRelative(await goalRelativeFocus(snapshot));
   }, []);
 
   useEffect(() => {
     void refresh();
     const askCheckpoint = () => {
       try {
-        void chrome.runtime
-          .sendMessage({ type: 'PHIL_FOCUS_CHECKPOINT' })
-          .catch(() => undefined);
+        void chrome.runtime.sendMessage({ type: 'PHIL_FOCUS_CHECKPOINT' }).catch(() => undefined);
       } catch {
         // ignore
       }
@@ -203,9 +312,25 @@ export function FocusPanel() {
       <p className="mt-1 text-xs text-muted">Tab time today · {formatMs(summary.totalMs)} total</p>
       {summary.active && (
         <p className="mt-1 truncate text-xs text-accent">
-          Now: {summary.active.domain} · {formatMs(summary.active.elapsedMs)} ·{' '}
-          {summary.active.category}
+          Now: {summary.active.domain} · {formatMs(summary.active.elapsedMs)} · {summary.active.category}
         </p>
+      )}
+
+      {relative && (
+        <div className="mt-3 rounded-xl border border-border-subtle bg-panel/40 px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-muted">How productive was I today?</div>
+          <p className="mt-1 text-sm text-fg-dim">
+            Toward goals: {formatMs(relative.towardGoalsMs)} · Leisure / entertainment:{' '}
+            {formatMs(relative.leisureMs)}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Productive {formatMs(relative.productiveMs)} · Neutral {formatMs(relative.neutralMs)} ·
+            Leisure {formatMs(relative.leisureMs)}
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-fg-dim">
+            Actionable insight — {relative.insight}
+          </p>
+        </div>
       )}
 
       {isEmpty ? (
@@ -233,9 +358,7 @@ export function FocusPanel() {
                 className="min-w-0 rounded-xl border border-border-subtle bg-panel/60 px-3 py-2"
               >
                 <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
-                <div className="mt-1 text-sm font-medium text-fg">
-                  {formatMs(summary.byCategory[key])}
-                </div>
+                <div className="mt-1 text-sm font-medium text-fg">{formatMs(summary.byCategory[key])}</div>
               </div>
             ))}
           </div>
@@ -528,7 +651,10 @@ export function PhilSettingsPanel() {
     if (
       partial.briefingEnabled !== undefined ||
       partial.briefingHour !== undefined ||
-      partial.briefingMinute !== undefined
+      partial.briefingMinute !== undefined ||
+      partial.eveningRecapEnabled !== undefined ||
+      partial.eveningRecapHour !== undefined ||
+      partial.eveningRecapMinute !== undefined
     ) {
       requestBriefingReschedule();
     }
@@ -550,6 +676,7 @@ export function PhilSettingsPanel() {
             ['trackingEnabled', 'Track tab focus time'],
             ['nudgesEnabled', 'Off-task nudges'],
             ['briefingEnabled', 'Morning briefing'],
+            ['eveningRecapEnabled', 'Evening recap'],
           ] as const
         ).map(([key, label]) => (
           <label key={key} className="flex min-w-0 items-center justify-between gap-3 text-sm">
@@ -695,6 +822,18 @@ export function PhilSettingsPanel() {
             max={23}
             value={settings.briefingHour}
             onChange={(e) => void update({ briefingHour: Number(e.target.value) })}
+            className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+          />
+        </label>
+
+        <label className="block text-sm">
+          <span className="text-muted">Evening recap hour (local)</span>
+          <input
+            type="number"
+            min={0}
+            max={23}
+            value={settings.eveningRecapHour}
+            onChange={(e) => void update({ eveningRecapHour: Number(e.target.value) })}
             className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           />
         </label>

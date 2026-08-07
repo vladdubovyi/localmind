@@ -8,13 +8,11 @@ import type { FocusCategory } from '@/phil/types';
 import {
   getPhilSettings,
   listGoals,
-  listReminders,
   listTabActivitySince,
   putTabActivity,
   startOfLocalDay,
   uid,
 } from '@/storage/phil';
-import { getActiveProject } from '@/storage/projects';
 
 interface ActiveDwell {
   tabId: number;
@@ -535,80 +533,5 @@ export function installFocusTestHooks(): void {
   };
 }
 
-export async function composeBriefingContent(): Promise<{
-  content: string;
-  sources: {
-    reminderCount: number;
-    activeGoalCount: number;
-    focusMs: { productive: number; leisure: number; neutral: number; blocked: number };
-  };
-}> {
-  const reminders = (await listReminders()).filter(
-    (r) => r.status === 'scheduled' && r.when >= startOfLocalDay(),
-  );
-  const goals = (await listGoals()).filter((g) => g.status === 'active');
-  const focus = await focusSummaryToday();
-
-  const lines: string[] = ['Good morning — here’s what’s up today.', ''];
-
-  // PRJ-03: mention active Persistent Project when present.
-  const activeProject = await getActiveProject();
-  if (activeProject && activeProject.status === 'active') {
-    const todayMilestone = activeProject.milestones.find(
-      (m) => m.status === 'in_progress' || m.status === 'not_started',
-    );
-    lines.push('**Active project**');
-    lines.push(
-      `- ${activeProject.title} (${activeProject.template})${
-        todayMilestone ? ` — today’s focus: ${todayMilestone.title}` : ''
-      }`,
-    );
-    lines.push('');
-  } else {
-    lines.push('No active project yet — open Projects to start a long-horizon plan.');
-    lines.push('');
-  }
-
-  if (goals.length) {
-    lines.push('**Active goals**');
-    for (const g of goals) lines.push(`- ${g.title}`);
-    lines.push('');
-  } else {
-    lines.push('No active goals yet. Tell Phil what you want to finish today.');
-    lines.push('');
-  }
-
-  if (reminders.length) {
-    lines.push('**Reminders**');
-    for (const r of reminders.slice(0, 8)) {
-      const t = new Date(r.when);
-      lines.push(
-        `- ${t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — ${r.text}`,
-      );
-    }
-    lines.push('');
-  } else {
-    lines.push('No reminders scheduled for later today.');
-    lines.push('');
-  }
-
-  const mins = (ms: number) => Math.round(ms / 60_000);
-  lines.push('**Focus so far**');
-  lines.push(
-    `- Productive: ${mins(focus.byCategory.productive)}m · Leisure: ${mins(focus.byCategory.leisure)}m · Other: ${mins(focus.byCategory.neutral + focus.byCategory.blocked)}m`,
-  );
-  if (focus.byDomain[0]) {
-    lines.push(
-      `- Top site: ${focus.byDomain[0].domain} (${mins(focus.byDomain[0].ms)}m, ${focus.byDomain[0].category})`,
-    );
-  }
-
-  return {
-    content: lines.join('\n'),
-    sources: {
-      reminderCount: reminders.length,
-      activeGoalCount: goals.length,
-      focusMs: { ...focus.byCategory },
-    },
-  };
-}
+/** Re-export richer briefing compose (DAY-* / PRJ-EA) from dailyReview. */
+export { composeBriefingContent } from '@/background/phil/dailyReview';

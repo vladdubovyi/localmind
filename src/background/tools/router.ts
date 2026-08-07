@@ -4,6 +4,8 @@ import { getAgentPermissionState } from '@/agent/permissions';
 import { executeTabTools } from '@/background/tools/tabs';
 import { executePageTools } from '@/background/tools/page';
 import { executeGmailTools } from '@/background/tools/gmail';
+import { executePhilTools } from '@/background/tools/phil';
+import { runWebResearch } from '@/background/tools/webResearch';
 import { getAgentSettings } from '@/storage/agentSettings';
 
 const PHIL_PREFIXES = [
@@ -97,8 +99,11 @@ export async function routeAgentTool(
     if (call.name.startsWith('gmail_')) {
       return await executeGmailTools(call, settings);
     }
+    // Static dispatch only — Chrome MV3 forbids import() in service workers.
+    if (call.name === 'web_research') {
+      return await runWebResearch(call);
+    }
     if (isPhilTool(call.name)) {
-      const { executePhilTools } = await import('@/background/tools/phil');
       return await executePhilTools(call);
     }
     if (call.name.startsWith('debugger_')) {

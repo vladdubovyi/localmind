@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /**
  * BIZ-* — Wave 0 Agent A3 (Business / GTM).
  * Owned greens: BIZ-01…04, BIZ-09…10 (static site + docs + icons).
- * BIZ-05…08 need Privacy/Settings UI from B4/B5 — skipped + logged.
+ * BIZ-05…08 live in e2e/biz-privacy.spec.ts (extension fixture + Privacy UI).
  */
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,34 +122,6 @@ test.describe('Business (BIZ)', () => {
       expect(buf.readUInt32BE(16)).toBe(icon.w);
       expect(buf.readUInt32BE(20)).toBe(icon.w);
     }
-  });
-
-  // BIZ-05…08: Feedback + analytics/crash defaults (Privacy dashboard).
-  test('BIZ-05: Feedback button in extension', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
-    await expect(philPage.getByRole('link', { name: /^Feedback$/i })).toBeVisible({ timeout: 5_000 });
-  });
-
-  test('BIZ-06: Analytics default off', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
-    const checkbox = philPage.locator('label').filter({ hasText: /^Analytics$/i }).locator('input');
-    await expect(checkbox).toBeVisible({ timeout: 5_000 });
-    await expect(checkbox).not.toBeChecked();
-  });
-
-  test('BIZ-07: Crash reporting default off', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
-    const checkbox = philPage.locator('label').filter({ hasText: /Crash reporting/i }).locator('input');
-    await expect(checkbox).toBeVisible({ timeout: 5_000 });
-    await expect(checkbox).not.toBeChecked();
-  });
-
-  test('BIZ-08: Opt-in analytics can be enabled explicitly', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
-    const checkbox = philPage.locator('label').filter({ hasText: /^Analytics$/i }).locator('input');
-    await expect(checkbox).toBeVisible({ timeout: 5_000 });
-    await checkbox.check();
-    await expect(checkbox).toBeChecked();
   });
 
   test('BIZ-09: Demo video script exists and matches suite order', async () => {

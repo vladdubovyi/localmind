@@ -92,3 +92,19 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Detail:** Core `PersistentProject` includes `parentProjectId?` and milestone `parentMilestoneId?`, plus optional salary/location/techStack metrics keys. Full application status enum (`saved → drafted → applied → follow-up`) and richer template metrics were left for B2/C1 so A1 does not over-constrain storage. Reminders/Goals gained optional `projectId?` on existing `src/phil/types.ts` interfaces.
 - **Suggested owner:** B2 / C1
 
+### 2026-08-07 — Agent A3 (Business / GTM)
+- **Test IDs:** BIZ-01, BIZ-02, BIZ-03, BIZ-04, BIZ-09, BIZ-10
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Shipped landing, legal, CWS copy, demo script, icons, and BIZ smoke specs; left in-extension Feedback / analytics toggles to later pods.
+- **Detail:** Delivered `website/index.html` (+ privacy/terms/styles), `docs/cws-listing.md`, `docs/demo-script.md` (≤90s incl. Calendar + Projects “Where am I?”), replaced `public/icons/icon{16,32,48,128,512}.png`, and `e2e/business.spec.ts` for BIZ-01…04 and BIZ-09…10. BIZ-05 (Feedback button), BIZ-06…08 (analytics/crash defaults + opt-in) need Privacy/Settings UI from B4/B5 — privacy policy already documents analytics/crash **default OFF**. Waitlist form uses `mailto:waitlist@phil.local` placeholder until a real ESP is chosen. CWS store URL and production privacy/legal emails are placeholders.
+- **Suggested owner:** B4/B5 for BIZ-05…08 wiring; D2 for store URL + real contact emails; human PM for waitlist ESP
+
+### 2026-08-07 — Agent A3 (Business / GTM)
+- **Test IDs:** BIZ-01, BIZ-04
+- **Severity:** question
+- **Type:** open-question
+- **Summary:** Install CTA currently points at waitlist until CWS is published; icon512 is extra (not required by MV3 manifest).
+- **Detail:** Landing primary CTA is “Join the waitlist” (`#waitlist`) with note that install will point at CWS once live. Manifest still references 16/32/48/128 only; `icon512.png` is for store promo crops. Chose `website/**` (not `docs/landing/`) per plan ownership.
+- **Suggested owner:** human PM / D2
+

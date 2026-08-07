@@ -332,3 +332,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **DEFER-with-owner:** A2 WebLLM/WebGPU CI env → D1/CI; B1 Stage-2 router (`enableStage2` off) → D1; B3 Calendar OAuth stub → C3; A1 ProjectMetrics bag → C1; C3 live SERP scrape → D1/CI; Demo MP4 → human PM.
   - Prior A2 **blocker** entries are closed for missing-impl (IDs shipped); residual is env/model only (deferred, not untriaged).
 - **Suggested owner:** human PM for demo recording; D1 for e2e CI evidence
+
+### 2026-08-07 — Agent D1 (routing + chat-while-load fix)
+- **Test IDs:** CORE-06 adjacent UX; RTE/chat; calendar briefing; ONB-04…07
+- **Severity:** should-fix
+- **Type:** missing-impl
+- **Summary:** Restored Agent chat during model restore/download (banner + Thinking); stopped meta/calendar questions from routing to web_lookup.
+- **Detail:** B3 `showModelGate` had replaced Agent with ModelRestoring/Onboarding during restore. Gate is now WebGPU-blocked only. `isFactualLookupGoal` no longer treats every “What…” as web research; meta → `assistant.general`, calendar → `plan_workday` via briefing.
+- **Suggested owner:** D1 done; human verify live Agent UX

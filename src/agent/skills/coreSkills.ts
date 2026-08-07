@@ -6,10 +6,12 @@
 import type { ToolCall } from '../types';
 import {
   isBriefingGoal,
+  isCalendarAgendaGoal,
   isFocusStatusGoal,
   isForgetGoal,
   isGoalSetupGoal,
   isLiveInfoGoal,
+  isMetaCapabilityGoal,
   isProjectCreateGoal,
   isProjectListGoal,
   isProjectProgressGoal,
@@ -58,6 +60,8 @@ export function isFactualLookupGoal(goal: string): boolean {
     isReminderGoal(g) ||
     isGoalSetupGoal(g) ||
     isBriefingGoal(g) ||
+    isCalendarAgendaGoal(g) ||
+    isMetaCapabilityGoal(g) ||
     isFocusStatusGoal(g) ||
     isProjectCreateGoal(g) ||
     isProjectListGoal(g) ||
@@ -78,12 +82,22 @@ export function isFactualLookupGoal(goal: string): boolean {
     return false;
   }
   if (isLiveInfoGoal(g) || isWebResearchGoal(g)) return true;
-  if (/^(what|who|when|where|which|how|is|are|does|did|can|will|what's|whats)\b/i.test(g)) {
+  // Encyclopedia / fact style — but not personal Phil state ("my calendar", "you do").
+  if (/\b(my|your|phil)\b/i.test(g) && !/\b(price|stock|news|score|election)\b/i.test(g)) {
+    return false;
+  }
+  if (
+    /\b(how much|how many|latest|current|right now|price of|who (is|was|won)|what (is|are|was) the|capital of|population of)\b/i.test(
+      g,
+    )
+  ) {
     return true;
   }
-  return /\b(how much|how many|latest|current|today|right now|price of|who (is|was|won)|what (is|are|was))\b/i.test(
-    g,
-  );
+  // "What is X?" / "Who is Y?" — only when not about the user/assistant.
+  if (/^(what|who|when|where|which)\s+(is|are|was|were|did|does)\b/i.test(g)) {
+    return true;
+  }
+  return false;
 }
 
 function call(name: string, args: Record<string, unknown> = {}): ToolCall {
@@ -283,16 +297,25 @@ export function buildCoreSkills(): RegisteredSkill[] {
       aliases: ['briefing'],
       description: 'Morning / today overview',
       category: 'planning',
-      examples: ["What's up today?", 'Give me my morning briefing'],
+      examples: ["What's up today?", 'Give me my morning briefing', "What's in my calendar today?"],
       confirmationLevel: 'none',
-      routeScore: (ctx) => (isBriefingGoal(goalOf(ctx)) ? 0.94 : 0),
+      routeScore: (ctx) => {
+        const g = goalOf(ctx);
+        if (isCalendarAgendaGoal(g)) return 0.96;
+        if (isBriefingGoal(g)) return 0.94;
+        return 0;
+      },
       execute: stubExecute('Morning briefing'),
     },
     {
       legacyId: 'briefing',
       finalizeDirectAnswer: true,
-      buildToolCall: () => call('briefing_today', {}),
-      hints: () => ['Call briefing_today and present the overview.'],
+      buildToolCall: (goal) =>
+        isCalendarAgendaGoal(goal) ? call('plan_workday', {}) : call('briefing_today', {}),
+      hints: (goal) =>
+        isCalendarAgendaGoal(goal)
+          ? ['Call plan_workday for calendar/agenda. If Calendar is disconnected, say so — do not invent events.']
+          : ['Call briefing_today and present the overview.'],
     },
   );
 
@@ -486,6 +509,7 @@ export function buildCoreSkills(): RegisteredSkill[] {
       routeScore: (ctx) => {
         const g = goalOf(ctx);
         if (isWeatherGoal(g)) return 0;
+        if (isMetaCapabilityGoal(g) || isCalendarAgendaGoal(g)) return 0;
         if (/\bcompare\b/i.test(g) && /\brecommend\b/i.test(g)) return 0.4;
         if (ctx.pageUrl && /\bsummarize this\b/i.test(g)) return 0;
         if (isLiveInfoGoal(g) || isWebResearchGoal(g)) return 0.86;
@@ -706,15 +730,39 @@ export function buildCoreSkills(): RegisteredSkill[] {
       aliases: ['chat'],
       description: 'General assistant / agent fallback (tool-using chat)',
       category: 'fallback',
-      examples: ['Do you think I should take the job?'],
+      examples: ['Do you think I should take the job?', 'What can you do?'],
       confirmationLevel: 'none',
       priority: -10,
-      routeScore: () => 0.1,
-      execute: stubExecute('General assistant'),
+      routeScore: (ctx) => {
+        if (isMetaCapabilityGoal(goalOf(ctx))) return 0.97;
+        return 0.1;
+      },
+      execute: (args) => {
+        if (isMetaCapabilityGoal(args.utterance || goalOf(args.context))) {
+          return okMessage(
+            [
+              "I'm **Phil** — your private on-device assistant in Chrome.",
+              '',
+              'I can:',
+              '- Chat and reason locally (no cloud LLM)',
+              '- Summarize pages and explain selections',
+              '- Manage **goals**, **reminders**, and **focus**',
+              '- Run **Persistent Projects** (career, job hunt, research, life planning)',
+              '- Research the web (Google) when you ask',
+              '- Work with **Gmail** and optional **Calendar** when connected',
+              '- Keep a **Privacy** dashboard for what stays on-device',
+              '',
+              'Ask me something concrete — e.g. “Remind me in 20 minutes”, “Summarize this page”, or “Plan my workday.”',
+            ].join('\n'),
+          );
+        }
+        return stubExecute('General assistant')(args);
+      },
     },
     {
       legacyId: 'chat',
-      hints: () => ['Answer directly if no tool is needed. Stay on-topic.'],
+      finalizeDirectAnswer: true,
+      hints: () => ['Answer directly if no tool is needed. Stay on-topic. Do not call web_research for capability questions.'],
     },
   );
 

@@ -14,7 +14,6 @@ import {
 } from '@/components/phil/PhilPanels';
 import { ProjectsPanel } from '@/components/phil/ProjectsPanel';
 import { PrivacyPanel } from '@/components/phil/PrivacyPanel';
-import { ModelRestoring } from '@/components/onboarding/ModelRestoring';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
@@ -168,15 +167,29 @@ export function ChatApp({ variant }: ChatAppProps) {
   const showRestoring = isRestoringEngine(phase, loadingFromCache);
   const webgpuBlocked = webgpuReady && webgpu === false;
   // Wave2 C3 / C4: e2e (?philTest=1) exercises finalizeDirectAnswer + Agent fast-path
-  // skills (reminders, browser memory, workflows) without WebGPU. Production still gates.
+  // skills (reminders, browser memory, workflows) without WebGPU.
   const philTestMode =
     typeof window !== 'undefined' &&
     (new URLSearchParams(window.location.search).has('philTest') ||
       Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
-  const showModelGate =
+  // Only hard-gate Agent when WebGPU is impossible. While the model downloads or
+  // restores, keep Agent interactive (banner + Thinking…) — do not replace the chat.
+  const showModelGate = uiTab === 'agent' && !philTestMode && webgpuBlocked;
+  const showBackgroundRestore =
     uiTab === 'agent' &&
+    !webgpuBlocked &&
     !philTestMode &&
-    (webgpuBlocked || showFullOnboarding || showRestoring);
+    (showRestoring || showFullOnboarding) &&
+    phase !== 'ready';
+  const restoreLabel =
+    progress?.text ||
+    (loadingFromCache
+      ? 'Restoring model in the background…'
+      : phase === 'downloading'
+        ? 'Downloading model in the background…'
+        : showFullOnboarding
+          ? 'Preparing model in the background…'
+          : 'Preparing model in the background…');
 
   return (
     <div
@@ -244,36 +257,42 @@ export function ChatApp({ variant }: ChatAppProps) {
         </span>
       </div>
 
+      {showBackgroundRestore && (
+        <div className="shrink-0 border-b border-border-subtle bg-panel/60 px-3 py-1.5 text-[11px] text-muted">
+          {restoreLabel}
+          {error ? ` · ${error}` : ''}
+          {phase === 'error' && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="text-accent hover:underline"
+                onClick={() => void downloadAndLoad(settings.selectedModelId)}
+              >
+                Retry
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {uiTab === 'agent' ? (
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {showModelGate ? (
-            webgpuBlocked || showFullOnboarding ? (
-              <Onboarding
-                selectedModelId={settings.selectedModelId}
-                progress={progress}
-                error={
-                  webgpuBlocked
-                    ? 'WebGPU is not available. Local AI needs Chrome/Edge with working GPU hardware.'
-                    : error
-                }
-                isDownloading={phase === 'downloading'}
-                alreadyCached={loadingFromCache}
-                onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
-                onDownload={(id) => void downloadAndLoad(id)}
-                onContinueWithoutModel={() => setUiTab('goals')}
-              />
-            ) : (
-              <ModelRestoring
-                progress={progress}
-                error={error}
-                selectedModelId={settings.selectedModelId}
-                onRetry={() => void downloadAndLoad(settings.selectedModelId)}
-                onTrySmaller={(id) => {
-                  void updateSettings({ selectedModelId: id });
-                  void downloadAndLoad(id);
-                }}
-              />
-            )
+            <Onboarding
+              selectedModelId={settings.selectedModelId}
+              progress={progress}
+              error={
+                webgpuBlocked
+                  ? 'WebGPU is not available. Local AI needs Chrome/Edge with working GPU hardware.'
+                  : error
+              }
+              isDownloading={phase === 'downloading'}
+              alreadyCached={loadingFromCache}
+              onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
+              onDownload={(id) => void downloadAndLoad(id)}
+              onContinueWithoutModel={() => setUiTab('goals')}
+            />
           ) : (
             <AgentPanel
               modelReady={modelReady}

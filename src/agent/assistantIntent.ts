@@ -100,7 +100,37 @@ export function isFocusStatusGoal(goal: string): boolean {
 export function isBriefingGoal(goal: string): boolean {
   return (
     /\b(briefing|what'?s up|whats up|morning overview|today'?s plan)\b/i.test(goal) ||
-    /\bwhat('?s| is) (on|up) today\b/i.test(goal)
+    /\bwhat('?s| is) (on|up) today\b/i.test(goal) ||
+    isCalendarAgendaGoal(goal)
+  );
+}
+
+/** “What's on my calendar / schedule / agenda today?” */
+export function isCalendarAgendaGoal(goal: string): boolean {
+  const g = goal.trim();
+  if (!g) return false;
+  if (/\bwhat('?s| is| are)?\s+(in|on)\s+my\s+(calendar|schedule|agenda)\b/i.test(g)) return true;
+  if (/\b(calendar|schedule|agenda)\b/i.test(g) && /\b(today|tonight|this morning|now)\b/i.test(g)) {
+    return !/\b(create|add|new)\s+(a\s+)?(calendar|event)\b/i.test(g);
+  }
+  return false;
+}
+
+/** Capability / identity questions — answer as Phil, never web search. */
+export function isMetaCapabilityGoal(goal: string): boolean {
+  const g = goal.trim().replace(/[?.!]+$/g, '').trim();
+  if (!g) return false;
+  if (
+    /^(what can you do|what do you do|who are you|what are you|how can you help|what are your (capabilities|features)|help)$/i.test(
+      g,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\bwhat can (you|phil) (do|help (me )?with)\b/i.test(g) ||
+    /\b(your|phil'?s) (capabilities|features|skills)\b/i.test(g) ||
+    /\bhow (can|do) (you|phil) help\b/i.test(g)
   );
 }
 

@@ -7,25 +7,23 @@ import { test, expect, type Page } from './fixtures/extension';
 
 async function openFreshOnboarding(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    await chrome.storage.local.remove('onboarding');
+    await chrome.storage.local.remove(['onboarding', 'setupWizardStep']);
     await chrome.storage.session?.clear?.();
   }).catch(() => undefined);
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByText(/Welcome to Phil|Stays on-device|Get started/i).first()).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
-async function advanceWizard(page: Page, clicks: number): Promise<void> {
-  for (let i = 0; i < clicks; i++) {
-    const skip = page.getByRole('button', { name: /Skip for now/i });
-    const primary = page.getByRole('button', { name: /Get started|Continue|Allow|Connect Calendar|Continue to model/i }).first();
-    if (await skip.isVisible().catch(() => false)) {
-      await skip.click();
-    } else if (await primary.isVisible().catch(() => false)) {
-      await primary.click();
-    } else {
-      break;
-    }
-    await page.waitForTimeout(200);
+async function skipToCalendar(page: Page): Promise<void> {
+  // welcome → browser → gmail → calendar
+  for (const label of [/Get started/i, /Skip for now/i, /Skip for now/i]) {
+    const btn = page.getByRole('button', { name: label }).first();
+    await expect(btn).toBeVisible({ timeout: 8_000 });
+    await btn.click();
   }
+  await expect(page.getByText(/Calendar/i).first()).toBeVisible({ timeout: 8_000 });
 }
 
 test.describe('Onboarding (ONB)', () => {
@@ -35,7 +33,7 @@ test.describe('Onboarding (ONB)', () => {
       waitUntil: 'domcontentloaded',
     });
     await page.evaluate(async () => {
-      await chrome.storage.local.remove('onboarding');
+      await chrome.storage.local.remove(['onboarding', 'setupWizardStep']);
       await chrome.storage.session.clear?.();
     }).catch(() => undefined);
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -71,8 +69,7 @@ test.describe('Onboarding (ONB)', () => {
 
   test('ONB-08: Calendar is an onboarding step', async ({ philPage }) => {
     await openFreshOnboarding(philPage);
-    await expect(philPage.getByRole('button', { name: /Get started/i })).toBeVisible({ timeout: 10_000 });
-    await advanceWizard(philPage, 3); // welcome → browser → gmail → calendar
+    await skipToCalendar(philPage);
     await expect(philPage.getByText(/Calendar/i).first()).toBeVisible({ timeout: 8_000 });
     await expect(philPage.getByText(/daily planning|plan my workday|Skip/i).first()).toBeVisible({
       timeout: 5_000,
@@ -82,7 +79,6 @@ test.describe('Onboarding (ONB)', () => {
   });
 
   test('ONB-04: Recommended model is selected automatically', async ({ philPage }) => {
-    // Completed onboarding → model gate shows Onboarding download UI.
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     await expect(philPage.getByText(/Recommended|recommended model/i).first()).toBeVisible({
       timeout: 15_000,
@@ -98,12 +94,9 @@ test.describe('Onboarding (ONB)', () => {
 
   test('ONB-06: Download interrupt can be resumed', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    // Force an error path if none yet: UI always exposes Retry after failure; also show Resume copy on footer.
-    const retry = philPage.getByRole('button', { name: /Retry|Resume/i });
+    const retry = philPage.getByRole('button', { name: /Retry|Resume|Check again/i });
     const download = philPage.getByRole('button', { name: /Download AI|Load Phil|Downloading/i });
     await expect(download.or(retry).first()).toBeVisible({ timeout: 15_000 });
-    // Inject a synthetic error banner path by marking model meta error is harness-limited;
-    // assert Resume/Retry affordance exists in Onboarding footer copy or controls.
     await expect(
       philPage.getByText(/Resume|Retry|resume if interrupted|If something fails: Retry/i).first(),
     ).toBeVisible({ timeout: 10_000 });
@@ -115,7 +108,6 @@ test.describe('Onboarding (ONB)', () => {
     await expect(philPage.getByRole('button', { name: /^Goals$/i })).toBeVisible();
     await expect(philPage.getByRole('button', { name: /^Reminders$/i })).toBeVisible();
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    // Either chat composer (model ready) or model setup / restore UI after wizard.
     const composer = philPage.getByPlaceholder(/Message the agent/i);
     const modelUi = philPage.getByText(/Download AI|Restoring Phil|Recommended|WebGPU/i);
     await expect(composer.or(modelUi).first()).toBeVisible({ timeout: 15_000 });

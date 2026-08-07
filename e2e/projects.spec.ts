@@ -14,7 +14,7 @@ test.describe('Projects core (PRJ)', () => {
       timeout: 5_000,
     });
     await expect(philPage.getByText(/I've set up your .* project/i).first()).toBeVisible();
-    await expect(philPage.getByText(/Career Accelerator|career/i).first()).toBeVisible();
+    await expect(philPage.getByText(/Career Accelerator/i).first()).toBeVisible();
     await expect(philPage.getByText(/Get started on/i).first()).toBeVisible();
   });
 

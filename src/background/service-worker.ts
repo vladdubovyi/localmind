@@ -16,10 +16,12 @@ import {
   resumeFocusTracking,
 } from '@/background/phil/focusTracker';
 import { registerPhilAlarms } from '@/background/phil/reminders';
+import { executePhilTools } from '@/background/tools/phil';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
 import { getPhilSettings, savePhilSettings } from '@/storage/phil';
 import type { PhilQuickIntent } from '@/phil/types';
+import type { ToolCall } from '@/agent/types';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
 
 const PHIL_TOOL_PREFIXES = [
@@ -253,28 +255,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // —— Agent ——
   if (message?.type === 'AGENT_EXECUTE_TOOL') {
     const msg = message as AgentRuntimeMessage & { type: 'AGENT_EXECUTE_TOOL' };
-    // Phil tools (except web_research): dynamic-import the executor so the SW
-    // boot graph does not cycle through router → phil tools → reminders.
-    if (msg.call && isPhilToolName(msg.call.name) && msg.call.name !== 'web_research') {
-      import('@/background/tools/phil')
-        .then((m) => m.executePhilTools(msg.call))
+    const call = msg.call as ToolCall | undefined;
+    // Phil PA tools: call the static executor (no dynamic import / circular chunk).
+    if (call && isPhilToolName(call.name) && call.name !== 'web_research') {
+      executePhilTools(call)
         .then((result) => sendResponse(result))
         .catch((err: unknown) =>
           sendResponse({
             ok: false,
             error: String(err),
-            toolCall: msg.call,
+            toolCall: call,
           }),
         );
       return true;
     }
-    routeAgentTool(msg.call, Boolean(msg.confirmed))
+    routeAgentTool(call as ToolCall, Boolean(msg.confirmed))
       .then((result) => sendResponse(result))
       .catch((err: unknown) =>
         sendResponse({
           ok: false,
           error: String(err),
-          toolCall: msg.call,
+          toolCall: call,
         }),
       );
     return true;
@@ -325,12 +326,15 @@ installContextMenus();
       checkpointFocus: typeof checkpointFocus;
       focusSnapshot: typeof focusSnapshot;
     };
+    __philExecuteTool?: typeof executePhilTools;
   }
 ).__philFocus = {
   resumeFocusTracking,
   checkpointFocus,
   focusSnapshot,
 };
+(globalThis as typeof globalThis & { __philExecuteTool?: typeof executePhilTools }).__philExecuteTool =
+  executePhilTools;
 
 // Defer Phil trackers so a storage/alarms glitch cannot block message handling.
 queueMicrotask(() => {

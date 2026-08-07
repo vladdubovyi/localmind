@@ -37,11 +37,74 @@ import { getSettings } from '@/storage/db';
 import { uid } from '@/utils';
 
 async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResult> {
-  return chrome.runtime.sendMessage({
-    type: 'AGENT_EXECUTE_TOOL',
-    call,
-    confirmed,
-  });
+  try {
+    const result = (await chrome.runtime.sendMessage({
+      type: 'AGENT_EXECUTE_TOOL',
+      call,
+      confirmed,
+    })) as ToolResult | undefined;
+    if (result && typeof result === 'object') {
+      // Side-channel fallback if an older/broken SW rejects Phil tools.
+      if (
+        !result.ok &&
+        typeof result.error === 'string' &&
+        /unknown tool/i.test(result.error) &&
+        (call.name === 'reminder_create' || call.name === 'goal_create')
+      ) {
+        return executePhilToolLocally(call);
+      }
+      return result;
+    }
+  } catch (err) {
+    if (call.name === 'reminder_create' || call.name === 'goal_create') {
+      try {
+        return await executePhilToolLocally(call);
+      } catch {
+        // fall through
+      }
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      toolCall: call,
+    };
+  }
+  if (call.name === 'reminder_create' || call.name === 'goal_create') {
+    return executePhilToolLocally(call);
+  }
+  return {
+    ok: false,
+    error: 'No response from the background tool router. Try reloading the extension.',
+    toolCall: call,
+  };
+}
+
+/** UI-side Phil tool execution when the service worker router is unavailable. */
+async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
+  if (call.name === 'reminder_create') {
+    const { createReminderFromUi } = await import('@/phil/clientActions');
+    const text = String(call.arguments.text ?? '').trim();
+    const inMinutes = Number(call.arguments.inMinutes);
+    const whenArg = Number(call.arguments.when);
+    const when = Number.isFinite(whenArg)
+      ? whenArg
+      : Date.now() + (Number.isFinite(inMinutes) && inMinutes > 0 ? inMinutes : 30) * 60_000;
+    if (!text) {
+      return { ok: false, error: 'text is required', toolCall: call };
+    }
+    const reminder = await createReminderFromUi({ text, when });
+    return { ok: true, data: reminder, toolCall: call };
+  }
+  if (call.name === 'goal_create') {
+    const { createGoalFromUi } = await import('@/phil/clientActions');
+    const title = String(call.arguments.title ?? '').trim();
+    if (!title) {
+      return { ok: false, error: 'title is required', toolCall: call };
+    }
+    const goal = await createGoalFromUi(title);
+    return { ok: true, data: goal, toolCall: call };
+  }
+  return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
 }
 
 function humanizeFinal(content: string): string {
@@ -71,6 +134,11 @@ function looksLikeMalformedToolCall(text: string): boolean {
   if (/\{\s*"name"\s*:\s*"[a-z][a-z0-9_]+"/.test(text)) return true;
   if (/\b[a-z][a-z0-9_]+\s*\(\s*\{/.test(text)) {
     const m = text.match(/\b([a-z][a-z0-9_]+)\s*\(\s*\{/i);
+    if (m && getTool(m[1])) return true;
+  }
+  // gmail_list(query: "…") without braces
+  if (/\b[a-z][a-z0-9_]+\s*\(\s*[A-Za-z_]/.test(text)) {
+    const m = text.match(/\b([a-z][a-z0-9_]+)\s*\(/i);
     if (m && getTool(m[1])) return true;
   }
   if (/\b[a-z][a-z0-9_]+\s*\{/.test(text)) {
@@ -579,11 +647,28 @@ export function useAgent() {
 
             if (shouldNudge) {
               formatNudgesLeft -= 1;
-              const forced = buildPhilFastPathCall(goal);
-              if (forced && (needsPhilTool || narratesToolUse(reply))) {
+
+              // Prefer executing a concrete tool over asking the model again.
+              const forcedPhil = buildPhilFastPathCall(goal);
+              const forcedEmail =
+                !forcedPhil && (needsEmailTool || narratesToolUse(reply)) && intent === 'email_list'
+                  ? ({
+                      id: uid('call'),
+                      name: 'gmail_list',
+                      arguments: {
+                        query: 'newer_than:14d',
+                        maxResults: inferMaxResults(goal) ?? 5,
+                      },
+                    } satisfies ToolCall)
+                  : null;
+              const forced = forcedPhil ?? forcedEmail;
+
+              if (forced) {
                 pushStep({
                   kind: 'thought',
-                  content: 'Running the Phil tool directly…',
+                  content: forcedPhil
+                    ? 'Running the Phil tool directly…'
+                    : 'Calling gmail_list instead of narrating…',
                 });
                 pushStep({
                   kind: 'tool_call',
@@ -599,6 +684,10 @@ export function useAgent() {
                         error: 'No response from the background tool router.',
                         toolCall: forced,
                       };
+                if (okResult.ok && forced.name === 'gmail_list') {
+                  gotSuccessfulGmail = true;
+                  gotSuccessfulTool = true;
+                }
                 pushStep({
                   kind: okResult.ok ? 'tool_result' : 'error',
                   content: okResult.ok
@@ -608,13 +697,24 @@ export function useAgent() {
                   toolResult: okResult,
                 });
                 if (okResult.ok) {
-                  pushStep({
-                    kind: 'final',
-                    content: formatToolResultContent(forced.name, okResult),
+                  // Continue the loop so the model can summarize tool results,
+                  // or finish immediately for Phil tools.
+                  if (forcedPhil) {
+                    pushStep({
+                      kind: 'final',
+                      content: formatToolResultContent(forced.name, okResult),
+                    });
+                    return;
+                  }
+                  history.push({ role: 'assistant', content: reply });
+                  history.push({
+                    role: 'user',
+                    content: continueAfterToolPrompt(goal, stepsRef.current, forced, okResult),
                   });
+                  continue;
                 }
-                return;
               }
+
               pushStep({
                 kind: 'thought',
                 content: hallucinated

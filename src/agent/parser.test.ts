@@ -60,6 +60,27 @@ I'll open the page first.
   assert(calls[0].name === 'gmail_list', 'fn style: name');
 }
 
+// Kwargs without braces (user-reported narration that must still execute)
+{
+  const sample = 'gmail_list(query: "newer_than:14d", maxResults: 5)';
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'kwargs: expected one call');
+  assert(calls[0].name === 'gmail_list', 'kwargs: name');
+  assert(calls[0].arguments.query === 'newer_than:14d', 'kwargs: query');
+  assert(calls[0].arguments.maxResults === 5, 'kwargs: maxResults');
+  const stripped = stripToolCallMarkup(sample);
+  assert(!stripped.includes('gmail_list'), 'kwargs: stripped');
+}
+
+{
+  const sample = 'reminder_create(text: "call mom", inMinutes: 5)';
+  const calls = parseToolCalls(sample);
+  assert(calls.length === 1, 'reminder kwargs: expected one call');
+  assert(calls[0].name === 'reminder_create', 'reminder kwargs: name');
+  assert(calls[0].arguments.text === 'call mom', 'reminder kwargs: text');
+  assert(calls[0].arguments.inMinutes === 5, 'reminder kwargs: inMinutes');
+}
+
 // Unknown tool JSON should be ignored
 {
   const sample = '{"name":"not_a_real_tool","arguments":{}}';

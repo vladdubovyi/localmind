@@ -16,6 +16,33 @@ function makeCall(name: string, args: Record<string, unknown>): ToolCall {
 }
 
 /**
+ * Parse `tool_name(key: value, key2: 5)` (no braces) — common small-model output.
+ * e.g. gmail_list(query: "newer_than:14d", maxResults: 5)
+ */
+function parseNameParenKwargs(text: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const re = /\b([a-z][a-z0-9_]{2,})\s*\(\s*([^)]*)\s*\)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const name = match[1];
+    if (!getTool(name)) continue;
+    const body = match[2].trim();
+    // JSON-object form is handled elsewhere
+    if (body.startsWith('{')) continue;
+    if (!body) {
+      calls.push(makeCall(name, {}));
+      continue;
+    }
+    // Must look like kwargs (key: value), not a single positional string
+    if (!/^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(body)) continue;
+    const args = parseShorthandArgBody(`{${body}}`);
+    if (!Object.keys(args).length) continue;
+    calls.push(makeCall(name, args));
+  }
+  return calls;
+}
+
+/**
  * Parse `tool_name{…}` / `tool_name {…}` (with or without space).
  * Local models often emit: tabs_navigate{"url":"https://…"}
  */
@@ -177,6 +204,14 @@ export function parseToolCalls(text: string): ToolCall[] {
     }
   }
 
+  // Python-ish / bare kwargs: gmail_list(query: "newer_than:14d", maxResults: 5)
+  if (!calls.length) {
+    for (const call of parseNameParenKwargs(textRepaired)) calls.push(call);
+    if (!calls.length) {
+      for (const call of parseNameParenKwargs(text)) calls.push(call);
+    }
+  }
+
   // Shorthand / glued: gmail_list {…}, tabs_navigate{"url":"…"}, tabs_create{url:"…"}
   if (!calls.length) {
     for (const call of parseNameBraceCalls(textRepaired)) calls.push(call);
@@ -216,7 +251,14 @@ export function stripToolCallMarkup(text: string): string {
     .replace(/TOOL_CALL:\s*\{[\s\S]*?\}(?:\n|$)/gi, '')
     .replace(/\b([a-z][a-z0-9_]{2,})\s*\(\s*\{[\s\S]*?\}\s*\)/gi, (full, name: string) =>
       getTool(name) ? '' : full,
-    );
+    )
+    .replace(/\b([a-z][a-z0-9_]{2,})\s*\(\s*([^)]*)\s*\)/gi, (full, name: string, body: string) => {
+      if (!getTool(name)) return full;
+      const trimmed = String(body ?? '').trim();
+      if (trimmed.startsWith('{')) return full;
+      if (!trimmed || /^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(trimmed)) return '';
+      return full;
+    });
 
   // Strip tool_name{…} / tool_name {…} including glued forms
   out = stripNameBraceMarkup(out);

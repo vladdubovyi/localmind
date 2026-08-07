@@ -20,8 +20,10 @@ import {
   savePhilSettings,
   uid,
 } from '@/storage/phil';
-import { executeTabTools } from '@/background/tools/tabs';
-import { executePageTools } from '@/background/tools/page';
+
+// NOTE: Do NOT statically import tabs/page here — they are bundled into the
+// service-worker chunk, which creates a phil ↔ SW circular import and breaks
+// dynamic loading of executePhilTools (reminder_create shows as Unknown tool).
 
 function argString(call: ToolCall, key: string, fallback = ''): string {
   return String(call.arguments[key] ?? fallback);
@@ -205,6 +207,10 @@ async function runWebResearch(call: ToolCall): Promise<ToolResult> {
   if (!query.trim()) {
     return { ok: false, error: 'query is required', toolCall: call };
   }
+  // Lazy imports keep phil.js free of the SW circular dependency.
+  const { executeTabTools } = await import('@/background/tools/tabs');
+  const { executePageTools } = await import('@/background/tools/page');
+
   const settings = await getPhilSettings();
   const locality = argString(call, 'locality', settings.locality);
   const maxResults = Math.min(5, Math.max(1, argNumber(call, 'maxResults') ?? 3));

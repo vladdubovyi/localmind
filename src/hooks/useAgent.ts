@@ -25,7 +25,9 @@ import {
   isGoalSetupGoal,
   isReminderGoal,
   isWebResearchGoal,
+  parseGoalTitle,
   parseReminderInMinutes,
+  parseReminderText,
 } from '@/agent/assistantIntent';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
@@ -104,10 +106,14 @@ function philIntentHints(goal: string): string[] {
     return [
       'Call reminder_create with text and inMinutes (or when).',
       mins != null ? `Suggested inMinutes: ${mins}` : 'Infer inMinutes from the request.',
+      `Suggested text: ${parseReminderText(goal)}`,
     ];
   }
   if (isGoalSetupGoal(goal)) {
-    return ['Call goal_create with a clear title from the user request.'];
+    return [
+      'Call goal_create with a clear title from the user request.',
+      `Suggested title: ${parseGoalTitle(goal)}`,
+    ];
   }
   if (isFocusStatusGoal(goal)) {
     return ['Call focus_summary and summarize productive vs leisure time.'];
@@ -121,6 +127,38 @@ function philIntentHints(goal: string): string[] {
     ];
   }
   return [];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Deterministic Phil tools — do not wait for the LLM to emit a call. */
+function buildPhilFastPathCall(goal: string): ToolCall | null {
+  if (isReminderGoal(goal)) {
+    return {
+      id: uid('call'),
+      name: 'reminder_create',
+      arguments: {
+        text: parseReminderText(goal),
+        inMinutes: parseReminderInMinutes(goal) ?? 30,
+      },
+    };
+  }
+  if (isGoalSetupGoal(goal)) {
+    return {
+      id: uid('call'),
+      name: 'goal_create',
+      arguments: { title: parseGoalTitle(goal) },
+    };
+  }
+  if (isFocusStatusGoal(goal)) {
+    return { id: uid('call'), name: 'focus_summary', arguments: {} };
+  }
+  if (isBriefingGoal(goal)) {
+    return { id: uid('call'), name: 'briefing_today', arguments: {} };
+  }
+  return null;
 }
 
 function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: string): string {
@@ -392,8 +430,74 @@ export function useAgent() {
           throw new Error('Enable Agent mode in settings first.');
         }
 
-        const appSettings = await getSettings();
+        // Phil PA tools run via the service worker and do not need the LLM.
+        const fastCall = buildPhilFastPathCall(goal);
+        if (fastCall) {
+          pushStep({
+            kind: 'thought',
+            content: 'Thinking…',
+          });
+          pushStep({
+            kind: 'tool_call',
+            content: toolCallLabel(fastCall.name, fastCall.arguments),
+            toolCall: fastCall,
+          });
+          let result = await executeTool(fastCall, false);
+          if (!result || typeof result !== 'object') {
+            result = {
+              ok: false,
+              error: 'No response from the background tool router. Try reloading the extension.',
+              toolCall: fastCall,
+            };
+          }
+          if (result.needsConfirm && result.toolCall) {
+            pushStep({
+              kind: 'confirm',
+              content: `Confirm: ${getTool(fastCall.name)?.confirmLabel ?? fastCall.name}`,
+              toolCall: fastCall,
+            });
+            const ok = await waitForConfirm(fastCall);
+            if (!ok || abortRef.current) {
+              pushStep({ kind: 'error', content: 'User cancelled the action.' });
+              return;
+            }
+            result = await executeTool(fastCall, true);
+          }
+          pushStep({
+            kind: result.ok ? 'tool_result' : 'error',
+            content: result.ok
+              ? formatToolResultContent(fastCall.name, result)
+              : result.error || 'Tool failed',
+            toolCall: fastCall,
+            toolResult: result,
+          });
+          if (result.ok) {
+            pushStep({
+              kind: 'final',
+              content: formatToolResultContent(fastCall.name, result),
+            });
+          }
+          return;
+        }
+
         const provider = getAIProvider();
+        if (!provider.isReady()) {
+          pushStep({
+            kind: 'thought',
+            content: 'Thinking…',
+          });
+          // Model restores in the background — keep the chat interactive.
+          const started = Date.now();
+          while (!provider.isReady() && !abortRef.current) {
+            if (Date.now() - started > 10 * 60_000) {
+              throw new Error('Timed out waiting for the local model to load.');
+            }
+            await sleep(400);
+          }
+          if (abortRef.current) return;
+        }
+
+        const appSettings = await getSettings();
         if (!provider.isReady()) {
           throw new Error('Load the local model before running the agent.');
         }
@@ -452,6 +556,13 @@ export function useAgent() {
                   (s.toolCall?.name === 'gmail_draft' || s.toolCall?.name === 'gmail_send') &&
                   s.toolResult?.ok,
               );
+            const needsPhilTool =
+              (isReminderGoal(goal) ||
+                isGoalSetupGoal(goal) ||
+                isFocusStatusGoal(goal) ||
+                isBriefingGoal(goal) ||
+                isWebResearchGoal(goal)) &&
+              !gotSuccessfulTool;
 
             const shouldNudge =
               formatNudgesLeft > 0 &&
@@ -459,6 +570,7 @@ export function useAgent() {
                 needsEmailTool ||
                 needsRead ||
                 needsDraft ||
+                needsPhilTool ||
                 looksLikeMalformedToolCall(reply) ||
                 narratesToolUse(reply) ||
                 ((isEmailGoal(goal) || isOpenLinkGoal(goal) || intent === 'email_draft') &&
@@ -467,6 +579,42 @@ export function useAgent() {
 
             if (shouldNudge) {
               formatNudgesLeft -= 1;
+              const forced = buildPhilFastPathCall(goal);
+              if (forced && (needsPhilTool || narratesToolUse(reply))) {
+                pushStep({
+                  kind: 'thought',
+                  content: 'Running the Phil tool directly…',
+                });
+                pushStep({
+                  kind: 'tool_call',
+                  content: toolCallLabel(forced.name, forced.arguments),
+                  toolCall: forced,
+                });
+                const forcedResult = await executeTool(forced, false);
+                const okResult =
+                  forcedResult && typeof forcedResult === 'object'
+                    ? forcedResult
+                    : {
+                        ok: false as const,
+                        error: 'No response from the background tool router.',
+                        toolCall: forced,
+                      };
+                pushStep({
+                  kind: okResult.ok ? 'tool_result' : 'error',
+                  content: okResult.ok
+                    ? formatToolResultContent(forced.name, okResult)
+                    : okResult.error || 'Tool failed',
+                  toolCall: forced,
+                  toolResult: okResult,
+                });
+                if (okResult.ok) {
+                  pushStep({
+                    kind: 'final',
+                    content: formatToolResultContent(forced.name, okResult),
+                  });
+                }
+                return;
+              }
               pushStep({
                 kind: 'thought',
                 content: hallucinated

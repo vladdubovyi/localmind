@@ -4,9 +4,12 @@ import {
   focusSummaryToday,
 } from '@/background/phil/focusTracker';
 import {
-  cancelReminder,
-  createReminder,
-} from '@/background/phil/reminders';
+  cancelReminderFromUi,
+  completeGoalFromUi,
+  createGoalFromUi,
+  createReminderFromUi,
+  requestBriefingReschedule,
+} from '@/phil/clientActions';
 import type { Goal, MorningBriefing, PhilAssistantSettings, Reminder } from '@/phil/types';
 import {
   getBriefingByDate,
@@ -15,7 +18,6 @@ import {
   listReminders,
   localDateKey,
   putBriefing,
-  putGoal,
   savePhilSettings,
   uid,
 } from '@/storage/phil';
@@ -27,6 +29,28 @@ function formatMs(ms: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function usePhilStorageRefresh(onChange: () => void): void {
+  useEffect(() => {
+    const listener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      if (area !== 'local') return;
+      if (
+        changes.philReminders ||
+        changes.philGoals ||
+        changes.philSettings ||
+        changes.philTabActivity ||
+        changes.philBriefings
+      ) {
+        onChange();
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, [onChange]);
 }
 
 export function TodayPanel() {
@@ -56,6 +80,9 @@ export function TodayPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  usePhilStorageRefresh(() => {
+    void refresh();
+  });
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
@@ -89,13 +116,18 @@ export function FocusPanel() {
     null,
   );
 
+  const refresh = useCallback(async () => {
+    setSummary(await focusSummaryToday());
+  }, []);
+
   useEffect(() => {
-    void focusSummaryToday().then(setSummary);
+    void refresh();
     const id = window.setInterval(() => {
-      void focusSummaryToday().then(setSummary);
+      void refresh();
     }, 15_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [refresh]);
+  usePhilStorageRefresh(refresh);
 
   if (!summary) {
     return <div className="grid h-full place-items-center text-sm text-muted">Loading focus…</div>;
@@ -148,6 +180,7 @@ export function FocusPanel() {
 export function GoalsPanel() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setGoals(await listGoals());
@@ -156,38 +189,25 @@ export function GoalsPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  usePhilStorageRefresh(refresh);
 
   const addGoal = async () => {
     const t = title.trim();
-    if (!t) return;
-    const now = Date.now();
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    await putGoal({
-      id: uid('goal'),
-      title: t,
-      deadline: end.getTime(),
-      status: 'active',
-      allowedDomains: [],
-      blockedDomains: [
-        'instagram.com',
-        'facebook.com',
-        'reddit.com',
-        'youtube.com',
-        'tiktok.com',
-      ],
-      createdAt: now,
-      updatedAt: now,
-    });
-    setTitle('');
-    await refresh();
+    if (!t || busy) return;
+    setBusy(true);
+    try {
+      const goal = await createGoalFromUi(t);
+      setGoals((prev) => [goal, ...prev.filter((g) => g.id !== goal.id)]);
+      setTitle('');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const complete = async (id: string) => {
-    const g = goals.find((x) => x.id === id);
-    if (!g) return;
-    await putGoal({ ...g, status: 'completed', updatedAt: Date.now() });
-    await refresh();
+    const next = await completeGoalFromUi(id);
+    if (!next) return;
+    setGoals((prev) => prev.map((g) => (g.id === id ? next : g)));
   };
 
   return (
@@ -200,6 +220,7 @@ export function GoalsPanel() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Finish the proposal…"
+          disabled={busy}
           className="min-w-0 flex-1 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           onKeyDown={(e) => {
             if (e.key === 'Enter') void addGoal();
@@ -208,7 +229,8 @@ export function GoalsPanel() {
         <button
           type="button"
           onClick={() => void addGoal()}
-          className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink"
+          disabled={busy || !title.trim()}
+          className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50"
         >
           Add
         </button>
@@ -247,6 +269,8 @@ export function RemindersPanel() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [text, setText] = useState('');
   const [minutes, setMinutes] = useState('30');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setReminders(await listReminders());
@@ -255,23 +279,33 @@ export function RemindersPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  usePhilStorageRefresh(refresh);
 
   const add = async () => {
     const t = text.trim();
     const mins = Number(minutes);
-    if (!t || !Number.isFinite(mins) || mins < 1) return;
-    await createReminder({
-      text: t,
-      when: Date.now() + mins * 60_000,
-      repeat: 'none',
-    });
-    setText('');
-    await refresh();
+    if (!t || !Number.isFinite(mins) || mins < 1 || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const reminder = await createReminderFromUi({
+        text: t,
+        when: Date.now() + mins * 60_000,
+        repeat: 'none',
+      });
+      setReminders((prev) => [...prev.filter((r) => r.id !== reminder.id), reminder]);
+      setText('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const cancel = async (id: string) => {
-    await cancelReminder(id);
-    await refresh();
+    const next = await cancelReminderFromUi(id);
+    if (!next) return;
+    setReminders((prev) => prev.map((r) => (r.id === id ? next : r)));
   };
 
   return (
@@ -284,7 +318,11 @@ export function RemindersPanel() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Stand up / call mom / ship PR…"
+          disabled={busy}
           className="w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void add();
+          }}
         />
         <div className="flex gap-2">
           <input
@@ -292,18 +330,21 @@ export function RemindersPanel() {
             onChange={(e) => setMinutes(e.target.value)}
             inputMode="numeric"
             aria-label="Minutes from now"
+            disabled={busy}
             className="w-20 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           />
           <span className="self-center text-xs text-muted">minutes from now</span>
           <button
             type="button"
             onClick={() => void add()}
-            className="ml-auto rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink"
+            disabled={busy || !text.trim()}
+            className="ml-auto rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50"
           >
-            Remind
+            {busy ? 'Saving…' : 'Remind'}
           </button>
         </div>
       </div>
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
       <ul className="mt-4 space-y-2">
         {reminders.filter((r) => r.status === 'scheduled' || r.status === 'fired').length === 0 && (
@@ -341,9 +382,14 @@ export function RemindersPanel() {
 export function PhilSettingsPanel() {
   const [settings, setSettings] = useState<PhilAssistantSettings | null>(null);
 
-  useEffect(() => {
-    void getPhilSettings().then(setSettings);
+  const refresh = useCallback(async () => {
+    setSettings(await getPhilSettings());
   }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  usePhilStorageRefresh(refresh);
 
   if (!settings) {
     return (
@@ -359,8 +405,7 @@ export function PhilSettingsPanel() {
       partial.briefingHour !== undefined ||
       partial.briefingMinute !== undefined
     ) {
-      const { scheduleMorningBriefingAlarm } = await import('@/background/phil/reminders');
-      await scheduleMorningBriefingAlarm();
+      requestBriefingReschedule();
     }
   };
 

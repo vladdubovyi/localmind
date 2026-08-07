@@ -29,3 +29,5 @@ dist-ssr
 /blob-report/
 /playwright/.cache/
 /e2e/.browser-profile/
+/e2e/.browser-profile-phil/
+/e2e/.browser-profile-*/

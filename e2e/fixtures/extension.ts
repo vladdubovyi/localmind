@@ -186,47 +186,31 @@ async function seedExtensionStorage(page: Page): Promise<void> {
 
 async function ensureModelReady(page: Page): Promise<void> {
   const agentTab = page.getByRole('button', { name: /^Agent$/i });
-  const chatTab = page.getByRole('button', { name: /^Chat$/i });
-  const loadBanner = page.getByText(/Load the local model before running the agent/i);
+  const restoreHint = page.getByText(
+    /Model is restoring in the background|Restoring model|Downloading model|Preparing model|Downloading|Loading from cache|Starting download/i,
+  );
 
   const isAgentReady = async (): Promise<boolean> => {
     if (!(await agentTab.isVisible().catch(() => false))) return false;
     await agentTab.click();
-    if (await loadBanner.isVisible().catch(() => false)) {
-      await chatTab.click();
-      return false;
-    }
+    // Soft banner means the engine is still hydrating — keep waiting.
+    if (await restoreHint.first().isVisible().catch(() => false)) return false;
     const input = page.getByPlaceholder('Message the agent…');
-    if (!(await input.isVisible().catch(() => false))) {
-      await chatTab.click();
-      return false;
-    }
-    await input.fill('ping');
-    const canSend = await page.getByRole('button', { name: 'Send' }).isEnabled();
-    await input.fill('');
-    if (!canSend) {
-      await chatTab.click();
-      return false;
-    }
-    return true;
+    return input.isVisible().catch(() => false);
   };
 
   if (await isAgentReady()) return;
 
-  if (await agentTab.isVisible().catch(() => false)) {
-    await chatTab.click();
-  }
-
   await page
     .getByRole('button', { name: new RegExp(E2E_MODEL_LABEL, 'i') })
-    .or(page.getByRole('button', { name: /Download AI|Load Phil/i }))
+    .or(page.getByRole('button', { name: /Download AI|Load Phil|Retry/i }))
     .or(agentTab)
     .first()
     .waitFor({ state: 'visible', timeout: 60_000 })
     .catch(() => undefined);
 
   const busy =
-    (await page.getByText(/Downloading|Loading from cache/i).isVisible().catch(() => false)) ||
+    (await page.getByText(/Downloading|Loading from cache|Restoring model|Preparing model/i).isVisible().catch(() => false)) ||
     (await page.getByRole('button', { name: /Downloading…|Loading from cache/i }).isVisible().catch(() => false));
 
   if (!busy) {
@@ -234,7 +218,7 @@ async function ensureModelReady(page: Page): Promise<void> {
     if (await gemma.isEnabled().catch(() => false)) {
       await gemma.click({ timeout: 5_000 }).catch(() => undefined);
     }
-    const startBtn = page.getByRole('button', { name: /Download AI|Load Phil/i });
+    const startBtn = page.getByRole('button', { name: /Download AI|Load Phil|Retry/i });
     if (await startBtn.isEnabled().catch(() => false)) {
       await startBtn.click({ timeout: 5_000 }).catch(() => undefined);
     }
@@ -242,7 +226,6 @@ async function ensureModelReady(page: Page): Promise<void> {
 
   await expect
     .poll(async () => {
-      // Surface download errors early instead of waiting the full timeout.
       const err = page.locator('.text-danger, [class*="danger"]').filter({
         hasText: /WebGPU|Download failed|not available|Error/i,
       });

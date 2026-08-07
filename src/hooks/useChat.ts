@@ -207,8 +207,12 @@ export function useChat(options: UseChatOptions = {}) {
         await downloadAndLoad(pending);
         return;
       }
-      // Auto-hydrate from cache in the durable side panel so reopen feels instant.
-      if (!autoLoadStarted.current && phase === 'cached') {
+      // Auto-hydrate from cache (and start first download) in the durable side panel
+      // so the Agent UI is usable immediately while the model loads in the background.
+      if (
+        !autoLoadStarted.current &&
+        (phase === 'cached' || phase === 'needs_download')
+      ) {
         autoLoadStarted.current = true;
         await downloadAndLoad(settings.selectedModelId);
       }

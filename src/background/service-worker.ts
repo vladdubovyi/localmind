@@ -130,6 +130,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'PHIL_SCHEDULE_REMINDER') {
+    (async () => {
+      const { getReminder } = await import('@/storage/phil');
+      const { scheduleReminderAlarm } = await import('@/background/phil/reminders');
+      const id = String(message.id ?? '');
+      const reminder = await getReminder(id);
+      if (!reminder) {
+        sendResponse({ ok: false, error: 'Reminder not found' });
+        return;
+      }
+      await scheduleReminderAlarm(reminder);
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_CANCEL_REMINDER') {
+    (async () => {
+      const { cancelReminderAlarm } = await import('@/background/phil/reminders');
+      await cancelReminderAlarm(String(message.id ?? ''));
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_RESCHEDULE_BRIEFING') {
+    (async () => {
+      const { scheduleMorningBriefingAlarm } = await import('@/background/phil/reminders');
+      await scheduleMorningBriefingAlarm();
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
   if (message?.type === 'SELECTION_ACTION') {
     (async () => {
       await openSidePanelForSender(sender);

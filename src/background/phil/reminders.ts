@@ -49,7 +49,8 @@ export async function createReminder(input: {
     updatedAt: now,
   };
   await putReminder(reminder);
-  await scheduleReminderAlarm(reminder);
+  // Never block tool/UI callers on chrome.alarms — schedule best-effort.
+  void scheduleReminderAlarm(reminder).catch(() => undefined);
   return reminder;
 }
 
@@ -62,7 +63,7 @@ export async function cancelReminder(id: string): Promise<Reminder | undefined> 
     updatedAt: Date.now(),
   };
   await putReminder(next);
-  await cancelReminderAlarm(id);
+  void cancelReminderAlarm(id).catch(() => undefined);
   return next;
 }
 

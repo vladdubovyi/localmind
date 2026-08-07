@@ -121,7 +121,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
 
   const submit = () => {
     const text = goal.trim();
-    if (!text || running || busy || !settings.enabled || !modelReady) return;
+    if (!text || running || busy || !settings.enabled) return;
     setGoal('');
     void run(text);
   };
@@ -359,9 +359,16 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
         </div>
       )}
 
-      {(error || (!modelReady && settings.enabled)) && (
-        <div className="mx-3 mb-2 shrink-0 break-words rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger [overflow-wrap:anywhere]">
-          {error || 'Load the local model before running the agent.'}
+      {(error || (!modelReady && settings.enabled && !running)) && (
+        <div
+          className={cn(
+            'mx-3 mb-2 shrink-0 break-words rounded-xl px-3 py-2 text-xs [overflow-wrap:anywhere]',
+            error
+              ? 'border border-danger/30 bg-danger/10 text-danger'
+              : 'border border-border-subtle bg-panel/70 text-muted',
+          )}
+        >
+          {error || 'Model is restoring in the background — you can send now; Phil will think until it’s ready.'}
         </div>
       )}
 
@@ -394,7 +401,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
           ) : (
             <button
               type="button"
-              disabled={!settings.enabled || !modelReady || !goal.trim() || busy}
+              disabled={!settings.enabled || !goal.trim() || busy}
               onClick={submit}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-ink transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Send"

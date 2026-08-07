@@ -259,3 +259,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **WF-15:** Soft assert on Settings threshold copy only — intelligent YouTube dwell owned by C2.
 - **Suggested owner:** C2 for WF-15/PRO; C1 for WF-14/17 playbooks; D1 for live SERP CI harness
 
+### 2026-08-07 — Agent C3 (Wave 2 Workflow skills) — e2e evidence
+- **Test IDs:** WF-01, WF-02, WF-03, WF-04, WF-05, WF-06, WF-09, WF-13, WF-15, WF-16, WF-18
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Local Playwright on C3 branch: **11/11 targeted WF IDs green** (research/reminders/email/planning/counterargue + soft WF-02/15).
+- **Detail:** Ran workflows-research/reminders/email/goals-planning + WF-13 with `?philTest=1` model-gate bypass. SERP default confirmed Google-primary in `webResearch.ts` (DDG only as `duckduckgo-fallback`). WF-07/10/14/17/19/20 left to C1/C2 owners.
+- **Suggested owner:** C1/C2 for remaining WF; D1 for live SERP scrape CI
+

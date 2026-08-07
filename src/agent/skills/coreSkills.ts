@@ -9,14 +9,29 @@ import {
   isFocusStatusGoal,
   isGoalSetupGoal,
   isLiveInfoGoal,
+  isProjectCreateGoal,
+  isProjectListGoal,
+  isProjectProgressGoal,
   isReminderGoal,
   isWeatherGoal,
   isWebResearchGoal,
   parseGoalTitle,
+  parseProjectTitle,
   parseReminderInMinutes,
   parseReminderText,
 } from '../assistantIntent';
+import type { ProjectTemplate } from '../../phil/projectTypes';
 import { uid } from '../../utils';
+
+function inferProjectTemplate(text: string): ProjectTemplate {
+  const t = text.toLowerCase();
+  if (/\b(staff|principal|promo|promotion|career|engineer|manager)\b/.test(t)) return 'career';
+  if (/\b(job|interview|resume|cv|hiring|apply|applications?)\b/.test(t)) return 'job_hunt';
+  if (/\b(research|paper|study|learn|investigate)\b/.test(t)) return 'research';
+  if (/\b(exec|calendar|day plan|schedule my day|eod)\b/.test(t)) return 'exec_day';
+  if (/\b(move|relocat|spain|house|apartment|mortgage|visa)\b/.test(t)) return 'life_move';
+  return 'custom';
+}
 import type {
   ConfirmationLevel,
   RegisteredSkill,
@@ -33,7 +48,15 @@ export function isFactualLookupGoal(goal: string): boolean {
   const g = goal.trim();
   if (!g) return false;
   if (/\bgmail|inbox|email\b/i.test(g)) return false;
-  if (isReminderGoal(g) || isGoalSetupGoal(g) || isBriefingGoal(g) || isFocusStatusGoal(g)) {
+  if (
+    isReminderGoal(g) ||
+    isGoalSetupGoal(g) ||
+    isBriefingGoal(g) ||
+    isFocusStatusGoal(g) ||
+    isProjectCreateGoal(g) ||
+    isProjectListGoal(g) ||
+    isProjectProgressGoal(g)
+  ) {
     return false;
   }
   if (
@@ -172,6 +195,7 @@ export function buildCoreSkills(): RegisteredSkill[] {
       inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
       routeScore: (ctx) => {
         const g = goalOf(ctx);
+        if (isProjectCreateGoal(g) || isProjectListGoal(g) || isProjectProgressGoal(g)) return 0;
         // Long-horizon → prefer project skills (lower score here)
         if (/\b(within|over|in)\s+(\d+|a|one|two|six|twelve)\s+(months?|years?)\b/i.test(g)) {
           return isGoalSetupGoal(g) ? 0.55 : 0;
@@ -188,7 +212,10 @@ export function buildCoreSkills(): RegisteredSkill[] {
     {
       legacyId: 'goal',
       finalizeDirectAnswer: true,
-      buildToolCall: (g) => call('goal_create', { title: parseGoalTitle(g) }),
+      buildToolCall: (g) => {
+        if (isProjectCreateGoal(g)) return null;
+        return call('goal_create', { title: parseGoalTitle(g) });
+      },
       hints: (g) => [
         'Call goal_create with a clear title from the user request.',
         `Suggested title: ${parseGoalTitle(g)}`,
@@ -709,40 +736,93 @@ export function buildCoreSkills(): RegisteredSkill[] {
     execute: stubExecute('Life Planner project'),
   };
 
-  const projectCreate: RegisteredSkill = {
-    id: 'project.create',
-    description: 'Create a custom Persistent Project',
-    category: 'project',
-    projectTemplate: 'custom',
-    examples: [
-      "I'm buying my first home.",
-      'Help me build a startup over the next six months.',
-    ],
-    confirmationLevel: 'none',
-    routeScore: (ctx) => {
-      const g = goalOf(ctx);
-      if (/\b(buying|buy) (my )?(first )?home\b/i.test(g)) return 0.85;
-      if (/\bbuild a startup\b/i.test(g) && /\bmonths?\b/i.test(g)) return 0.86;
-      if (/\bcreate (a )?project\b/i.test(g)) return 0.9;
-      return 0;
+  const projectCreate: RegisteredSkill = withBridge(
+    {
+      id: 'project.create',
+      aliases: ['project'],
+      description: 'Create a Persistent Project (custom or inferred template)',
+      category: 'project',
+      projectTemplate: 'custom',
+      examples: [
+        "I'm buying my first home.",
+        'Help me build a startup over the next six months.',
+        'Create a project for my thesis.',
+      ],
+      confirmationLevel: 'none',
+      priority: 9,
+      routeScore: (ctx) => {
+        const g = goalOf(ctx);
+        if (isProjectCreateGoal(g)) return 0.97;
+        if (/\b(buying|buy) (my )?(first )?home\b/i.test(g)) return 0.85;
+        if (/\bbuild a startup\b/i.test(g) && /\bmonths?\b/i.test(g)) return 0.86;
+        if (/\bcreate (a )?project\b/i.test(g)) return 0.9;
+        return 0;
+      },
+      extractArgs: (ctx) => {
+        const title = parseProjectTitle(goalOf(ctx));
+        return { title, template: inferProjectTemplate(title) };
+      },
+      execute: async (args) =>
+        okMessage(`I've set up your ${String(args.params?.title ?? 'new')} project.`),
     },
-    execute: stubExecute('Project create'),
-  };
+    {
+      finalizeDirectAnswer: true,
+      buildToolCall: (goal) => {
+        if (isProjectListGoal(goal)) return call('project_list', {});
+        if (isProjectProgressGoal(goal)) return call('project_progress', {});
+        const title = parseProjectTitle(goal);
+        return call('project_create', {
+          title,
+          template: inferProjectTemplate(title),
+        });
+      },
+      hints: (goal) => {
+        if (isProjectListGoal(goal)) {
+          return ['Call project_list and summarize titles + status. Mention the active project.'];
+        }
+        if (isProjectProgressGoal(goal)) {
+          return [
+            'Call project_progress (or project_get) and answer in project terms with workstreams + next-week plan.',
+          ];
+        }
+        return [
+          'Call project_create with a clear title (not only goal_create).',
+          `Suggested title: ${parseProjectTitle(goal)}`,
+          "Reply like: I've set up your [title] project…",
+        ];
+      },
+    },
+  );
 
-  const projectStatus: RegisteredSkill = {
-    id: 'project.status',
-    description: 'Where am I on the active project?',
-    category: 'project',
-    examples: ['Where am I?', 'What projects am I working on?'],
-    confirmationLevel: 'none',
-    routeScore: (ctx) => {
-      const g = goalOf(ctx);
-      if (/\bwhere am i\b/i.test(g) && ctx.activeProjectId) return 0.9;
-      if (/\bwhat projects\b/i.test(g)) return 0.88;
-      return 0;
+  const projectStatus: RegisteredSkill = withBridge(
+    {
+      id: 'project.status',
+      description: 'Where am I on the active project?',
+      category: 'project',
+      examples: ['Where am I?', 'What projects am I working on?'],
+      confirmationLevel: 'none',
+      priority: 8,
+      routeScore: (ctx) => {
+        const g = goalOf(ctx);
+        if (isProjectProgressGoal(g)) return 0.96;
+        if (isProjectListGoal(g)) return 0.95;
+        if (/\bwhere am i\b/i.test(g) && ctx.activeProjectId) return 0.9;
+        if (/\bwhat projects\b/i.test(g)) return 0.88;
+        return 0;
+      },
+      execute: async () => okMessage('Checking project progress…'),
     },
-    execute: stubExecute('Project status'),
-  };
+    {
+      finalizeDirectAnswer: true,
+      buildToolCall: (goal) => {
+        if (isProjectListGoal(goal) || /\bwhat projects\b/i.test(goal)) {
+          return call('project_list', {});
+        }
+        return call('project_progress', {});
+      },
+      hints: () => ['Call project_progress or project_list and answer in project terms.'],
+    },
+  );
 
   const projectExecDay: RegisteredSkill = {
     id: 'project.exec_day',

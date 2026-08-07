@@ -34,3 +34,15 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **SEL/PAGE regression note:** Prior handoff showed forbidden “Ask Phil what to do with the selection” error; fixed by seeding Agent. If model not ready, SEL tests may still time out waiting for Working… — log as env/model blocker, not missing ID.
   - **Fixtures:** `e2e/fixtures/article.html` + `articlePage`/`agentArticlePage` + `queueSelectionAction` harness.
 - **Suggested owner:** B3 (ONB/ERR), B4 (PRIV/MEM), B5 (SET/POL), B1 (RTE/SKL), B2/C1 (PRJ), C2 (DAY/PRO), C3 (WF), C4 (BRW), A3/D2 (BIZ-05…08), D1 (CORE model CI)
+
+### 2026-08-07 — Agent A2 (E2E scaffold run evidence)
+- **Test IDs:** PAGE-01…04, SEL-01…05, SET-01, WF-11, WF-12, CORE-01…05
+- **Severity:** blocker
+- **Type:** missing-impl | deferred
+- **Summary:** Shipped UI/handoff greens verified; model-grounded PAGE/WF-11 answers blocked by WebLLM not finishing in this environment.
+- **Detail:**
+  - **Green locally:** CORE-01…05, SET-01, PAGE-04, SEL-01…05, WF-12 (handoff: no forbidden “ask Agent manually” error; selection seed reaches Agent). SEL waits briefly for Working… then continues if model still restoring.
+  - **Red / env blocker:** PAGE-01 (and same path for PAGE-02/03, WF-11) — Summarize chip starts Working… but turn does not finish within 90s (`WebLLM/model blocker (handoff/chips OK)`). Not a missing ID; needs cached model / WebGPU-ready profile for grounded replies.
+  - **Not run full suite:** Remaining ONB/ERR/PRIV/MEM/SET-02…/DAY/BRW/EA/PRO/POL/BIZ-05…08/WF/PRJ/RTE/SKL intentionally fail-on-missing UI until owner pods land.
+  - **Website note:** `e2e/business.spec.ts` expects A3 `website/**` assets; may fail on this branch until A3 merged.
+- **Suggested owner:** D1/CI for model cache; B3+ for ONB; see prior A2 entry for group owners

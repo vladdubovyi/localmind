@@ -24,7 +24,7 @@ test.describe('Memory (MEM)', () => {
   });
 
   test('MEM-06: Memory off stops new indexing', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     // Must not be a disabled Milestone 4 fake toggle only.
     const toggle = philPage.getByText(/Memory \(coming in Milestone 4\)/i);
     if (await toggle.isVisible().catch(() => false)) {
@@ -34,7 +34,7 @@ test.describe('Memory (MEM)', () => {
   });
 
   test('MEM-07: No Milestone / coming-soon memory UI', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     const body = await philPage.locator('body').innerText();
     expect(body).not.toMatch(/Milestone \d/i);
     expect(body).not.toMatch(/coming soon/i);

@@ -26,7 +26,7 @@ test.describe('Polish (POL)', () => {
   });
 
   test('POL-04: No coming-soon or Milestone strings in UI', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     const body = await philPage.locator('body').innerText();
     expect(body).not.toMatch(/coming soon/i);
     expect(body).not.toMatch(/Milestone \d/i);

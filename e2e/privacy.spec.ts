@@ -3,7 +3,7 @@ import { test, expect } from './fixtures/extension';
 /** PRIV-* — permissions transparency (Wave1 B4). */
 test.describe('Privacy (PRIV)', () => {
   test('PRIV-01: Privacy dashboard is reachable', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(philPage.getByRole('heading', { name: /Privacy/i })).toBeVisible({ timeout: 5_000 });
   });
 

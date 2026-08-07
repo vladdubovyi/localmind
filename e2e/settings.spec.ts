@@ -5,7 +5,8 @@ import { test, expect } from './fixtures/extension';
  */
 test.describe('Settings (SET)', () => {
   test('SET-01: Change and load AI model', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    // Header gear opens the app Settings panel (model picker).
     await expect(philPage.getByText(/^Settings$/).first()).toBeVisible({ timeout: 10_000 });
 
     const modelSelect = philPage.locator('select').first();
@@ -69,7 +70,7 @@ test.describe('Settings (SET)', () => {
   });
 
   test('SET-07: Privacy controls link works', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(philPage.getByText(/Privacy controls|Open Privacy|Privacy dashboard/i)).toBeVisible({
       timeout: 5_000,
     });
@@ -79,7 +80,7 @@ test.describe('Settings (SET)', () => {
     // Product must NOT expose a timezone picker (device TZ only).
     await philPage.getByRole('button', { name: /^Phil$/i }).click();
     await expect(philPage.getByText(/timezone|time zone/i)).toHaveCount(0);
-    await philPage.getByRole('button', { name: /Settings/i }).click();
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(philPage.getByLabel(/timezone|time zone/i)).toHaveCount(0);
     // Reminder NL scheduling path not implemented for SET-08 assert yet.
     await expect(philPage.getByText(/Remind me tomorrow at 3 PM|device timezone/i)).toBeVisible({

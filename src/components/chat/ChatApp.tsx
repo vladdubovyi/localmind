@@ -216,6 +216,19 @@ export function ChatApp({ variant }: ChatAppProps) {
         />
       </div>
 
+      <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-border-subtle px-3 py-1 text-[11px] text-muted">
+        <button
+          type="button"
+          onClick={() => setShortcutsOpen(true)}
+          className="shrink-0 font-medium text-accent hover:underline"
+        >
+          Shortcuts
+        </button>
+        <span className="min-w-0 truncate">
+          Focus Agent · Summarize page · Open Phil — press ? for the command cheatsheet
+        </span>
+      </div>
+
       {restoring && (
         <div className="shrink-0 border-b border-border-subtle bg-panel/60 px-3 py-1.5 text-[11px] text-muted">
           {restoreLabel}

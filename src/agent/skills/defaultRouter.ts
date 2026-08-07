@@ -6,6 +6,7 @@
 import { createRouterFactory } from '../router/factory';
 import type { RouterFactory } from '../router/types';
 import { registerCoreSkills } from './coreSkills';
+import { registerWorkflowSkills } from './workflowSkills';
 
 let defaultRouter: RouterFactory | null = null;
 
@@ -18,6 +19,7 @@ export function getDefaultRouter(): RouterFactory {
       enableStage2: false,
     });
     registerCoreSkills(defaultRouter);
+    registerWorkflowSkills(defaultRouter);
   }
   return defaultRouter;
 }
@@ -30,7 +32,10 @@ export function resetDefaultRouter(router?: RouterFactory): RouterFactory {
       defaultSearchEngine: 'google',
       enableStage2: false,
     });
-  if (!router) registerCoreSkills(defaultRouter);
+  if (!router) {
+    registerCoreSkills(defaultRouter);
+    registerWorkflowSkills(defaultRouter);
+  }
   return defaultRouter;
 }
 

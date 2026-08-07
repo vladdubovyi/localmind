@@ -30,8 +30,10 @@ export interface Reminder {
   id: string;
   text: string;
   when: number;
-  /** Optional cron-ish repeat: none | daily | weekdays */
-  repeat: 'none' | 'daily' | 'weekdays';
+  /** Optional cron-ish repeat: none | daily | weekdays | weekly (WF-09) */
+  repeat: 'none' | 'daily' | 'weekdays' | 'weekly';
+  /** 0=Sun … 6=Sat when repeat is weekly (device TZ). */
+  repeatWeekday?: number;
   status: 'scheduled' | 'fired' | 'done' | 'cancelled';
   createdAt: number;
   updatedAt: number;

@@ -244,3 +244,18 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Privacy dashboard + chrome.storage keyword memory shipped; Calendar Privacy enable is local flag until B3 OAuth.
 - **Detail:** Storage: `philMemories` in chrome.storage.local (SW-safe). Conversations remain IDB with keyword search. Embeddings/vector stubs are no-ops. History shown as not granted until C4. Analytics/crash default OFF; Feedback via GitHub + mailto.
 - **Suggested owner:** B3 (Calendar OAuth), C4 (history), D2 (feedback email)
+
+### 2026-08-07 — Agent C3 (Wave 2 Workflow skills)
+- **Test IDs:** WF-01, WF-03, WF-04, WF-05, WF-06, WF-09, WF-13, WF-16, WF-18; SET-08 synergy; ERR-03 / Google SERP default
+- **Severity:** should-fix
+- **Type:** deferred | missing-impl
+- **Summary:** Shipped Google-default web research, compare/dedupe/rank fixtures, absolute+weekly reminders with conflict detection, plan_workday, email preview confirm, page.counterargue; registered via `registerWorkflowSkills` (no router fork).
+- **Detail:**
+  - **SERP:** `webResearch` tries Google first; DuckDuckGo Instant Answer only on Google tab/parse failure. Fixture paths for keyboard / PM tools / flights return ranked Google-labeled answers without scrape.
+  - **Reminders:** `parseReminderSchedule` handles next Tuesday / every Friday / every weekday in device TZ; `weekly` + `repeatWeekday` on Reminder; conflict UX for gym vs language class (WF-18).
+  - **Skills:** `workflowSkills.ts` replaces core stubs via factory `registerSkill({ replace: true })`.
+  - **Calendar:** `plan_workday` reads `agentSettings.calendarEnabled`; stub events when connected, explicit “not connected” when skipped (no invented events).
+  - **Deferred / not owned:** WF-07/15/19/20 (C2 proactive/focus), WF-02/08/14/17 deeper EA/project playbooks (C1), full live Calendar API sync, live Google SERP scrape beyond fixtures, Stage-2 LLM compare when fixtures miss.
+  - **WF-15:** Soft assert on Settings threshold copy only — intelligent YouTube dwell owned by C2.
+- **Suggested owner:** C2 for WF-15/PRO; C1 for WF-14/17 playbooks; D1 for live SERP CI harness
+

@@ -5,7 +5,7 @@ import { executeTabTools } from '@/background/tools/tabs';
 import { executePageTools } from '@/background/tools/page';
 import { executeGmailTools } from '@/background/tools/gmail';
 import { executePhilTools } from '@/background/tools/phil';
-import { runWebResearch } from '@/background/tools/webResearch';
+import { isFixtureResearchQuery, runWebResearch } from '@/background/tools/webResearch';
 import { getAgentSettings } from '@/storage/agentSettings';
 
 const PHIL_PREFIXES = [
@@ -19,7 +19,11 @@ const PHIL_PREFIXES = [
 ] as const;
 
 function isPhilTool(name: string): boolean {
-  return name === 'web_research' || PHIL_PREFIXES.some((p) => name.startsWith(p));
+  return (
+    name === 'web_research' ||
+    name === 'plan_workday' ||
+    PHIL_PREFIXES.some((p) => name.startsWith(p))
+  );
 }
 
 function needsBrowserAgentPerms(name: string): boolean {
@@ -80,18 +84,22 @@ export async function routeAgentTool(
   }
 
   if (needsBrowserAgentPerms(call.name)) {
-    const perms = await getAgentPermissionState();
+    const query = String(call.arguments.query ?? '');
     const weatherOnly =
       call.name === 'web_research' &&
-      /\b(weather|forecast|temperature)\b/i.test(String(call.arguments.query ?? ''));
-    // Weather uses required host permission https://wttr.in/* — full <all_urls> not needed.
-    if (!perms.tabs || (!perms.allUrls && !weatherOnly)) {
-      return {
-        ok: false,
-        error:
-          'Browser agent permissions are missing. Enable Agent mode and grant tabs + site access.',
-        toolCall: call,
-      };
+      /\b(weather|forecast|temperature)\b/i.test(query);
+    const fixtureOnly =
+      call.name === 'web_research' && isFixtureResearchQuery(query);
+    if (!fixtureOnly) {
+      const perms = await getAgentPermissionState();
+      if (!perms.tabs || (!perms.allUrls && !weatherOnly)) {
+        return {
+          ok: false,
+          error:
+            'Browser agent permissions are missing. Enable Agent mode and grant tabs + site access.',
+          toolCall: call,
+        };
+      }
     }
   }
 

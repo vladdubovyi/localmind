@@ -23,6 +23,7 @@ import {
   offersToActWithoutTools,
 } from '@/agent/assistantIntent';
 import { routeGoal, type AgentRoute, type RouteContext, type SkillPlan } from '@/agent/skills';
+import { getDefaultRouter } from '@/agent/skills/defaultRouter';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
@@ -81,10 +82,11 @@ function recentTurnsFromSteps(steps: AgentStep[]): RouteContext['recentTurns'] {
 
 async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<AgentRoute> {
   const emailIntent = detectIntent(goal, priorSteps);
-  const [{ pageUrl, pageTitle }, projectMeta, settings] = await Promise.all([
+  const [{ pageUrl, pageTitle }, projectMeta, settings, agentSettingsForRoute] = await Promise.all([
     readActivePageMeta(),
     readActiveProjectMeta(),
     getSettings().catch(() => null),
+    getAgentSettings().catch(() => null),
   ]);
 
   const testMode =
@@ -106,6 +108,7 @@ async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<Agen
     ...projectMeta,
     modelReady: true,
     memoryEnabled: settings?.memoryEnabled !== false,
+    calendarConnected: Boolean(agentSettingsForRoute?.calendarEnabled),
     recentTurns: recentTurnsFromSteps(priorSteps),
     priorPlan: lastRoutePlan,
     correctionHint,
@@ -149,6 +152,7 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
         typeof result.error === 'string' &&
         /unknown tool/i.test(result.error) &&
         (call.name === 'reminder_create' ||
+          call.name === 'plan_workday' ||
           call.name === 'goal_create' ||
           call.name.startsWith('project_'))
       ) {
@@ -159,6 +163,7 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
   } catch (err) {
     if (
       call.name === 'reminder_create' ||
+      call.name === 'plan_workday' ||
       call.name === 'goal_create' ||
       call.name.startsWith('project_')
     ) {
@@ -176,6 +181,7 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
   }
   if (
     call.name === 'reminder_create' ||
+    call.name === 'plan_workday' ||
     call.name === 'goal_create' ||
     call.name.startsWith('project_')
   ) {
@@ -192,17 +198,94 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
 async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
   if (call.name === 'reminder_create') {
     const { createReminderFromUi } = await import('@/phil/clientActions');
+    const { findReminderConflicts } = await import('@/phil/reminderSchedule');
+    const { listReminders } = await import('@/storage/phil');
     const text = String(call.arguments.text ?? '').trim();
     const inMinutes = Number(call.arguments.inMinutes);
     const whenArg = Number(call.arguments.when);
     const when = Number.isFinite(whenArg)
       ? whenArg
       : Date.now() + (Number.isFinite(inMinutes) && inMinutes > 0 ? inMinutes : 30) * 60_000;
+    const repeatRaw = String(call.arguments.repeat ?? '');
+    const repeat = (repeatRaw || 'none') as 'none' | 'daily' | 'weekdays' | 'weekly';
+    const repeatWeekday = Number(call.arguments.repeatWeekday);
     if (!text) {
       return { ok: false, error: 'text is required', toolCall: call };
     }
-    const reminder = await createReminderFromUi({ text, when });
-    return { ok: true, data: reminder, toolCall: call };
+    if (!call.arguments.allowConflict) {
+      const existing = await listReminders();
+      const conflicts = findReminderConflicts(
+        {
+          when,
+          text,
+          repeat,
+          repeatWeekday: Number.isFinite(repeatWeekday) ? repeatWeekday : undefined,
+        },
+        existing,
+      );
+      if (conflicts.length) {
+        return {
+          ok: true,
+          data: {
+            conflict: true,
+            answer: [
+              conflicts[0]!.message,
+              '',
+              'Options: reschedule the new reminder, reschedule the existing one, or keep both.',
+            ].join('\n'),
+          },
+          toolCall: call,
+        };
+      }
+    }
+    const reminder = await createReminderFromUi({
+      text,
+      when,
+      repeat,
+      repeatWeekday: Number.isFinite(repeatWeekday) ? repeatWeekday : undefined,
+    });
+    return {
+      ok: true,
+      data: {
+        ...reminder,
+        answer: `Reminder set: ${reminder.text} at ${new Date(reminder.when).toLocaleString()}${
+          reminder.repeat !== 'none' ? ` · recurring ${reminder.repeat}` : ''
+        }`,
+      },
+      toolCall: call,
+    };
+  }
+  if (call.name === 'plan_workday') {
+    const { listGoals, listReminders } = await import('@/storage/phil');
+    const { getAgentSettings: getAgent } = await import('@/storage/agentSettings');
+    const goals = (await listGoals()).filter((g) => g.status === 'active');
+    const reminders = (await listReminders()).filter((r) => r.status === 'scheduled');
+    const agent = await getAgent();
+    const calendarConnected = Boolean(agent.calendarEnabled);
+    const answer = [
+      '## Plan my workday — agenda',
+      '',
+      '### Goals',
+      goals.length ? goals.map((g) => `• ${g.title}`).join('\n') : '• (no active goals)',
+      '',
+      '### Reminders',
+      reminders.length
+        ? reminders
+            .slice(0, 5)
+            .map((r) => `• ${r.text} — ${new Date(r.when).toLocaleString()}`)
+            .join('\n')
+        : '• No reminders',
+      '',
+      calendarConnected
+        ? '### Calendar (connected)\n• Today’s events included when available'
+        : '### Calendar\nCalendar isn’t connected — planning from goals/reminders only. Enable in Privacy.',
+      '',
+      '### Prioritized focus blocks',
+      '1. Morning focus block — top goal',
+      '2. Midday admin — reminders',
+      '3. Afternoon focus block',
+    ].join('\n');
+    return { ok: true, data: { answer, agenda: answer, calendarConnected }, toolCall: call };
   }
   if (call.name === 'goal_create') {
     const { createGoalFromUi } = await import('@/phil/clientActions');
@@ -745,6 +828,36 @@ export function useAgent() {
         let researchSeed:
           | { call: ToolCall; result: ToolResult }
           | null = null;
+
+        // Direct skill.execute when finalizeDirectAnswer and no tool (email preview, counterargue).
+        if (route.finalizeDirectAnswer && !fastCall && route.plan?.steps?.[0]) {
+          const skillId = route.plan.steps[0].skillId;
+          const registered = getDefaultRouter().getSkill(skillId);
+          if (registered?.execute) {
+            pushStep({
+              kind: 'thought',
+              content: `Skill: ${skillId}…`,
+            });
+            const execResult = await registered.execute({
+              utterance: goal,
+              context: {
+                goal,
+                utterance: goal,
+                pageUrl: null,
+                pageTitle: null,
+                calendarConnected: Boolean(agentSettings.calendarEnabled),
+              },
+              params: route.plan.steps[0].params,
+            });
+            if (execResult.message) {
+              pushStep({
+                kind: execResult.ok === false ? 'error' : 'final',
+                content: execResult.message,
+              });
+              return;
+            }
+          }
+        }
 
         if (fastCall && fastCall.name !== 'web_research' && route.finalizeDirectAnswer) {
           pushStep({

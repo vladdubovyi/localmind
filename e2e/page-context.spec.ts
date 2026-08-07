@@ -95,10 +95,16 @@ test.describe('Page context (PAGE / WF-11 / WF-13)', () => {
     expect(body).not.toMatch(/Buy ads · Subscribe/i);
   });
 
-  test('WF-13: Page research (counterarguments)', async ({ philPage }) => {
+  test('WF-13: Page research (counterarguments)', async ({ philPage, articlePage }) => {
+    await articlePage.bringToFront();
+    await philPage.bringToFront();
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
+    const input = philPage.getByPlaceholder(/Message the agent/i);
+    await expect(input).toBeEnabled({ timeout: 15_000 });
+    await input.fill('Find arguments against the claims made on this page.');
+    await philPage.getByRole('button', { name: 'Send' }).click();
     await expect(
-      philPage.getByText(/counterargument|arguments against|balanced counter/i),
-    ).toBeVisible({ timeout: 3_000 });
+      philPage.getByText(/counterargument|arguments against|balanced counter/i).first(),
+    ).toBeVisible({ timeout: 30_000 });
   });
 });

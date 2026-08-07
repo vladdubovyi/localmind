@@ -34,6 +34,13 @@ import {
   setActiveProjectId,
   templateLabel,
 } from '@/storage/projects';
+import {
+  forgetMemory,
+  listMemories,
+  rememberMemory,
+  searchMemories,
+} from '@/storage/memory';
+import { getSettings } from '@/storage/db';
 
 function argString(call: ToolCall, key: string, fallback = ''): string {
   return String(call.arguments[key] ?? fallback);
@@ -345,7 +352,60 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
     case 'web_research': {
       return await runWebResearch(call);
     }
-    default:
+    case 'memory_remember': {
+      const settings = await getSettings();
+      if (!settings.memoryEnabled) {
+        return {
+          ok: false,
+          error: 'Memory is off. Enable Memory in Privacy / Settings to store new facts.',
+          toolCall: call,
+        };
+      }
+      const text = argString(call, 'text').trim();
+      if (!text) return { ok: false, error: 'text is required', toolCall: call };
+      const entry = await rememberMemory(text, {
+        projectId: argString(call, 'projectId') || undefined,
+        source: 'tool',
+      });
+      return {
+        ok: true,
+        data: { ...entry, answer: `Got it — I’ll remember that: ${entry.text}` },
+        toolCall: call,
+      };
+    }
+    case 'memory_forget': {
+      const id = argString(call, 'id');
+      const text = argString(call, 'text');
+      const removed = await forgetMemory(id || text);
+      if (!removed) {
+        return { ok: false, error: 'No matching memory found to forget.', toolCall: call };
+      }
+      return {
+        ok: true,
+        data: { removed, answer: `Forgotten: ${removed.text}` },
+        toolCall: call,
+      };
+    }
+    case 'memory_search': {
+      const query = argString(call, 'query');
+      const limit = argNumber(call, 'limit') ?? 10;
+      const hits = await searchMemories(query, limit);
+      const answer = hits.length
+        ? hits.map((m, i) => `${i + 1}. ${m.text}`).join('\n')
+        : query
+          ? `No memories matched “${query}”.`
+          : 'No memories stored yet.';
+      return { ok: true, data: { memories: hits, answer }, toolCall: call };
+    }
+    case 'memory_list': {
+      const limit = argNumber(call, 'limit') ?? 20;
+      const memories = (await listMemories()).slice(0, limit);
+      const answer = memories.length
+        ? memories.map((m, i) => `${i + 1}. ${m.text}`).join('\n')
+        : 'No memories stored yet.';
+      return { ok: true, data: { memories, answer }, toolCall: call };
+    }
+        default:
       return { ok: false, error: `Unknown Phil tool ${call.name}`, toolCall: call };
   }
 }

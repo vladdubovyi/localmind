@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /**
  * BIZ-* — Wave 0 Agent A3 (Business / GTM).
  * Owned greens: BIZ-01…04, BIZ-09…10 (static site + docs + icons).
- * BIZ-05…08 need Privacy/Settings UI from B4/B5 — skipped + logged.
+ * BIZ-05…08 live in e2e/biz-privacy.spec.ts (extension fixture + Privacy UI).
  */
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,26 +122,6 @@ test.describe('Business (BIZ)', () => {
       expect(buf.readUInt32BE(16)).toBe(icon.w);
       expect(buf.readUInt32BE(20)).toBe(icon.w);
     }
-  });
-
-  // TODO(B4/B5): Feedback channel + analytics/crash toggles in Privacy/Settings.
-  // A2 preferred fail-on-missing; A3 uses skip so static BIZ greens stay CI-clean until B4/B5.
-  test.skip('BIZ-05: Feedback button in extension', async () => {
-    // Requires in-extension Feedback control (B4/B5 / D2).
-  });
-
-  test.skip('BIZ-06: Analytics default off', async () => {
-    // Requires Privacy/Settings analytics control; policy documents default OFF.
-  });
-
-  test.skip('BIZ-07: Crash reporting default off', async () => {
-    // Requires Privacy/Settings crash reporting control; policy documents default OFF.
-  });
-
-  test.skip('BIZ-08: Opt-in analytics can be enabled explicitly', async () => {
-    // Requires opt-in UI + persistence from B4/B5.
-  });
-
   });
 
   test('BIZ-09: Demo video script exists and matches suite order', async () => {

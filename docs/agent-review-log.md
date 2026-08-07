@@ -237,3 +237,10 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **SET-02/03 e2e:** Scaffold asserts UI visibility; full proactive harness remains C2. Frequency off / caps enforced in focus nudges + `canDeliverNotification`.
 - **Suggested owner:** B4 for Memory stub / POL-04; C2 to consume notificationPolicy caps for PRO-*
 
+### 2026-08-07 — Agent B4 (Privacy + Memory)
+- **Test IDs:** PRIV-01…06, MEM-01…07; BIZ-05…08
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Privacy dashboard + chrome.storage keyword memory shipped; Calendar Privacy enable is local flag until B3 OAuth.
+- **Detail:** Storage: `philMemories` in chrome.storage.local (SW-safe). Conversations remain IDB with keyword search. Embeddings/vector stubs are no-ops. History shown as not granted until C4. Analytics/crash default OFF; Feedback via GitHub + mailto.
+- **Suggested owner:** B3 (Calendar OAuth), C4 (history), D2 (feedback email)

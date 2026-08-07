@@ -122,7 +122,6 @@ export async function searchConversations(query: string, limit = 20): Promise<Co
   return scored.slice(0, limit).map((x) => x.c);
 }
 
-
 export async function getModelMeta(modelId: string) {
   const db = await getDb();
   return db.get('modelMeta', modelId);

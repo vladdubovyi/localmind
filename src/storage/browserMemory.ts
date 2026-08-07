@@ -55,13 +55,16 @@ async function writeAll(entries: BrowseVisit[]): Promise<void> {
 
 export async function hasHistoryPermission(): Promise<boolean> {
   try {
-    if (await chrome.permissions.contains({ permissions: ['history'] })) return true;
+    const stored = await chrome.storage.local.get(HISTORY_PERMISSION_SEED_KEY);
+    // Explicit e2e deny must win — Chromium may auto-grant optional `history` in harnesses.
+    if (Object.prototype.hasOwnProperty.call(stored, HISTORY_PERMISSION_SEED_KEY)) {
+      return Boolean(stored[HISTORY_PERMISSION_SEED_KEY]);
+    }
   } catch {
     /* ignore */
   }
   try {
-    const stored = await chrome.storage.local.get(HISTORY_PERMISSION_SEED_KEY);
-    return Boolean(stored[HISTORY_PERMISSION_SEED_KEY]);
+    return await chrome.permissions.contains({ permissions: ['history'] });
   } catch {
     return false;
   }

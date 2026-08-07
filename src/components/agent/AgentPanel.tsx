@@ -461,7 +461,21 @@ export function AgentPanel({
                           type="button"
                           className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10"
                           onClick={() => {
-                            void chrome.tabs.create({ url: openUrl, active: true });
+                            void (async () => {
+                              try {
+                                await chrome.runtime.sendMessage({
+                                  type: 'AGENT_EXECUTE_TOOL',
+                                  call: {
+                                    id: `open_${Date.now().toString(36)}`,
+                                    name: 'tabs_create',
+                                    arguments: { url: openUrl, active: true },
+                                  },
+                                  confirmed: true,
+                                });
+                              } catch {
+                                await chrome.tabs.create({ url: openUrl, active: true });
+                              }
+                            })();
                           }}
                         >
                           Open

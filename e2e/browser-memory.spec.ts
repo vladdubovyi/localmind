@@ -127,7 +127,7 @@ test.describe('Browser memory (BRW)', () => {
   test('BRW-02: Open found result', async ({
     philPage,
     philExtensionId,
-    philExtensionContext,
+    philServiceWorker,
   }) => {
     await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: true, withVisit: true });
@@ -137,14 +137,13 @@ test.describe('Browser memory (BRW)', () => {
     await openBtn.click();
     await expect
       .poll(
-        () =>
-          philExtensionContext.pages().some((p) => {
-            try {
-              return p.url().includes('kubernetes-operators');
-            } catch {
-              return false;
-            }
-          }),
+        async () => {
+          const urls = await philServiceWorker.evaluate(async () => {
+            const tabs = await chrome.tabs.query({});
+            return tabs.map((t) => t.url ?? '');
+          });
+          return urls.some((u) => /kubernetes-operators/i.test(u));
+        },
         { timeout: 15_000 },
       )
       .toBe(true);
@@ -172,7 +171,8 @@ test.describe('Browser memory (BRW)', () => {
     await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: true, withVisit: true });
 
-    await philPage.getByRole('button', { name: /^Privacy$/i }).click();
+    // Full PrivacyDashboard lives in Settings (B4); Privacy tab is a shell.
+    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(philPage.getByRole('heading', { name: /^Privacy$/i })).toBeVisible({
       timeout: 5_000,
     });
@@ -183,6 +183,9 @@ test.describe('Browser memory (BRW)', () => {
     philPage.once('dialog', (d) => d.accept());
     await philPage.getByRole('button', { name: 'Clear browser memory' }).click();
     await expect(philPage.getByText(/Browser memory cleared/i)).toBeVisible({ timeout: 10_000 });
+
+    const close = philPage.getByRole('button', { name: /Close settings/i });
+    if (await close.isVisible().catch(() => false)) await close.click();
 
     await openAgentAndAsk(philPage, FIND_UTTERANCE);
     await expect(philPage.getByText(/Kubernetes operators deep dive/i)).toHaveCount(0, {

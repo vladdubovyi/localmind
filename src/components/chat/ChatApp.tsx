@@ -167,12 +167,12 @@ export function ChatApp({ variant }: ChatAppProps) {
   const showFullOnboarding = shouldShowFullOnboarding(phase, loadingFromCache);
   const showRestoring = isRestoringEngine(phase, loadingFromCache);
   const webgpuBlocked = webgpuReady && webgpu === false;
+  // Wave2 C3 / C4: e2e (?philTest=1) exercises finalizeDirectAnswer + Agent fast-path
+  // skills (reminders, browser memory, workflows) without WebGPU. Production still gates.
   const philTestMode =
     typeof window !== 'undefined' &&
     (new URLSearchParams(window.location.search).has('philTest') ||
       Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
-  // E2E / router harness: Agent fast-path skills (reminders, browser memory, …) must
-  // remain reachable without WebGPU. Production still shows the model gate.
   const showModelGate =
     uiTab === 'agent' &&
     !philTestMode &&

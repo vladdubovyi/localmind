@@ -33,6 +33,7 @@ export async function createReminderFromUi(input: {
   text: string;
   when?: number;
   repeat?: Reminder['repeat'];
+  repeatWeekday?: number;
   projectId?: string;
   /** When true (default), apply Phil reminder defaults for omitted fields. */
   applyDefaults?: boolean;
@@ -51,6 +52,7 @@ export async function createReminderFromUi(input: {
     text: input.text.trim(),
     when,
     repeat,
+    repeatWeekday: input.repeatWeekday,
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,

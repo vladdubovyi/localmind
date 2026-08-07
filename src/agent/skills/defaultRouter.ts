@@ -8,6 +8,7 @@ import type { RouterFactory } from '../router/types';
 import { registerCoreSkills } from './coreSkills';
 import { registerBrowserMemorySkill } from './browserMemorySkill';
 import { registerProjectTemplateSkills } from './projects';
+import { registerWorkflowSkills } from './workflowSkills';
 
 let defaultRouter: RouterFactory | null = null;
 
@@ -15,9 +16,10 @@ function seedDefaultSkills(router: RouterFactory): void {
   registerCoreSkills(router);
   registerBrowserMemorySkill(router);
   registerProjectTemplateSkills(router);
+  registerWorkflowSkills(router);
 }
 
-/** Lazily create and seed the process-wide router with core + project template + browser memory skills. */
+/** Lazily create and seed the process-wide router with core + project + browser memory + workflow skills. */
 export function getDefaultRouter(): RouterFactory {
   if (!defaultRouter) {
     defaultRouter = createRouterFactory({

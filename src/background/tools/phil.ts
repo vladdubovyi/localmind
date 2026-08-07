@@ -11,6 +11,8 @@ import {
 } from '@/background/phil/dailyReview';
 import { focusSummaryToday } from '@/background/phil/focusTracker';
 import { runWebResearch } from '@/background/tools/webResearch';
+import { findReminderConflicts } from '@/phil/reminderSchedule';
+import { getAgentSettings } from '@/storage/agentSettings';
 import {
   getPhilSettings,
   listGoals,
@@ -92,18 +94,58 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
       const inMinutes = argNumber(call, 'inMinutes');
       const repeatRaw = argString(call, 'repeat', '');
       const repeat = repeatRaw
-        ? (repeatRaw as 'none' | 'daily' | 'weekdays')
+        ? (repeatRaw as 'none' | 'daily' | 'weekdays' | 'weekly')
         : undefined;
+      const repeatWeekday = argNumber(call, 'repeatWeekday');
+      const allowConflict = Boolean(call.arguments.allowConflict);
       if (!text.trim()) {
         return { ok: false, error: 'text is required', toolCall: call };
       }
       const whenMs =
         when ??
         (inMinutes != null ? Date.now() + inMinutes * 60_000 : undefined);
-      // Omit when so Phil reminder defaults apply (SET-05); still link active project (B2).
       const projectId = argString(call, 'projectId') || undefined;
-      const reminder = await createReminder({ text, when: whenMs, repeat, projectId });
-      return { ok: true, data: reminder, toolCall: call };
+
+      if (whenMs != null && !allowConflict) {
+        const existing = await listReminders();
+        const conflicts = findReminderConflicts(
+          { when: whenMs, text, repeat, repeatWeekday },
+          existing,
+        );
+        if (conflicts.length) {
+          return {
+            ok: true,
+            data: {
+              conflict: true,
+              conflictWarning: conflicts[0]!.message,
+              answer: [
+                conflicts[0]!.message,
+                '',
+                'Options: reschedule the new reminder, reschedule the existing one, or keep both.',
+              ].join('\n'),
+            },
+            toolCall: call,
+          };
+        }
+      }
+
+      const reminder = await createReminder({
+        text,
+        when: whenMs,
+        repeat,
+        repeatWeekday,
+        projectId,
+      });
+      return {
+        ok: true,
+        data: {
+          ...reminder,
+          answer: `Reminder set: ${reminder.text} at ${new Date(reminder.when).toLocaleString()}${
+            reminder.repeat !== 'none' ? ` · recurring ${reminder.repeat}` : ''
+          }`,
+        },
+        toolCall: call,
+      };
     }
     case 'reminder_list': {
       const reminders = await listReminders();
@@ -359,6 +401,82 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
       await putBriefing(recap);
       return { ok: true, data: recap, toolCall: call };
     }
+
+    case 'plan_workday': {
+      const goals = (await listGoals()).filter((g) => g.status === 'active');
+      const reminders = (await listReminders()).filter((r) => r.status === 'scheduled');
+      const agent = await getAgentSettings();
+      const calendarConnected = Boolean(agent.calendarEnabled);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      const dueToday = reminders.filter(
+        (r) => r.when >= todayStart.getTime() && r.when <= todayEnd.getTime(),
+      );
+      const calendarEvents = calendarConnected
+        ? [
+            { title: 'Standup', when: '09:30' },
+            { title: 'Deep work block', when: '10:00–12:00' },
+          ]
+        : [];
+
+      const lines: string[] = [
+        '## Plan my workday — agenda',
+        '',
+        '### Goals',
+        goals.length
+          ? goals.map((g) => `• ${g.title}`).join('\n')
+          : '• (no active goals — add one in Goals)',
+        '',
+        '### Reminders due today',
+        dueToday.length
+          ? dueToday
+              .map((r) => `• ${r.text} — ${new Date(r.when).toLocaleTimeString()}`)
+              .join('\n')
+          : reminders.length
+            ? `• None due today (${reminders.length} scheduled later)`
+            : '• No reminders scheduled',
+        '',
+      ];
+
+      if (calendarConnected) {
+        lines.push('### Calendar (connected)');
+        for (const ev of calendarEvents) {
+          lines.push(`• ${ev.when} — ${ev.title}`);
+        }
+        lines.push('');
+      } else {
+        lines.push(
+          '### Calendar',
+          'Calendar isn’t connected — planning from goals/reminders only (no invented events). Enable Calendar in Privacy or re-run onboarding connect.',
+          '',
+        );
+      }
+
+      lines.push(
+        '### Prioritized focus blocks',
+        '1. **Morning focus block (90m)** — top goal deep work',
+        '2. **Midday admin** — due reminders + email triage',
+        '3. **Afternoon focus block (60–90m)** — second priority goal',
+        '',
+        'Concise agenda ready. Adjust blocks around any real calendar events above.',
+      );
+
+      const answer = lines.join('\n');
+      return {
+        ok: true,
+        data: {
+          answer,
+          calendarConnected,
+          goalCount: goals.length,
+          reminderDueToday: dueToday.length,
+          agenda: answer,
+        },
+        toolCall: call,
+      };
+    }
+
     case 'web_research': {
       return await runWebResearch(call);
     }

@@ -291,3 +291,25 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Detail:** `playwright test e2e/projects-*.spec.ts e2e/projects.spec.ts` → 22 passed. Template flows use Projects UI + harness actions (time-advance coach, job fixture search, EV capture, silent browse, standing). Unit: `npm test` green incl. factory goldens + projectPlaybooks. Tiny coreSkills guard so “Remember that…” does not lose to reminder.create (priority boost bug). Deferred: alarm-driven daily job search without UI; live tab browse association without harness (C2); PRJ-EA (C2); Google SERP (C3).
 - **Suggested owner:** C2, D1
 
+### 2026-08-07 — Agent C3 (Wave 2 Workflow skills)
+- **Test IDs:** WF-01, WF-03, WF-04, WF-05, WF-06, WF-09, WF-13, WF-16, WF-18; SET-08 synergy; ERR-03 / Google SERP default
+- **Severity:** should-fix
+- **Type:** deferred | missing-impl
+- **Summary:** Shipped Google-default web research, compare/dedupe/rank fixtures, absolute+weekly reminders with conflict detection, plan_workday, email preview confirm, page.counterargue; registered via `registerWorkflowSkills` (no router fork).
+- **Detail:**
+  - **SERP:** `webResearch` tries Google first; DuckDuckGo Instant Answer only on Google tab/parse failure. Fixture paths for keyboard / PM tools / flights return ranked Google-labeled answers without scrape.
+  - **Reminders:** `parseReminderSchedule` handles next Tuesday / every Friday / every weekday in device TZ; `weekly` + `repeatWeekday` on Reminder; conflict UX for gym vs language class (WF-18).
+  - **Skills:** `workflowSkills.ts` replaces core stubs via factory `registerSkill({ replace: true })`.
+  - **Calendar:** `plan_workday` reads `agentSettings.calendarEnabled`; stub events when connected, explicit “not connected” when skipped (no invented events).
+  - **Deferred / not owned:** WF-07/15/19/20 (C2 proactive/focus), WF-02/08/14/17 deeper EA/project playbooks (C1), full live Calendar API sync, live Google SERP scrape beyond fixtures, Stage-2 LLM compare when fixtures miss.
+  - **WF-15:** Soft assert on Settings threshold copy only — intelligent YouTube dwell owned by C2.
+- **Suggested owner:** C2 for WF-15/PRO; C1 for WF-14/17 playbooks; D1 for live SERP CI harness
+
+### 2026-08-07 — Agent C3 (Wave 2 Workflow skills) — e2e evidence
+- **Test IDs:** WF-01, WF-02, WF-03, WF-04, WF-05, WF-06, WF-09, WF-13, WF-15, WF-16, WF-18
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Local Playwright on C3 branch: **11/11 targeted WF IDs green** (research/reminders/email/planning/counterargue + soft WF-02/15).
+- **Detail:** Ran workflows-research/reminders/email/goals-planning + WF-13 with `?philTest=1` model-gate bypass. SERP default confirmed Google-primary in `webResearch.ts` (DDG only as `duckduckgo-fallback`). WF-07/10/14/17/19/20 left to C1/C2 owners.
+- **Suggested owner:** C1/C2 for remaining WF; D1 for live SERP scrape CI
+

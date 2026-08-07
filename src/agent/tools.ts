@@ -289,7 +289,15 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       text: { type: 'string', description: 'Reminder text', required: true },
       when: { type: 'number', description: 'Fire time as epoch milliseconds' },
       inMinutes: { type: 'number', description: 'Fire this many minutes from now' },
-      repeat: { type: 'string', description: 'none | daily | weekdays (default none)' },
+      repeat: { type: 'string', description: 'none | daily | weekdays | weekly (default none)' },
+      repeatWeekday: {
+        type: 'number',
+        description: '0=Sun … 6=Sat when repeat is weekly (device TZ)',
+      },
+      allowConflict: {
+        type: 'boolean',
+        description: 'If true, create even when a schedule conflict exists',
+      },
     },
   },
   {
@@ -342,6 +350,13 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       allowedDomains: { type: 'object', description: 'Replace allow-list' },
       blockedDomains: { type: 'object', description: 'Replace block-list' },
     },
+  },
+  {
+    name: 'plan_workday',
+    description:
+      'Plan the workday from active goals, reminders due today, and calendar when connected.',
+    risk: 'safe',
+    parameters: {},
   },
   {
     name: 'phil_settings_get',

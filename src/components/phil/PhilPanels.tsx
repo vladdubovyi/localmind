@@ -601,7 +601,7 @@ export function RemindersPanel() {
               <div className="break-words text-sm text-fg [overflow-wrap:anywhere]">{r.text}</div>
               <div className="mt-0.5 text-[11px] text-muted">
                 {new Date(r.when).toLocaleString()} · {r.status}
-                {r.repeat !== 'none' ? ` · ${r.repeat}` : ''}
+                {r.repeat !== 'none' ? ` · recurring ${r.repeat}` : ''}
               </div>
             </div>
             {r.status === 'scheduled' && (

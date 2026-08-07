@@ -14,6 +14,7 @@ import {
   buildMorningBriefingRecord,
 } from '@/background/phil/dailyReview';
 import { isInQuietHours } from '@/phil/notificationPolicy';
+import { deviceTimeZone, localPartsInDeviceTz, zonedLocalToUtcMs } from '@/phil/deviceTime';
 
 const REMINDER_ALARM_PREFIX = 'phil-reminder:';
 const BRIEFING_ALARM = 'phil-morning-briefing';
@@ -56,6 +57,7 @@ export async function createReminder(input: {
   text: string;
   when?: number;
   repeat?: Reminder['repeat'];
+  repeatWeekday?: number;
   projectId?: string;
   applyDefaults?: boolean;
 }): Promise<Reminder> {
@@ -73,6 +75,7 @@ export async function createReminder(input: {
     text: input.text.trim(),
     when,
     repeat,
+    repeatWeekday: input.repeatWeekday,
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,
@@ -93,17 +96,59 @@ export async function cancelReminder(id: string): Promise<Reminder | undefined> 
   return next;
 }
 
-async function nextRepeatWhen(from: number, repeat: Reminder['repeat']): Promise<number | null> {
+function dowFromLabel(weekday: string): number {
+  const map: Record<string, number> = {
+    sun: 0,
+    mon: 1,
+    tue: 2,
+    wed: 3,
+    thu: 4,
+    fri: 5,
+    sat: 6,
+  };
+  return map[weekday.toLowerCase().slice(0, 3)] ?? -1;
+}
+
+async function nextRepeatWhen(from: number, reminder: Reminder): Promise<number | null> {
+  const repeat = reminder.repeat;
   if (repeat === 'none') return null;
-  const d = new Date(from);
+  const tz = deviceTimeZone();
+  const parts = localPartsInDeviceTz(new Date(from), tz);
+
   if (repeat === 'daily') {
-    d.setDate(d.getDate() + 1);
-    return d.getTime();
+    const next = new Date(
+      zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + 24 * 60 * 60_000,
+    );
+    const np = localPartsInDeviceTz(next, tz);
+    return zonedLocalToUtcMs(np.year, np.month, np.day, parts.hour, parts.minute, 0, tz);
   }
-  do {
-    d.setDate(d.getDate() + 1);
-  } while (d.getDay() === 0 || d.getDay() === 6);
-  return d.getTime();
+
+  if (repeat === 'weekly') {
+    const target = reminder.repeatWeekday ?? dowFromLabel(parts.weekday);
+    for (let add = 1; add <= 8; add++) {
+      const day = new Date(
+        zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + add * 24 * 60 * 60_000,
+      );
+      const p = localPartsInDeviceTz(day, tz);
+      if (dowFromLabel(p.weekday) === target) {
+        return zonedLocalToUtcMs(p.year, p.month, p.day, parts.hour, parts.minute, 0, tz);
+      }
+    }
+    return from + 7 * 24 * 60 * 60_000;
+  }
+
+  // weekdays — next Mon–Fri
+  for (let add = 1; add <= 8; add++) {
+    const day = new Date(
+      zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + add * 24 * 60 * 60_000,
+    );
+    const p = localPartsInDeviceTz(day, tz);
+    const dow = dowFromLabel(p.weekday);
+    if (dow >= 1 && dow <= 5) {
+      return zonedLocalToUtcMs(p.year, p.month, p.day, parts.hour, parts.minute, 0, tz);
+    }
+  }
+  return from + 24 * 60 * 60_000;
 }
 
 export async function fireReminder(id: string): Promise<void> {
@@ -130,7 +175,7 @@ export async function fireReminder(id: string): Promise<void> {
     // ignore
   }
 
-  const nextWhen = await nextRepeatWhen(reminder.when, reminder.repeat);
+  const nextWhen = await nextRepeatWhen(reminder.when, reminder);
   if (nextWhen) {
     const next: Reminder = {
       ...reminder,

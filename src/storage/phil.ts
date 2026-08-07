@@ -1,4 +1,3 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type {
   Goal,
   MorningBriefing,
@@ -8,71 +7,35 @@ import type {
 } from '@/phil/types';
 import { DEFAULT_PHIL_SETTINGS } from '@/phil/types';
 
-interface PhilDB extends DBSchema {
-  philSettings: {
-    key: string;
-    value: PhilAssistantSettings;
-  };
-  reminders: {
-    key: string;
-    value: Reminder;
-    indexes: { 'by-when': number };
-  };
-  goals: {
-    key: string;
-    value: Goal;
-    indexes: { 'by-updated': number };
-  };
-  tabActivity: {
-    key: string;
-    value: TabActivitySession;
-    indexes: { 'by-started': number; 'by-domain': string };
-  };
-  briefings: {
-    key: string;
-    value: MorningBriefing;
-    indexes: { 'by-date': string };
-  };
+/**
+ * Phil PA persistence via chrome.storage.local.
+ * Prefer storage.local over IndexedDB so the MV3 service worker can read/write
+ * reliably (IDB open can hang or race during SW wake).
+ */
+
+const KEYS = {
+  settings: 'philSettings',
+  reminders: 'philReminders',
+  goals: 'philGoals',
+  activity: 'philTabActivity',
+  briefings: 'philBriefings',
+} as const;
+
+async function getLocal<T>(key: string, fallback: T): Promise<T> {
+  const stored = await chrome.storage.local.get(key);
+  const value = stored[key];
+  return (value as T | undefined) ?? fallback;
 }
 
-const DB_NAME = 'phil';
-const DB_VERSION = 1;
-
-let dbPromise: Promise<IDBPDatabase<PhilDB>> | null = null;
-
-function getDb() {
-  if (!dbPromise) {
-    dbPromise = openDB<PhilDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('philSettings')) {
-          db.createObjectStore('philSettings');
-        }
-        if (!db.objectStoreNames.contains('reminders')) {
-          const store = db.createObjectStore('reminders', { keyPath: 'id' });
-          store.createIndex('by-when', 'when');
-        }
-        if (!db.objectStoreNames.contains('goals')) {
-          const store = db.createObjectStore('goals', { keyPath: 'id' });
-          store.createIndex('by-updated', 'updatedAt');
-        }
-        if (!db.objectStoreNames.contains('tabActivity')) {
-          const store = db.createObjectStore('tabActivity', { keyPath: 'id' });
-          store.createIndex('by-started', 'startedAt');
-          store.createIndex('by-domain', 'domain');
-        }
-        if (!db.objectStoreNames.contains('briefings')) {
-          const store = db.createObjectStore('briefings', { keyPath: 'id' });
-          store.createIndex('by-date', 'dateKey');
-        }
-      },
-    });
-  }
-  return dbPromise;
+async function setLocal(key: string, value: unknown): Promise<void> {
+  await chrome.storage.local.set({ [key]: value });
 }
 
 export async function getPhilSettings(): Promise<PhilAssistantSettings> {
-  const db = await getDb();
-  const stored = await db.get('philSettings', 'app');
+  const stored = await getLocal<Partial<PhilAssistantSettings> | undefined>(
+    KEYS.settings,
+    undefined,
+  );
   return { ...DEFAULT_PHIL_SETTINGS, ...stored };
 }
 
@@ -88,69 +51,79 @@ export async function savePhilSettings(
       ...partial.categoryOverrides,
     },
   };
-  const db = await getDb();
-  await db.put('philSettings', next, 'app');
-  await chrome.storage.local.set({ philSettings: next });
+  await setLocal(KEYS.settings, next);
   return next;
 }
 
 export async function listReminders(): Promise<Reminder[]> {
-  const db = await getDb();
-  const all = await db.getAllFromIndex('reminders', 'by-when');
-  return all;
+  const all = await getLocal<Reminder[]>(KEYS.reminders, []);
+  return [...all].sort((a, b) => a.when - b.when);
 }
 
 export async function putReminder(reminder: Reminder): Promise<void> {
-  const db = await getDb();
-  await db.put('reminders', reminder);
+  const all = await listReminders();
+  const idx = all.findIndex((r) => r.id === reminder.id);
+  if (idx >= 0) all[idx] = reminder;
+  else all.push(reminder);
+  await setLocal(KEYS.reminders, all);
 }
 
 export async function getReminder(id: string): Promise<Reminder | undefined> {
-  const db = await getDb();
-  return db.get('reminders', id);
+  const all = await listReminders();
+  return all.find((r) => r.id === id);
 }
 
 export async function deleteReminder(id: string): Promise<void> {
-  const db = await getDb();
-  await db.delete('reminders', id);
+  const all = await listReminders();
+  await setLocal(
+    KEYS.reminders,
+    all.filter((r) => r.id !== id),
+  );
 }
 
 export async function listGoals(): Promise<Goal[]> {
-  const db = await getDb();
-  const all = await db.getAllFromIndex('goals', 'by-updated');
-  return all.reverse();
+  const all = await getLocal<Goal[]>(KEYS.goals, []);
+  return [...all].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function putGoal(goal: Goal): Promise<void> {
-  const db = await getDb();
-  await db.put('goals', goal);
+  const all = await listGoals();
+  const idx = all.findIndex((g) => g.id === goal.id);
+  if (idx >= 0) all[idx] = goal;
+  else all.push(goal);
+  await setLocal(KEYS.goals, all);
 }
 
 export async function getGoal(id: string): Promise<Goal | undefined> {
-  const db = await getDb();
-  return db.get('goals', id);
+  const all = await listGoals();
+  return all.find((g) => g.id === id);
 }
 
 export async function putTabActivity(session: TabActivitySession): Promise<void> {
-  const db = await getDb();
-  await db.put('tabActivity', session);
+  const all = await getLocal<TabActivitySession[]>(KEYS.activity, []);
+  all.push(session);
+  // Cap history so storage stays bounded (~2 weeks of coarse sessions).
+  const trimmed = all.length > 2000 ? all.slice(all.length - 2000) : all;
+  await setLocal(KEYS.activity, trimmed);
 }
 
 export async function listTabActivitySince(sinceMs: number): Promise<TabActivitySession[]> {
-  const db = await getDb();
-  const all = await db.getAllFromIndex('tabActivity', 'by-started');
+  const all = await getLocal<TabActivitySession[]>(KEYS.activity, []);
   return all.filter((s) => s.startedAt >= sinceMs);
 }
 
 export async function putBriefing(briefing: MorningBriefing): Promise<void> {
-  const db = await getDb();
-  await db.put('briefings', briefing);
+  const all = await getLocal<MorningBriefing[]>(KEYS.briefings, []);
+  all.push(briefing);
+  const trimmed = all.length > 60 ? all.slice(all.length - 60) : all;
+  await setLocal(KEYS.briefings, trimmed);
 }
 
 export async function getBriefingByDate(dateKey: string): Promise<MorningBriefing | undefined> {
-  const db = await getDb();
-  const all = await db.getAllFromIndex('briefings', 'by-date', dateKey);
-  return all.sort((a, b) => b.createdAt - a.createdAt)[0];
+  const all = await getLocal<MorningBriefing[]>(KEYS.briefings, []);
+  return all
+    .filter((b) => b.dateKey === dateKey)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
 }
 
 export function localDateKey(d = new Date()): string {

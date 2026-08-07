@@ -15,6 +15,8 @@ const pathToExtension = path.join(rootDir, 'dist');
 const gmailFixturePath = path.join(rootDir, 'e2e/fixtures/gmail-inbox.html');
 /** Persistent Chromium profile so WebLLM Cache API survives across runs. */
 const userDataDir = path.join(rootDir, 'e2e/.browser-profile');
+/** Separate profile for Phil PA tests (no WebLLM) so SW updates cleanly. */
+const philUserDataDir = path.join(rootDir, 'e2e/.browser-profile-phil');
 
 /** Smallest catalog model — faster first download for full-product e2e. */
 export const E2E_MODEL_LABEL = 'Gemma 2 2B';
@@ -29,10 +31,17 @@ type WorkerFixtures = {
   serviceWorker: Worker;
   /** Side panel with WebLLM loaded and Agent enabled. */
   readySidebar: Page;
+  /** Side panel seeded for Phil PA (no WebLLM required). */
+  philSidebar: Page;
+  philExtensionContext: BrowserContext;
+  philExtensionId: string;
+  philServiceWorker: Worker;
 };
 
 type TestFixtures = {
   extensionPage: Page;
+  /** Phil UI/tools page — does not wait for WebLLM. */
+  philPage: Page;
   gmailPage: Page;
   /** Opens Agent tab on a model-ready sidebar. */
   agentPage: Page;
@@ -302,6 +311,63 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     },
     { scope: 'worker' },
   ],
+
+  philExtensionContext: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      if (!fs.existsSync(path.join(pathToExtension, 'manifest.json'))) {
+        throw new Error('dist/ is missing — run `npm run build` first.');
+      }
+      fs.mkdirSync(philUserDataDir, { recursive: true });
+      const ctx = await chromium.launchPersistentContext(philUserDataDir, {
+        channel: 'chromium',
+        headless: false,
+        args: [
+          `--disable-extensions-except=${pathToExtension}`,
+          `--load-extension=${pathToExtension}`,
+        ],
+        viewport: { width: 420, height: 800 },
+      });
+      await use(ctx);
+      await ctx.close();
+    },
+    { scope: 'worker' },
+  ],
+
+  philServiceWorker: [
+    async ({ philExtensionContext }, use) => {
+      const worker = await waitForServiceWorker(philExtensionContext);
+      await use(worker);
+    },
+    { scope: 'worker' },
+  ],
+
+  philExtensionId: [
+    async ({ philServiceWorker }, use) => {
+      await use(philServiceWorker.url().split('/')[2]);
+    },
+    { scope: 'worker' },
+  ],
+
+  philSidebar: [
+    async ({ philExtensionContext, philExtensionId }, use) => {
+      const page = await philExtensionContext.newPage();
+      await page.goto(`chrome-extension://${philExtensionId}/src/sidebar/index.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await seedExtensionStorage(page);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('button', { name: /^Today$/i })).toBeVisible({
+        timeout: 30_000,
+      });
+      await use(page);
+    },
+    { scope: 'worker' },
+  ],
+
+  philPage: async ({ philSidebar }, use) => {
+    await use(philSidebar);
+  },
 
   readySidebar: [
     async ({ extensionContext, extensionId }, use) => {

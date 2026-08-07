@@ -17,6 +17,21 @@ import { getPhilSettings, savePhilSettings } from '@/storage/phil';
 import type { PhilQuickIntent } from '@/phil/types';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
 
+const PHIL_TOOL_PREFIXES = [
+  'focus_',
+  'reminder_',
+  'goal_',
+  'phil_',
+  'briefing_',
+] as const;
+
+function isPhilToolName(name: string): boolean {
+  return (
+    name === 'web_research' ||
+    PHIL_TOOL_PREFIXES.some((p) => name.startsWith(p))
+  );
+}
+
 const SELECTION_MENU_ACTIONS = [
   { id: 'explain', title: 'Explain selection' },
   { id: 'summarize', title: 'Summarize selection' },
@@ -83,48 +98,6 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Also apply on SW wake so upgrades pick up the behavior without reinstall.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-installContextMenus();
-registerFocusTracker();
-registerPhilAlarms();
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (!tab?.windowId) return;
-
-  await chrome.sidePanel.open({ windowId: tab.windowId });
-
-  if (info.menuItemId === 'phil-open' || info.menuItemId === 'localmind-open') {
-    if (info.selectionText?.trim()) {
-      await setPendingAction({
-        action: 'explain',
-        text: info.selectionText.trim(),
-        url: tab.url,
-        title: tab.title,
-        tabId: tab.id,
-        canReplace: false,
-        createdAt: Date.now(),
-      });
-    }
-    return;
-  }
-
-  const action = String(info.menuItemId)
-    .replace('phil-', '')
-    .replace('localmind-', '') as SelectionAction;
-  const text = (info.selectionText ?? '').trim();
-  if (!text) return;
-
-  const canReplace = action === 'rewrite' || action === 'translate' || action === 'improve';
-
-  await setPendingAction({
-    action,
-    text,
-    url: tab.url,
-    title: tab.title,
-    tabId: tab.id,
-    canReplace,
-    createdAt: Date.now(),
-  });
-});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'OPEN_SIDE_PANEL') {
@@ -211,6 +184,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // —— Agent ——
   if (message?.type === 'AGENT_EXECUTE_TOOL') {
     const msg = message as AgentRuntimeMessage & { type: 'AGENT_EXECUTE_TOOL' };
+    // Phil tools (except web_research): dynamic-import the executor so the SW
+    // boot graph does not cycle through router → phil tools → reminders.
+    if (msg.call && isPhilToolName(msg.call.name) && msg.call.name !== 'web_research') {
+      import('@/background/tools/phil')
+        .then((m) => m.executePhilTools(msg.call))
+        .then((result) => sendResponse(result))
+        .catch((err: unknown) =>
+          sendResponse({
+            ok: false,
+            error: String(err),
+            toolCall: msg.call,
+          }),
+        );
+      return true;
+    }
     routeAgentTool(msg.call, Boolean(msg.confirmed))
       .then((result) => sendResponse(result))
       .catch((err: unknown) =>
@@ -256,6 +244,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return false;
+});
+
+installContextMenus();
+
+// Defer Phil trackers so a storage/alarms glitch cannot block message handling.
+queueMicrotask(() => {
+  try {
+    registerFocusTracker();
+    registerPhilAlarms();
+  } catch (err) {
+    console.error('[Phil] failed to register trackers', err);
+  }
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab?.windowId) return;
+
+  await chrome.sidePanel.open({ windowId: tab.windowId });
+
+  if (info.menuItemId === 'phil-open' || info.menuItemId === 'localmind-open') {
+    if (info.selectionText?.trim()) {
+      await setPendingAction({
+        action: 'explain',
+        text: info.selectionText.trim(),
+        url: tab.url,
+        title: tab.title,
+        tabId: tab.id,
+        canReplace: false,
+        createdAt: Date.now(),
+      });
+    }
+    return;
+  }
+
+  const action = String(info.menuItemId)
+    .replace('phil-', '')
+    .replace('localmind-', '') as SelectionAction;
+  const text = (info.selectionText ?? '').trim();
+  if (!text) return;
+
+  const canReplace = action === 'rewrite' || action === 'translate' || action === 'improve';
+
+  await setPendingAction({
+    action,
+    text,
+    url: tab.url,
+    title: tab.title,
+    tabId: tab.id,
+    canReplace,
+    createdAt: Date.now(),
+  });
 });
 
 export {};

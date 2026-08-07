@@ -261,44 +261,31 @@ export function ChatApp({ variant }: ChatAppProps) {
     );
   }
 
-  // Full first-time model download still uses the dedicated onboarding surface.
-  // Once a model is cached, restoring stays fullscreen. Phil PA tabs are available
-  // whenever the engine is ready (or after the user has a model selected & ready).
-  if (shouldShowFullOnboarding(phase, loadingFromCache)) {
-    return (
-      <div className={cn('relative h-full', variant === 'popup' ? 'w-[380px]' : 'w-full')}>
-        <Onboarding
-          selectedModelId={settings.selectedModelId}
-          progress={progress}
-          error={error}
-          isDownloading={phase === 'downloading'}
-          alreadyCached={false}
-          onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
-          onDownload={(id) => void downloadAndLoad(id)}
-        />
-      </div>
-    );
-  }
-
-  if (isRestoringEngine(phase, loadingFromCache)) {
-    return (
-      <div
-        className={cn(
-          'relative h-full',
-          variant === 'popup' ? 'w-[380px]' : 'w-full',
-        )}
-      >
-        <ModelRestoring
-          progress={progress}
-          error={error}
-          onRetry={() => void downloadAndLoad(settings.selectedModelId)}
-        />
-      </div>
-    );
-  }
-
   const messages = conversation.messages;
   const modelReady = phase === 'ready';
+  const needsModelUi =
+    shouldShowFullOnboarding(phase, loadingFromCache) ||
+    isRestoringEngine(phase, loadingFromCache);
+
+  const modelGate = needsModelUi ? (
+    shouldShowFullOnboarding(phase, loadingFromCache) ? (
+      <Onboarding
+        selectedModelId={settings.selectedModelId}
+        progress={progress}
+        error={error}
+        isDownloading={phase === 'downloading'}
+        alreadyCached={false}
+        onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
+        onDownload={(id) => void downloadAndLoad(id)}
+      />
+    ) : (
+      <ModelRestoring
+        progress={progress}
+        error={error}
+        onRetry={() => void downloadAndLoad(settings.selectedModelId)}
+      />
+    )
+  ) : null;
 
   return (
     <div
@@ -345,7 +332,7 @@ export function ChatApp({ variant }: ChatAppProps) {
 
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentPanel modelReady={modelReady} />
+          {modelGate ?? <AgentPanel modelReady={modelReady} />}
         </div>
       ) : uiTab === 'today' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -367,6 +354,8 @@ export function ChatApp({ variant }: ChatAppProps) {
         <div className="min-h-0 flex-1 overflow-hidden">
           <PhilSettingsPanel />
         </div>
+      ) : modelGate ? (
+        <div className="min-h-0 flex-1 overflow-hidden">{modelGate}</div>
       ) : (
         <>
           <PageActions

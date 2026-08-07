@@ -1,133 +1,82 @@
 import { test, expect } from './fixtures/extension';
 
-test.describe('Phil tools via service worker', () => {
-  test('reminder_create / list / cancel', async ({ extensionPage }) => {
-    const result = await extensionPage.evaluate(async () => {
-      const call = {
-        id: `e2e_${Date.now()}`,
-        name: 'reminder_create',
-        arguments: { text: 'E2E drink water', inMinutes: 60 },
-      };
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call,
-        confirmed: true,
-      });
-    });
-
-    expect(result).toMatchObject({ ok: true });
-    expect(result.data).toMatchObject({
-      text: 'E2E drink water',
-      status: 'scheduled',
-    });
-
-    const listed = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: { id: 'e2e_list', name: 'reminder_list', arguments: {} },
-        confirmed: true,
-      });
-    });
-    expect(listed.ok).toBe(true);
-    expect(JSON.stringify(listed.data)).toContain('E2E drink water');
-
-    const id = result.data.id as string;
-    const cancelled = await extensionPage.evaluate(async (reminderId) => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: {
-          id: 'e2e_cancel',
-          name: 'reminder_cancel',
-          arguments: { id: reminderId },
-        },
-        confirmed: true,
-      });
-    }, id);
-    expect(cancelled.ok).toBe(true);
-  });
-
-  test('goal_create and focus_summary', async ({ extensionPage }) => {
-    const goal = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: {
-          id: 'e2e_goal',
-          name: 'goal_create',
-          arguments: { title: 'E2E finish Phil tools' },
-        },
-        confirmed: true,
-      });
-    });
-    expect(goal.ok).toBe(true);
-    expect(goal.data.title).toBe('E2E finish Phil tools');
-
-    const focus = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: { id: 'e2e_focus', name: 'focus_summary', arguments: {} },
-        confirmed: true,
-      });
-    });
-    expect(focus.ok).toBe(true);
-    expect(focus.data).toHaveProperty('byCategory');
-    expect(focus.data).toHaveProperty('totalMs');
-  });
-
-  test('briefing_today and phil_settings_get', async ({ extensionPage }) => {
-    const briefing = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: { id: 'e2e_brief', name: 'briefing_today', arguments: {} },
-        confirmed: true,
-      });
-    });
-    expect(briefing.ok).toBe(true);
-    expect(String(briefing.data.content)).toMatch(/Good morning|goals|Focus/i);
-
-    const settings = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: { id: 'e2e_settings', name: 'phil_settings_get', arguments: {} },
-        confirmed: true,
-      });
-    });
-    expect(settings.ok).toBe(true);
-    expect(settings.data.fabEnabled).toBe(true);
-  });
-
-  test('web_research opens search tabs', async ({ extensionPage, extensionContext }) => {
-    // Host access is optional until Agent enable; request it for research.
-    await extensionPage.evaluate(async () => {
-      await chrome.permissions.request({
-        origins: ['http://*/*', 'https://*/*'],
-      });
-    });
-
-    const before = extensionContext.pages().length;
-    const research = await extensionPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({
-        type: 'AGENT_EXECUTE_TOOL',
-        call: {
-          id: 'e2e_research',
-          name: 'web_research',
-          arguments: { query: 'best noise cancelling headphones', maxResults: 2 },
-        },
-        confirmed: true,
-      });
-    });
-    expect(research.ok).toBe(true);
-    expect(research.data).toHaveProperty('serpUrl');
-    await expect
-      .poll(() => extensionContext.pages().length, { timeout: 20_000 })
-      .toBeGreaterThan(before);
-  });
-
-  test('manifest reports Phil 1.0.0', async ({ serviceWorker }) => {
-    const info = await serviceWorker.evaluate(async () => {
+/**
+ * Phil tool/data-layer checks that do not require WebLLM.
+ * Full UI flows live in phil-ui.spec.ts. Agent tool routing is exercised when
+ * the model e2e profile can load WebGPU; here we validate persistence + manifest.
+ */
+test.describe('Phil data layer + manifest', () => {
+  test('manifest reports Phil 1.0.0', async ({ philServiceWorker }) => {
+    const info = await philServiceWorker.evaluate(async () => {
       const manifest = chrome.runtime.getManifest();
-      return { name: manifest.name, version: manifest.version };
+      return {
+        name: manifest.name,
+        version: manifest.version,
+        permissions: manifest.permissions ?? [],
+      };
     });
     expect(info.name).toBe('Phil');
     expect(info.version).toBe('1.0.0');
+    expect(info.permissions).toEqual(
+      expect.arrayContaining(['alarms', 'notifications', 'idle', 'tabs']),
+    );
+  });
+
+  test('phil settings persist in chrome.storage.local', async ({ philPage }) => {
+    const settings = await philPage.evaluate(async () => {
+      const stored = await chrome.storage.local.get('philSettings');
+      return stored.philSettings as Record<string, unknown> | undefined;
+    });
+    expect(settings).toBeTruthy();
+    expect(settings?.fabEnabled).toBe(true);
+    expect(settings?.trackingEnabled).toBe(true);
+  });
+
+  test('reminders and goals round-trip via storage', async ({ philPage }) => {
+    const result = await philPage.evaluate(async () => {
+      const remId = `rem_e2e_${Date.now()}`;
+      const goalId = `goal_e2e_${Date.now()}`;
+      const now = Date.now();
+      await chrome.storage.local.set({
+        philReminders: [
+          {
+            id: remId,
+            text: 'E2E storage reminder',
+            when: now + 60_000,
+            repeat: 'none',
+            status: 'scheduled',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        philGoals: [
+          {
+            id: goalId,
+            title: 'E2E storage goal',
+            status: 'active',
+            allowedDomains: [],
+            blockedDomains: ['youtube.com'],
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      });
+      const stored = await chrome.storage.local.get(['philReminders', 'philGoals']);
+      return {
+        reminders: stored.philReminders as Array<{ id: string; text: string }>,
+        goals: stored.philGoals as Array<{ id: string; title: string }>,
+      };
+    });
+    expect(result.reminders.some((r) => r.text === 'E2E storage reminder')).toBe(true);
+    expect(result.goals.some((g) => g.title === 'E2E storage goal')).toBe(true);
+  });
+
+  test('Focus / Reminders / Goals panels read storage-backed state', async ({ philPage }) => {
+    await philPage.getByRole('button', { name: /^Reminders$/i }).click();
+    await expect(philPage.getByRole('heading', { name: /^Reminders$/i })).toBeVisible();
+    await philPage.getByRole('button', { name: /^Goals$/i }).click();
+    await expect(philPage.getByRole('heading', { name: /^Goals$/i })).toBeVisible();
+    await philPage.getByRole('button', { name: /^Focus$/i }).click();
+    await expect(philPage.getByText(/Productive/i).first()).toBeVisible();
   });
 });

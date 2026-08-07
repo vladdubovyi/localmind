@@ -4,7 +4,6 @@ import { getAgentPermissionState } from '@/agent/permissions';
 import { executeTabTools } from '@/background/tools/tabs';
 import { executePageTools } from '@/background/tools/page';
 import { executeGmailTools } from '@/background/tools/gmail';
-import { executePhilTools } from '@/background/tools/phil';
 import { getAgentSettings } from '@/storage/agentSettings';
 
 const PHIL_PREFIXES = [
@@ -31,12 +30,21 @@ function needsUserConfirm(risk: ToolRisk, confirmed: boolean): boolean {
   return false; // moderate handled with settings below
 }
 
+function philFallbackDef(name: string): { risk: ToolRisk; confirmLabel?: string } {
+  if (name === 'web_research') {
+    return { risk: 'moderate', confirmLabel: 'Research the web and open result tabs' };
+  }
+  return { risk: 'safe' };
+}
+
 export async function routeAgentTool(
   call: ToolCall,
   confirmed = false,
 ): Promise<ToolResult> {
   const def = getTool(call.name);
-  if (!def) {
+  // Phil tools are also matched by prefix so a bundler export mismatch on
+  // getTool cannot strand reminder/goal/focus calls as "Unknown tool".
+  if (!def && !isPhilTool(call.name)) {
     return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
   }
 
@@ -55,14 +63,15 @@ export async function routeAgentTool(
     };
   }
 
-  const risk = def.risk;
+  const risk = def?.risk ?? philFallbackDef(call.name).risk;
+  const confirmLabel = def?.confirmLabel ?? philFallbackDef(call.name).confirmLabel;
   const confirmModerate = settings.confirmModerate && risk === 'moderate';
   if (needsUserConfirm(risk, confirmed) || (confirmModerate && !confirmed)) {
     return {
       ok: false,
       needsConfirm: true,
       toolCall: call,
-      error: `Confirmation required for ${def.confirmLabel ?? def.name}`,
+      error: `Confirmation required for ${confirmLabel ?? call.name}`,
     };
   }
 
@@ -89,6 +98,8 @@ export async function routeAgentTool(
       return await executeGmailTools(call, settings);
     }
     if (isPhilTool(call.name)) {
+      // Dynamic import avoids SW boot cycles: router ↔ phil ↔ reminders.
+      const { executePhilTools } = await import('@/background/tools/phil');
       return await executePhilTools(call);
     }
     if (call.name.startsWith('debugger_')) {

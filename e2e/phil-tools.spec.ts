@@ -119,7 +119,7 @@ test.describe('Phil data layer + manifest', () => {
     expect(stored).toBe(true);
   });
 
-  test('web_research opens search tabs without SW import() errors', async ({
+  test('web_research weather returns a live answer without junk search tabs', async ({
     philServiceWorker,
     philExtensionContext,
   }) => {
@@ -133,6 +133,17 @@ test.describe('Phil data layer + manifest', () => {
           gmailClientId: '',
           gmailMode: 'session',
         },
+        philSettings: {
+          fabEnabled: true,
+          trackingEnabled: true,
+          nudgesEnabled: false,
+          briefingEnabled: true,
+          briefingHour: 8,
+          briefingMinute: 0,
+          nudgeThresholdMs: 120_000,
+          locality: 'Austin TX',
+          categoryOverrides: {},
+        },
       });
     });
 
@@ -144,23 +155,23 @@ test.describe('Phil data layer + manifest', () => {
       }, { timeout: 15_000 })
       .toBe(true);
 
-    const beforeUrls = new Set(
-      philExtensionContext.pages().map((p) => {
-        try {
-          return p.url();
-        } catch {
-          return '';
-        }
-      }),
-    );
-
     const result = await philServiceWorker.evaluate(async () => {
       const run = (
         globalThis as {
           __routeAgentTool?: (
             call: { id: string; name: string; arguments: Record<string, unknown> },
             confirmed?: boolean,
-          ) => Promise<{ ok: boolean; error?: string; data?: { serpUrl?: string; findings?: unknown[] } }>;
+          ) => Promise<{
+            ok: boolean;
+            error?: string;
+            data?: {
+              answer?: string;
+              source?: string;
+              serpUrl?: string;
+              findings?: Array<{ url?: string }>;
+              note?: string;
+            };
+          }>;
         }
       ).__routeAgentTool;
       if (!run) return { ok: false, error: 'route hook missing' };
@@ -176,22 +187,22 @@ test.describe('Phil data layer + manifest', () => {
 
     expect(result.error ?? '').not.toMatch(/import\(\)|ServiceWorkerGlobalScope/i);
     expect(result.ok).toBe(true);
-    expect(result.data?.serpUrl ?? '').toMatch(/duckduckgo\.com/i);
+    expect(result.data?.answer ?? '').toMatch(/weather|°|F|C|sun|cloud|rain|clear|overcast|Austin/i);
+    expect(result.data?.answer ?? '').not.toMatch(/could not extract deep links|<!DOCTYPE|<html/i);
+    expect(result.data?.source ?? '').toMatch(/wttr/i);
 
-    await expect
-      .poll(() => {
-        const urls = philExtensionContext.pages().map((p) => {
-          try {
-            return p.url();
-          } catch {
-            return '';
-          }
-        });
-        return urls.some(
-          (u) =>
-            /duckduckgo\.com|google\.com\/search/i.test(u) && !beforeUrls.has(u),
-        );
-      }, { timeout: 20_000 })
-      .toBe(true);
+    const opened = philExtensionContext.pages().map((p) => {
+      try {
+        return p.url();
+      } catch {
+        return '';
+      }
+    });
+    const weatherTabs = opened.filter((u) => /wttr\.in/i.test(u));
+    const junkSearchTabs = opened.filter((u) =>
+      /duckduckgo\.com\/\?q=.*buy|google\.com\/search\?q=What%20is%20the%20weather/i.test(u),
+    );
+    expect(weatherTabs.length).toBeGreaterThan(0);
+    expect(junkSearchTabs.length).toBe(0);
   });
 });

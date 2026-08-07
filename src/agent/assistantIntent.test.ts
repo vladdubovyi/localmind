@@ -5,11 +5,13 @@ import {
   isGoalSetupGoal,
   isLiveInfoGoal,
   isReminderGoal,
+  isWeatherGoal,
   isWebResearchGoal,
   offersToActWithoutTools,
   parseGoalTitle,
   parseReminderInMinutes,
   parseReminderText,
+  weatherPlaceFromQuery,
 } from './assistantIntent.ts';
 
 assert.equal(isReminderGoal('Remind me in 20 minutes to stretch'), true);
@@ -29,8 +31,11 @@ assert.equal(isBriefingGoal("What's up today?"), true);
 assert.equal(isWebResearchGoal('Research noise-cancelling headphones under $100'), true);
 assert.equal(isWebResearchGoal('List my last 5 emails'), false);
 assert.equal(isLiveInfoGoal('What is the weather today?'), true);
+assert.equal(isWeatherGoal('What is the weather today?'), true);
 assert.equal(isWebResearchGoal('What is the weather today?'), true);
 assert.equal(isLiveInfoGoal('List my last 5 emails'), false);
+assert.equal(weatherPlaceFromQuery('What is the weather today?', 'Austin TX'), 'Austin TX');
+assert.equal(weatherPlaceFromQuery('weather in Paris today', 'Austin TX'), 'Paris');
 assert.equal(
   offersToActWithoutTools(
     "I don't have direct access to weather information. Would you like me to open one for you?",

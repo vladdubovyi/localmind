@@ -214,13 +214,23 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
   }
   if (name === 'web_research') {
     const d = result.data as
-      | { query?: string; note?: string; findings?: Array<{ url?: string }> }
+      | {
+          query?: string;
+          note?: string;
+          answer?: string;
+          findings?: Array<{ url?: string; tabId?: number; domain?: string }>;
+        }
       | undefined;
     const findings = d?.findings ?? [];
+    if (d?.answer?.trim()) {
+      return d.answer.trim();
+    }
     return [
       `Research: ${d?.query ?? ''}`,
       d?.note,
-      ...findings.slice(0, 5).map((f, i) => `${i + 1}. ${f.url ?? ''}`),
+      ...findings
+        .slice(0, 5)
+        .map((f, i) => `${i + 1}. ${f.domain ?? f.url ?? ''}${f.tabId != null ? ` (tab #${f.tabId})` : ''}`),
     ]
       .filter(Boolean)
       .join('\n');

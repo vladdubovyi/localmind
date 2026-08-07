@@ -60,11 +60,13 @@ export default defineManifest({
     'https://accounts.google.com/*',
   ],
   // Required for WebLLM model + wasm artifact downloads (then works offline from cache).
+  // wttr.in powers live weather answers without scraping brittle SERP pages.
   host_permissions: [
     'https://huggingface.co/*',
     'https://*.huggingface.co/*',
     'https://*.hf.co/*',
     'https://raw.githubusercontent.com/*',
+    'https://wttr.in/*',
   ],
   content_security_policy: {
     extension_pages:

@@ -31,6 +31,23 @@ export function isBriefingGoal(goal: string): boolean {
   );
 }
 
+/** Weather / forecast questions (answered via live forecast fetch). */
+export function isWeatherGoal(goal: string): boolean {
+  return (
+    /\b(weather|forecast|temperature|humidity|air quality|uv index)\b/i.test(goal) ||
+    /\b(what'?s|whats|how'?s|how is)\s+(the\s+)?(weather|forecast|temp)\b/i.test(goal)
+  );
+}
+
+/** Best-effort place from “weather in X” or Phil locality setting. */
+export function weatherPlaceFromQuery(query: string, locality: string): string {
+  const inPlace = query.match(
+    /\b(?:in|for|near|at)\s+([A-Za-z][A-Za-z\s.',-]{1,60}?)(?:\s+today|\s+tonight|\s+now|[?.!]|$)/i,
+  );
+  if (inPlace?.[1]) return inPlace[1].replace(/\s+/g, ' ').trim();
+  return locality.trim();
+}
+
 /**
  * Questions that need live external data (weather, scores, prices…).
  * Small local models often refuse these instead of calling tools.
@@ -38,8 +55,7 @@ export function isBriefingGoal(goal: string): boolean {
 export function isLiveInfoGoal(goal: string): boolean {
   if (/\bgmail|inbox|email\b/i.test(goal)) return false;
   return (
-    /\b(weather|forecast|temperature|humidity|air quality|uv index)\b/i.test(goal) ||
-    /\b(what'?s|whats|how'?s|how is)\s+(the\s+)?(weather|forecast|temp)\b/i.test(goal) ||
+    isWeatherGoal(goal) ||
     /\b(stock price|share price|who won|final score|news (today|now)|current (time|price|rate|temperature))\b/i.test(
       goal,
     )

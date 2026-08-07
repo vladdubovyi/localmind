@@ -23,8 +23,18 @@ assert.equal(route('Research noise-cancelling headphones under $100').skill.id, 
 assert.equal(route('List my last 5 emails', 'email_list').skill.id, 'gmail');
 assert.equal(route('Open https://example.com in a new tab').skill.id, 'open_link');
 assert.equal(route('Do you think I should take the job?').skill.id, 'chat');
+assert.equal(route('What can you do?').skill.id, 'chat');
+assert.ok(!route('What can you do?').toolCall);
+assert.ok(
+  route('What is in my calendar today?').skill.id === 'briefing' ||
+    route('What is in my calendar today?').plan?.debug?.skills?.some((s) =>
+      /briefing|planning\.workday/.test(s),
+    ),
+);
 assert.equal(isFactualLookupGoal('What is Bitcoin worth today?'), true);
 assert.equal(isFactualLookupGoal('Remind me in 5 minutes'), false);
+assert.equal(isFactualLookupGoal('What can you do?'), false);
+assert.equal(isFactualLookupGoal('What is in my calendar today?'), false);
 
 const ranked = rankSkills({ goal: 'What is the weather today?' });
 assert.ok(ranked[0]?.id === 'research.web.weather' || ranked[0]?.id === 'live_weather');

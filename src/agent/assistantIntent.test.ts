@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
   isBriefingGoal,
+  isCalendarAgendaGoal,
   isFocusStatusGoal,
   isForgetGoal,
   isGoalSetupGoal,
   isLiveInfoGoal,
+  isMetaCapabilityGoal,
   isRecallGoal,
   isRememberGoal,
   isReminderGoal,
@@ -35,6 +37,12 @@ assert.equal(parseGoalTitle('Set a goal to finish the proposal'), 'finish the pr
 assert.equal(isGoalSetupGoal('Set a goal to finish the proposal'), true);
 assert.equal(isFocusStatusGoal('How much productive time today?'), true);
 assert.equal(isBriefingGoal("What's up today?"), true);
+assert.equal(isCalendarAgendaGoal('What is in my calendar today?'), true);
+assert.equal(isCalendarAgendaGoal("What's on my calendar?"), true);
+assert.equal(isBriefingGoal('What is in my calendar today?'), true);
+assert.equal(isMetaCapabilityGoal('What can you do?'), true);
+assert.equal(isMetaCapabilityGoal('Who are you?'), true);
+assert.equal(isMetaCapabilityGoal('What is the capital of France?'), false);
 assert.equal(isWebResearchGoal('Research noise-cancelling headphones under $100'), true);
 assert.equal(isWebResearchGoal('List my last 5 emails'), false);
 assert.equal(isLiveInfoGoal('What is the weather today?'), true);

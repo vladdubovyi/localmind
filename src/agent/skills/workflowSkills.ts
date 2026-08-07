@@ -10,6 +10,8 @@ import {
   parseReminderInMinutes,
   parseReminderText,
   parseReminderWhenMs,
+  isCalendarAgendaGoal,
+  isMetaCapabilityGoal,
 } from '../assistantIntent';
 import { isFactualLookupGoal } from './coreSkills';
 import { parseReminderSchedule } from '../../phil/reminderSchedule';
@@ -146,6 +148,7 @@ const researchWeb: RegisteredSkill = {
   routeScore: (ctx) => {
     const g = (ctx.utterance ?? ctx.goal ?? '').trim();
     if (/\b(weather|forecast)\b/i.test(g)) return 0;
+    if (isMetaCapabilityGoal(g) || isCalendarAgendaGoal(g)) return 0;
     if (/\bcompare\b/i.test(g) && /\b(recommend|decide)\b/i.test(g)) return 0.35;
     if (/\b(cheapest|direct) flight\b/i.test(g)) return 0.2;
     if (ctx.pageUrl && /\bsummarize this\b/i.test(g)) return 0;
@@ -173,6 +176,7 @@ const planningWorkday: RegisteredSkill = {
   confirmationLevel: 'none',
   routeScore: (ctx) => {
     const g = (ctx.utterance ?? ctx.goal ?? '').trim();
+    if (isCalendarAgendaGoal(g)) return 0.96;
     if (/\bplan (my )?workday\b/i.test(g) || /\bplan (my )?day\b/i.test(g)) return 0.93;
     return 0;
   },

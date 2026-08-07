@@ -252,3 +252,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Shipped keyword browse index + `browser_memory.find` / `browser_memory_search` (no MiniSearch dep); History optional permission + Privacy Enable/Clear hooks.
 - **Detail:** Index stores `philBrowseIndex` (14-day retention) from tab activity + `chrome.history` when granted. E2E seeds `philHistoryPermissionSeed` because Playwright cannot click Chrome optional-permission prompts. Memory toggle off clears the browse index (BRW-04). Skill registered via factory `registerBrowserMemorySkill` (aliases include `browser_memory_search`).
 - **Suggested owner:** D1 (real history permission e2e), D2 (demo talk track)
+
+### 2026-08-07 — Agent C4 (Browser memory) — e2e evidence
+- **Test IDs:** BRW-01…04
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Local Playwright: **all BRW-01…04 green** (4/4) on `cursor/wave2-c4-browser-memory-e471`.
+- **Detail:** Index approach = keyword scoring over `philBrowseIndex` (14-day retention; tab activity + optional `chrome.history`). No MiniSearch dependency. `?philTest=1` skips WebGPU model gate so Agent fast-path tools run without GPU. History deny uses explicit `philHistoryPermissionSeed=false` (Chromium may auto-grant optional history). Open uses `tabs_create` via agent tool router. Clear runs from Settings → PrivacyDashboard.
+- **Suggested owner:** D1 (real history permission prompt e2e), D2 (demo)

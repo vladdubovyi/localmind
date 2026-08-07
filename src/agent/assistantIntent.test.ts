@@ -3,8 +3,10 @@ import {
   isBriefingGoal,
   isFocusStatusGoal,
   isGoalSetupGoal,
+  isLiveInfoGoal,
   isReminderGoal,
   isWebResearchGoal,
+  offersToActWithoutTools,
   parseGoalTitle,
   parseReminderInMinutes,
   parseReminderText,
@@ -26,5 +28,15 @@ assert.equal(isFocusStatusGoal('How much productive time today?'), true);
 assert.equal(isBriefingGoal("What's up today?"), true);
 assert.equal(isWebResearchGoal('Research noise-cancelling headphones under $100'), true);
 assert.equal(isWebResearchGoal('List my last 5 emails'), false);
+assert.equal(isLiveInfoGoal('What is the weather today?'), true);
+assert.equal(isWebResearchGoal('What is the weather today?'), true);
+assert.equal(isLiveInfoGoal('List my last 5 emails'), false);
+assert.equal(
+  offersToActWithoutTools(
+    "I don't have direct access to weather information. Would you like me to open one for you?",
+  ),
+  true,
+);
+assert.equal(offersToActWithoutTools('Austin is currently 84°F and sunny.'), false);
 
 console.log('agent/assistantIntent.test.ts OK');

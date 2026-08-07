@@ -163,4 +163,10 @@ assert(isUnrelatedDemoUrl('https://en.wikipedia.org/wiki/WebGPU'), 'webgpu demo'
   );
 }
 
+{
+  const weatherNudge = nudgeToolExample('What is the weather today?', []);
+  assert(weatherNudge.includes('web_research'), 'weather nudge uses web_research');
+  assert(weatherNudge.includes('weather'), 'weather nudge keeps query');
+}
+
 console.log('goalIntent.test.ts: ok');

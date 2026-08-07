@@ -31,10 +31,39 @@ export function isBriefingGoal(goal: string): boolean {
   );
 }
 
-export function isWebResearchGoal(goal: string): boolean {
+/**
+ * Questions that need live external data (weather, scores, prices…).
+ * Small local models often refuse these instead of calling tools.
+ */
+export function isLiveInfoGoal(goal: string): boolean {
+  if (/\bgmail|inbox|email\b/i.test(goal)) return false;
   return (
-    /\b(research|find|look up|search (the )?web|compare prices|best .+ near)\b/i.test(goal) &&
-    !/\bgmail|inbox|email\b/i.test(goal)
+    /\b(weather|forecast|temperature|humidity|air quality|uv index)\b/i.test(goal) ||
+    /\b(what'?s|whats|how'?s|how is)\s+(the\s+)?(weather|forecast|temp)\b/i.test(goal) ||
+    /\b(stock price|share price|who won|final score|news (today|now)|current (time|price|rate|temperature))\b/i.test(
+      goal,
+    )
+  );
+}
+
+/** Goals that should open the web (research verbs + live-info questions). */
+export function isWebResearchGoal(goal: string): boolean {
+  if (/\bgmail|inbox|email\b/i.test(goal)) return false;
+  if (isLiveInfoGoal(goal)) return true;
+  return /\b(research|find|look up|search (the )?web|compare prices|best .+ near)\b/i.test(
+    goal,
+  );
+}
+
+/** Model offered to browse/search instead of emitting a tool call. */
+export function offersToActWithoutTools(text: string): boolean {
+  return (
+    /\b(would you like me to|shall i|want me to|should i|do you want me to)\b[\s\S]{0,60}\b(open|check|look|search|find|browse|visit)\b/i.test(
+      text,
+    ) ||
+    /\b(i (can|could|will) (open|check|look up|search|find))\b/i.test(text) ||
+    /\b(visit a .+ (website|site|app)|check .+ (website|site) or app)\b/i.test(text) ||
+    /\b(i don'?t have (direct )?access to)\b/i.test(text)
   );
 }
 

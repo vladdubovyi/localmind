@@ -55,7 +55,7 @@ export function MessageBubble({
       <div className={cn('max-w-[92%]', isUser ? 'w-auto' : 'w-full')}>
         {!isUser && (
           <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-accent">
-            LocalMind
+            Phil
           </div>
         )}
         <div

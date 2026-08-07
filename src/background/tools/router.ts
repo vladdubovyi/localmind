@@ -6,10 +6,35 @@ import { executePageTools } from '@/background/tools/page';
 import { executeGmailTools } from '@/background/tools/gmail';
 import { getAgentSettings } from '@/storage/agentSettings';
 
+const PHIL_PREFIXES = [
+  'focus_',
+  'reminder_',
+  'goal_',
+  'phil_',
+  'briefing_',
+] as const;
+
+function isPhilTool(name: string): boolean {
+  return name === 'web_research' || PHIL_PREFIXES.some((p) => name.startsWith(p));
+}
+
+function needsBrowserAgentPerms(name: string): boolean {
+  if (name === 'web_research') return true;
+  if (isPhilTool(name)) return false;
+  return true;
+}
+
 function needsUserConfirm(risk: ToolRisk, confirmed: boolean): boolean {
   if (confirmed) return false;
   if (risk === 'dangerous') return true;
   return false; // moderate handled with settings below
+}
+
+function philFallbackDef(name: string): { risk: ToolRisk; confirmLabel?: string } {
+  if (name === 'web_research') {
+    return { risk: 'moderate', confirmLabel: 'Research the web and open result tabs' };
+  }
+  return { risk: 'safe' };
 }
 
 export async function routeAgentTool(
@@ -17,34 +42,49 @@ export async function routeAgentTool(
   confirmed = false,
 ): Promise<ToolResult> {
   const def = getTool(call.name);
-  if (!def) {
+  // Phil tools are also matched by prefix so a bundler export mismatch on
+  // getTool cannot strand reminder/goal/focus calls as "Unknown tool".
+  if (!def && !isPhilTool(call.name)) {
     return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
   }
 
   const settings = await getAgentSettings();
-  if (!settings.enabled) {
+  if (!settings.enabled && !isPhilTool(call.name)) {
     return { ok: false, error: 'Agent mode is disabled in settings.', toolCall: call };
   }
 
-  const risk = def.risk;
+  // Phil personal-assistant tools work even when the browser agent toggle is off,
+  // except web_research which needs tab/page control.
+  if (call.name === 'web_research' && !settings.enabled) {
+    return {
+      ok: false,
+      error: 'Enable Agent mode to run web research (needs tab permissions).',
+      toolCall: call,
+    };
+  }
+
+  const risk = def?.risk ?? philFallbackDef(call.name).risk;
+  const confirmLabel = def?.confirmLabel ?? philFallbackDef(call.name).confirmLabel;
   const confirmModerate = settings.confirmModerate && risk === 'moderate';
   if (needsUserConfirm(risk, confirmed) || (confirmModerate && !confirmed)) {
     return {
       ok: false,
       needsConfirm: true,
       toolCall: call,
-      error: `Confirmation required for ${def.confirmLabel ?? def.name}`,
+      error: `Confirmation required for ${confirmLabel ?? call.name}`,
     };
   }
 
-  const perms = await getAgentPermissionState();
-  if (!perms.tabs || !perms.allUrls) {
-    return {
-      ok: false,
-      error:
-        'Browser agent permissions are missing. Enable Agent mode and grant tabs + site access.',
-      toolCall: call,
-    };
+  if (needsBrowserAgentPerms(call.name)) {
+    const perms = await getAgentPermissionState();
+    if (!perms.tabs || !perms.allUrls) {
+      return {
+        ok: false,
+        error:
+          'Browser agent permissions are missing. Enable Agent mode and grant tabs + site access.',
+        toolCall: call,
+      };
+    }
   }
 
   try {
@@ -56,6 +96,11 @@ export async function routeAgentTool(
     }
     if (call.name.startsWith('gmail_')) {
       return await executeGmailTools(call, settings);
+    }
+    if (isPhilTool(call.name)) {
+      // Dynamic import avoids SW boot cycles: router ↔ phil ↔ reminders.
+      const { executePhilTools } = await import('@/background/tools/phil');
+      return await executePhilTools(call);
     }
     if (call.name.startsWith('debugger_')) {
       return {

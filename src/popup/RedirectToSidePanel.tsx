@@ -8,7 +8,7 @@ import { openSidePanelFromPage } from '@/utils/sidePanel';
  * consistent in one durable surface.
  */
 export function RedirectToSidePanel() {
-  const [status, setStatus] = useState('Opening LocalMind…');
+  const [status, setStatus] = useState('Opening Phil…');
 
   useEffect(() => {
     let cancelled = false;
@@ -24,7 +24,7 @@ export function RedirectToSidePanel() {
         }
         return;
       }
-      setStatus('Could not open the side panel. Use the puzzle menu → LocalMind → side panel.');
+      setStatus('Could not open the side panel. Use the puzzle menu → Phil → side panel.');
     })();
     return () => {
       cancelled = true;

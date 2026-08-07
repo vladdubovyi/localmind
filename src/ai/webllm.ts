@@ -62,7 +62,7 @@ export class WebLLMProvider extends BaseAIProvider {
 
     if (!(await hasWebGPU())) {
       throw new Error(
-        'WebGPU is not available in this browser. LocalMind requires Chrome 113+ with WebGPU enabled.',
+        'WebGPU is not available in this browser. Phil requires Chrome 113+ with WebGPU enabled.',
       );
     }
 

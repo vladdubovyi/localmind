@@ -3,13 +3,16 @@
  * Keep install permissions minimal; request these when Agent is enabled
  * or during optional first-run setup.
  *
+ * `tabs` is required for Phil focus tracking (always-on). Agent still requests
+ * host access + identity at enable time.
+ *
  * chrome.debugger cannot be an optional permission in MV3 — Chrome omits it
  * from the manifest and shows an install error if listed. Advanced debugger
  * tools are therefore unavailable unless we ever add it as a required
  * permission (which we intentionally do not).
  */
 
-export const AGENT_OPTIONAL_PERMISSIONS = ['tabs', 'identity'] as const;
+export const AGENT_OPTIONAL_PERMISSIONS = ['identity'] as const;
 export const AGENT_OPTIONAL_HOSTS = [
   'http://*/*',
   'https://*/*',
@@ -18,7 +21,6 @@ export const AGENT_OPTIONAL_HOSTS = [
   'https://www.googleapis.com/*',
 ] as const;
 
-const BROWSER_PERMISSIONS = ['tabs'] as const;
 const BROWSER_ORIGINS = ['http://*/*', 'https://*/*'] as const;
 const GMAIL_PERMISSIONS = ['identity'] as const;
 const GMAIL_ORIGINS = [
@@ -43,6 +45,7 @@ export async function getAgentPermissionState(): Promise<AgentPermissionState> {
     (o) => o === '<all_urls>' || o === 'http://*/*' || o === '*://*/*' || o === 'https://*/*',
   );
   return {
+    // tabs is a required manifest permission for Phil 1.0
     tabs: permissions.has('tabs'),
     identity: permissions.has('identity'),
     debugger: permissions.has('debugger'),
@@ -53,7 +56,6 @@ export async function getAgentPermissionState(): Promise<AgentPermissionState> {
 export async function requestBrowserPermissions(): Promise<boolean> {
   try {
     return await chrome.permissions.request({
-      permissions: [...BROWSER_PERMISSIONS] as chrome.runtime.ManifestPermission[],
       origins: [...BROWSER_ORIGINS],
     });
   } catch {
@@ -77,7 +79,7 @@ export async function requestDebuggerPermission(): Promise<boolean> {
   return false;
 }
 
-/** Request core agent permissions (tabs + hosts + identity). */
+/** Request core agent permissions (hosts + identity). tabs is already required. */
 export async function requestAgentPermissions(_includeDebugger = false): Promise<boolean> {
   try {
     return await chrome.permissions.request({

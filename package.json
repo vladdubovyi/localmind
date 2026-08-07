@@ -1,16 +1,16 @@
 {
-  "name": "localmind",
+  "name": "phil",
   "private": true,
-  "version": "0.2.0",
+  "version": "1.0.0",
   "type": "module",
-  "description": "Private AI that lives inside your browser.",
+  "description": "Private on-device personal assistant for Chrome.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint src",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
-    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/background/webllmHandler.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts",
+    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/background/webllmHandler.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts && tsx src/phil/categories.test.ts && tsx src/agent/assistantIntent.test.ts",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:ui": "npm run build && playwright test --ui"
   },

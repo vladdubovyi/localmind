@@ -25,7 +25,7 @@ export function showAgentBanner(message: string): void {
     ].join(';');
     document.documentElement.appendChild(el);
   }
-  el.textContent = message || 'LocalMind Agent is controlling this tab';
+  el.textContent = message || 'Phil Agent is controlling this tab';
 }
 
 export function hideAgentBanner(): void {

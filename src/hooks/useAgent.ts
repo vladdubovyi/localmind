@@ -19,6 +19,14 @@ import {
   resolveEmailTarget,
   rewriteToolCallForIntent,
 } from '@/agent/goalIntent';
+import {
+  isBriefingGoal,
+  isFocusStatusGoal,
+  isGoalSetupGoal,
+  isReminderGoal,
+  isWebResearchGoal,
+  parseReminderInMinutes,
+} from '@/agent/assistantIntent';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
@@ -72,7 +80,7 @@ function looksLikeMalformedToolCall(text: string): boolean {
 
 /** Model said it would use a tool but didn't emit a call. */
 function narratesToolUse(text: string): boolean {
-  return /\b(gmail_list|gmail_read|gmail_draft|gmail_send|page_read|tabs_create|tabs_navigate|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+  return /\b(gmail_list|gmail_read|gmail_draft|gmail_send|page_read|tabs_create|tabs_navigate|reminder_create|focus_summary|briefing_today|web_research|goal_create|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
     text,
   );
 }
@@ -90,8 +98,37 @@ function priorConversationContext(steps: AgentStep[]): string {
   return parts.join('\n\n').slice(0, 7000);
 }
 
+function philIntentHints(goal: string): string[] {
+  if (isReminderGoal(goal)) {
+    const mins = parseReminderInMinutes(goal);
+    return [
+      'Call reminder_create with text and inMinutes (or when).',
+      mins != null ? `Suggested inMinutes: ${mins}` : 'Infer inMinutes from the request.',
+    ];
+  }
+  if (isGoalSetupGoal(goal)) {
+    return ['Call goal_create with a clear title from the user request.'];
+  }
+  if (isFocusStatusGoal(goal)) {
+    return ['Call focus_summary and summarize productive vs leisure time.'];
+  }
+  if (isBriefingGoal(goal)) {
+    return ['Call briefing_today and present the overview.'];
+  }
+  if (isWebResearchGoal(goal)) {
+    return [
+      'Call web_research with the search query. Leave finding tabs open for the user.',
+    ];
+  }
+  return [];
+}
+
 function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: string): string {
-  if (!priorContext) return goal;
+  const philHints = philIntentHints(goal);
+  if (!priorContext) {
+    if (!philHints.length) return goal;
+    return [goal, '', ...philHints].join('\n');
+  }
 
   const intent = detectIntent(goal, priorSteps);
   const matched = resolveEmailTarget(goal, priorSteps);
@@ -127,6 +164,8 @@ function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: stri
     );
   } else if (intent === 'open_link') {
     lines.push('Prefer tabs_create with the real https URL from context.');
+  } else if (philHints.length) {
+    lines.push(...philHints);
   } else {
     lines.push('Execute tools only if needed for this request. Stay on-topic.');
   }

@@ -15,6 +15,8 @@ const pathToExtension = path.join(rootDir, 'dist');
 const gmailFixturePath = path.join(rootDir, 'e2e/fixtures/gmail-inbox.html');
 /** Persistent Chromium profile so WebLLM Cache API survives across runs. */
 const userDataDir = path.join(rootDir, 'e2e/.browser-profile');
+/** Separate profile for Phil PA tests (no WebLLM) so SW updates cleanly. */
+const philUserDataDir = path.join(rootDir, 'e2e/.browser-profile-phil');
 
 /** Smallest catalog model — faster first download for full-product e2e. */
 export const E2E_MODEL_LABEL = 'Gemma 2 2B';
@@ -29,10 +31,17 @@ type WorkerFixtures = {
   serviceWorker: Worker;
   /** Side panel with WebLLM loaded and Agent enabled. */
   readySidebar: Page;
+  /** Side panel seeded for Phil PA (no WebLLM required). */
+  philSidebar: Page;
+  philExtensionContext: BrowserContext;
+  philExtensionId: string;
+  philServiceWorker: Worker;
 };
 
 type TestFixtures = {
   extensionPage: Page;
+  /** Phil UI/tools page — does not wait for WebLLM. */
+  philPage: Page;
   gmailPage: Page;
   /** Opens Agent tab on a model-ready sidebar. */
   agentPage: Page;
@@ -76,6 +85,17 @@ async function seedExtensionStorage(page: Page): Promise<void> {
         gmailClientId: '',
         gmailMode: 'session',
       },
+      philSettings: {
+        fabEnabled: true,
+        trackingEnabled: true,
+        nudgesEnabled: true,
+        briefingEnabled: true,
+        briefingHour: 8,
+        briefingMinute: 0,
+        nudgeThresholdMs: 120_000,
+        locality: 'Austin TX',
+        categoryOverrides: {},
+      },
     });
 
     // App settings live in IndexedDB (`localmind`), not chrome.storage.
@@ -112,6 +132,50 @@ async function seedExtensionStorage(page: Page): Promise<void> {
               maxTokens: 1024,
               systemPrompt: '',
             },
+          },
+          'app',
+        );
+      };
+    });
+
+    // Phil PA data lives in IndexedDB (`phil`).
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('phil', 1);
+      req.onerror = () => reject(req.error ?? new Error('phil indexedDB open failed'));
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('philSettings')) db.createObjectStore('philSettings');
+        if (!db.objectStoreNames.contains('reminders')) {
+          db.createObjectStore('reminders', { keyPath: 'id' }).createIndex('by-when', 'when');
+        }
+        if (!db.objectStoreNames.contains('goals')) {
+          db.createObjectStore('goals', { keyPath: 'id' }).createIndex('by-updated', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('tabActivity')) {
+          const store = db.createObjectStore('tabActivity', { keyPath: 'id' });
+          store.createIndex('by-started', 'startedAt');
+          store.createIndex('by-domain', 'domain');
+        }
+        if (!db.objectStoreNames.contains('briefings')) {
+          db.createObjectStore('briefings', { keyPath: 'id' }).createIndex('by-date', 'dateKey');
+        }
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('philSettings', 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('phil settings write failed'));
+        tx.objectStore('philSettings').put(
+          {
+            fabEnabled: true,
+            trackingEnabled: true,
+            nudgesEnabled: true,
+            briefingEnabled: true,
+            briefingHour: 8,
+            briefingMinute: 0,
+            nudgeThresholdMs: 120_000,
+            locality: 'Austin TX',
+            categoryOverrides: {},
           },
           'app',
         );
@@ -155,7 +219,7 @@ async function ensureModelReady(page: Page): Promise<void> {
 
   await page
     .getByRole('button', { name: new RegExp(E2E_MODEL_LABEL, 'i') })
-    .or(page.getByRole('button', { name: /Download AI|Load LocalMind/i }))
+    .or(page.getByRole('button', { name: /Download AI|Load Phil/i }))
     .or(agentTab)
     .first()
     .waitFor({ state: 'visible', timeout: 60_000 })
@@ -170,7 +234,7 @@ async function ensureModelReady(page: Page): Promise<void> {
     if (await gemma.isEnabled().catch(() => false)) {
       await gemma.click({ timeout: 5_000 }).catch(() => undefined);
     }
-    const startBtn = page.getByRole('button', { name: /Download AI|Load LocalMind/i });
+    const startBtn = page.getByRole('button', { name: /Download AI|Load Phil/i });
     if (await startBtn.isEnabled().catch(() => false)) {
       await startBtn.click({ timeout: 5_000 }).catch(() => undefined);
     }
@@ -247,6 +311,63 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     },
     { scope: 'worker' },
   ],
+
+  philExtensionContext: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      if (!fs.existsSync(path.join(pathToExtension, 'manifest.json'))) {
+        throw new Error('dist/ is missing — run `npm run build` first.');
+      }
+      fs.mkdirSync(philUserDataDir, { recursive: true });
+      const ctx = await chromium.launchPersistentContext(philUserDataDir, {
+        channel: 'chromium',
+        headless: false,
+        args: [
+          `--disable-extensions-except=${pathToExtension}`,
+          `--load-extension=${pathToExtension}`,
+        ],
+        viewport: { width: 420, height: 800 },
+      });
+      await use(ctx);
+      await ctx.close();
+    },
+    { scope: 'worker' },
+  ],
+
+  philServiceWorker: [
+    async ({ philExtensionContext }, use) => {
+      const worker = await waitForServiceWorker(philExtensionContext);
+      await use(worker);
+    },
+    { scope: 'worker' },
+  ],
+
+  philExtensionId: [
+    async ({ philServiceWorker }, use) => {
+      await use(philServiceWorker.url().split('/')[2]);
+    },
+    { scope: 'worker' },
+  ],
+
+  philSidebar: [
+    async ({ philExtensionContext, philExtensionId }, use) => {
+      const page = await philExtensionContext.newPage();
+      await page.goto(`chrome-extension://${philExtensionId}/src/sidebar/index.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await seedExtensionStorage(page);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('button', { name: /^Today$/i })).toBeVisible({
+        timeout: 30_000,
+      });
+      await use(page);
+    },
+    { scope: 'worker' },
+  ],
+
+  philPage: async ({ philSidebar }, use) => {
+    await use(philSidebar);
+  },
 
   readySidebar: [
     async ({ extensionContext, extensionId }, use) => {

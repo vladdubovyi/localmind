@@ -1,6 +1,6 @@
 /**
  * Background service worker (Manifest V3).
- * Coordinates side panel, context menus, selection handoff, and agent tools.
+ * Coordinates side panel, context menus, selection handoff, Phil PA, and agent tools.
  * Inference runs in extension pages (side panel) via WebGPU — not here.
  * (WebLLM-in-SW is disabled until the Vite/CRX bundle can load it safely.)
  */
@@ -9,9 +9,28 @@ import {
   getAgentPermissionState,
   requestAgentPermissions,
 } from '@/agent/permissions';
+import { registerFocusTracker } from '@/background/phil/focusTracker';
+import { registerPhilAlarms } from '@/background/phil/reminders';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
+import { getPhilSettings, savePhilSettings } from '@/storage/phil';
+import type { PhilQuickIntent } from '@/phil/types';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
+
+const PHIL_TOOL_PREFIXES = [
+  'focus_',
+  'reminder_',
+  'goal_',
+  'phil_',
+  'briefing_',
+] as const;
+
+function isPhilToolName(name: string): boolean {
+  return (
+    name === 'web_research' ||
+    PHIL_TOOL_PREFIXES.some((p) => name.startsWith(p))
+  );
+}
 
 const SELECTION_MENU_ACTIONS = [
   { id: 'explain', title: 'Explain selection' },
@@ -40,28 +59,37 @@ async function setPendingAction(action: PendingSelectionAction): Promise<void> {
   await chrome.storage.session.set({ pendingSelectionAction: action });
 }
 
+async function setPhilQuickIntent(intent: PhilQuickIntent): Promise<void> {
+  await chrome.storage.session.set({ philQuickIntent: intent });
+}
+
+function installContextMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'phil-open',
+      title: 'Ask Phil',
+      contexts: ['page', 'selection'],
+    });
+
+    for (const action of SELECTION_MENU_ACTIONS) {
+      chrome.contextMenus.create({
+        id: `phil-${action.id}`,
+        parentId: 'phil-open',
+        title: action.title,
+        contexts: ['selection'],
+      });
+    }
+  });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   // Primary UI is the side panel — keep setup, model, chat, and agent in one place.
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
     // older Chrome builds may not support setPanelBehavior
   });
 
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: 'localmind-open',
-      title: 'Ask LocalMind',
-      contexts: ['page', 'selection'],
-    });
-
-    for (const action of SELECTION_MENU_ACTIONS) {
-      chrome.contextMenus.create({
-        id: `localmind-${action.id}`,
-        parentId: 'localmind-open',
-        title: action.title,
-        contexts: ['selection'],
-      });
-    }
-  });
+  installContextMenus();
+  void savePhilSettings({}).then(() => undefined);
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -71,50 +99,33 @@ chrome.runtime.onStartup.addListener(() => {
 // Also apply on SW wake so upgrades pick up the behavior without reinstall.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (!tab?.windowId) return;
-
-  await chrome.sidePanel.open({ windowId: tab.windowId });
-
-  if (info.menuItemId === 'localmind-open') {
-    if (info.selectionText?.trim()) {
-      await setPendingAction({
-        action: 'explain',
-        text: info.selectionText.trim(),
-        url: tab.url,
-        title: tab.title,
-        tabId: tab.id,
-        canReplace: false,
-        createdAt: Date.now(),
-      });
-    }
-    return;
-  }
-
-  const action = String(info.menuItemId).replace(
-    'localmind-',
-    '',
-  ) as SelectionAction;
-  const text = (info.selectionText ?? '').trim();
-  if (!text) return;
-
-  const canReplace = action === 'rewrite' || action === 'translate' || action === 'improve';
-
-  await setPendingAction({
-    action,
-    text,
-    url: tab.url,
-    title: tab.title,
-    tabId: tab.id,
-    canReplace,
-    createdAt: Date.now(),
-  });
-});
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'OPEN_SIDE_PANEL') {
     openSidePanelForSender(sender)
       .then(() => sendResponse({ ok: true }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === 'PHIL_QUICK_INTENT') {
+    (async () => {
+      await openSidePanelForSender(sender);
+      const kind = message.kind as PhilQuickIntent['kind'];
+      await setPhilQuickIntent({
+        kind,
+        text: message.text ? String(message.text) : undefined,
+        createdAt: Date.now(),
+      });
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_GET_SETTINGS') {
+    getPhilSettings()
+      .then((settings) => sendResponse({ ok: true, settings }))
       .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
@@ -173,6 +184,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // —— Agent ——
   if (message?.type === 'AGENT_EXECUTE_TOOL') {
     const msg = message as AgentRuntimeMessage & { type: 'AGENT_EXECUTE_TOOL' };
+    // Phil tools (except web_research): dynamic-import the executor so the SW
+    // boot graph does not cycle through router → phil tools → reminders.
+    if (msg.call && isPhilToolName(msg.call.name) && msg.call.name !== 'web_research') {
+      import('@/background/tools/phil')
+        .then((m) => m.executePhilTools(msg.call))
+        .then((result) => sendResponse(result))
+        .catch((err: unknown) =>
+          sendResponse({
+            ok: false,
+            error: String(err),
+            toolCall: msg.call,
+          }),
+        );
+      return true;
+    }
     routeAgentTool(msg.call, Boolean(msg.confirmed))
       .then((result) => sendResponse(result))
       .catch((err: unknown) =>
@@ -218,6 +244,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return false;
+});
+
+installContextMenus();
+
+// Defer Phil trackers so a storage/alarms glitch cannot block message handling.
+queueMicrotask(() => {
+  try {
+    registerFocusTracker();
+    registerPhilAlarms();
+  } catch (err) {
+    console.error('[Phil] failed to register trackers', err);
+  }
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab?.windowId) return;
+
+  await chrome.sidePanel.open({ windowId: tab.windowId });
+
+  if (info.menuItemId === 'phil-open' || info.menuItemId === 'localmind-open') {
+    if (info.selectionText?.trim()) {
+      await setPendingAction({
+        action: 'explain',
+        text: info.selectionText.trim(),
+        url: tab.url,
+        title: tab.title,
+        tabId: tab.id,
+        canReplace: false,
+        createdAt: Date.now(),
+      });
+    }
+    return;
+  }
+
+  const action = String(info.menuItemId)
+    .replace('phil-', '')
+    .replace('localmind-', '') as SelectionAction;
+  const text = (info.selectionText ?? '').trim();
+  if (!text) return;
+
+  const canReplace = action === 'rewrite' || action === 'translate' || action === 'improve';
+
+  await setPendingAction({
+    action,
+    text,
+    url: tab.url,
+    title: tab.title,
+    tabId: tab.id,
+    canReplace,
+    createdAt: Date.now(),
+  });
 });
 
 export {};

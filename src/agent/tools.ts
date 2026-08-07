@@ -256,6 +256,132 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       id: { type: 'string', description: 'Message id', required: true },
     },
   },
+  {
+    name: 'focus_summary',
+    description: 'Summarize today’s tab time by productive / leisure / neutral / blocked.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'focus_get_today',
+    description: 'Alias of focus_summary — today’s focus breakdown.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'focus_categorize',
+    description: 'Override the focus category for a domain (productive|leisure|neutral|blocked).',
+    risk: 'safe',
+    parameters: {
+      domain: { type: 'string', description: 'Hostname, e.g. youtube.com', required: true },
+      category: {
+        type: 'string',
+        description: 'productive | leisure | neutral | blocked',
+        required: true,
+      },
+    },
+  },
+  {
+    name: 'reminder_create',
+    description: 'Schedule a reminder notification (when epoch ms, or inMinutes from now).',
+    risk: 'safe',
+    parameters: {
+      text: { type: 'string', description: 'Reminder text', required: true },
+      when: { type: 'number', description: 'Fire time as epoch milliseconds' },
+      inMinutes: { type: 'number', description: 'Fire this many minutes from now' },
+      repeat: { type: 'string', description: 'none | daily | weekdays (default none)' },
+    },
+  },
+  {
+    name: 'reminder_list',
+    description: 'List scheduled and recently fired reminders.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'reminder_cancel',
+    description: 'Cancel a reminder by id.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Reminder id', required: true },
+    },
+  },
+  {
+    name: 'goal_create',
+    description: 'Create an active focus goal with optional allowed/blocked domains.',
+    risk: 'safe',
+    parameters: {
+      title: { type: 'string', description: 'Goal title', required: true },
+      deadline: { type: 'number', description: 'Optional deadline epoch ms' },
+      allowedDomains: { type: 'object', description: 'Optional allow-list of domains' },
+      blockedDomains: { type: 'object', description: 'Optional block-list (leisure sites)' },
+    },
+  },
+  {
+    name: 'goal_list',
+    description: 'List goals (active, completed, cancelled).',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'goal_complete',
+    description: 'Mark a goal completed by id.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Goal id', required: true },
+    },
+  },
+  {
+    name: 'goal_update',
+    description: 'Update a goal title, status, or domain lists.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Goal id', required: true },
+      title: { type: 'string', description: 'New title' },
+      status: { type: 'string', description: 'active | completed | cancelled' },
+      allowedDomains: { type: 'object', description: 'Replace allow-list' },
+      blockedDomains: { type: 'object', description: 'Replace block-list' },
+    },
+  },
+  {
+    name: 'phil_settings_get',
+    description: 'Read Phil assistant settings (FAB, tracking, nudges, briefing, locality).',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'phil_settings_update',
+    description: 'Update Phil settings (fabEnabled, trackingEnabled, nudgesEnabled, briefing*, locality).',
+    risk: 'safe',
+    parameters: {
+      fabEnabled: { type: 'boolean', description: 'Show always-on FAB' },
+      trackingEnabled: { type: 'boolean', description: 'Track tab focus time' },
+      nudgesEnabled: { type: 'boolean', description: 'Nudge when off-task' },
+      briefingEnabled: { type: 'boolean', description: 'Morning briefing notification' },
+      briefingHour: { type: 'number', description: 'Local hour 0–23' },
+      briefingMinute: { type: 'number', description: 'Local minute 0–59' },
+      nudgeThresholdMs: { type: 'number', description: 'Leisure ms before nudge' },
+      locality: { type: 'string', description: 'City/region bias for web research' },
+    },
+  },
+  {
+    name: 'briefing_today',
+    description: 'Compose today’s morning briefing from goals, reminders, and focus so far.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'web_research',
+    description:
+      'Search the web via DuckDuckGo in a browser tab, open finding tabs, and return URLs. Leaves tabs open for the user.',
+    risk: 'moderate',
+    confirmLabel: 'Research the web and open result tabs',
+    parameters: {
+      query: { type: 'string', description: 'Search query', required: true },
+      locality: { type: 'string', description: 'Optional place bias, e.g. Austin TX' },
+      maxResults: { type: 'number', description: 'Finding tabs to open (1–5, default 3)' },
+    },
+  },
 ];
 
 export function getTool(name: string): AgentToolDefinition | undefined {

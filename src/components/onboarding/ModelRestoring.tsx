@@ -23,7 +23,7 @@ export function ModelRestoring({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(20,184,166,0.14),_transparent_55%)]" />
       <BrandMark size="lg" className="relative animate-fade-up" />
       <h1 className="relative mt-5 font-display text-2xl text-fg animate-fade-up [animation-delay:40ms]">
-        Restoring LocalMind
+        Restoring Phil
       </h1>
       <p className="relative mt-2 max-w-[32ch] text-sm text-muted animate-fade-up [animation-delay:80ms]">
         Your model is already saved in this browser. Reconnecting the on-device

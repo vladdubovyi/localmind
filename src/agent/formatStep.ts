@@ -155,6 +155,79 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
     return `Done: ${(d?.action || name.replace('gmail_', '')).replace(/_/g, ' ')}.`;
   }
   if (name === 'page_read') return formatPageRead(result.data);
+  if (name === 'focus_summary' || name === 'focus_get_today') {
+    const d = result.data as
+      | {
+          totalMs?: number;
+          byCategory?: Record<string, number>;
+          byDomain?: Array<{ domain: string; ms: number; category: string }>;
+        }
+      | undefined;
+    if (!d) return 'Focus summary ready.';
+    const mins = (ms: number) => Math.round((ms ?? 0) / 60_000);
+    const top = d.byDomain?.[0];
+    return [
+      `Today’s focus: ${mins(d.totalMs ?? 0)}m tracked`,
+      `Productive ${mins(d.byCategory?.productive ?? 0)}m · Leisure ${mins(d.byCategory?.leisure ?? 0)}m`,
+      top ? `Top site: ${top.domain} (${mins(top.ms)}m, ${top.category})` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (name === 'reminder_create') {
+    const d = result.data as { text?: string; when?: number; id?: string } | undefined;
+    return `Reminder set${d?.text ? `: ${d.text}` : ''}${
+      d?.when ? ` at ${new Date(d.when).toLocaleString()}` : ''
+    }${d?.id ? ` (${d.id})` : ''}`;
+  }
+  if (name === 'reminder_list') {
+    const list = Array.isArray(result.data) ? result.data : [];
+    if (!list.length) return 'No reminders.';
+    return list
+      .slice(0, 8)
+      .map((r) => {
+        const row = r as { text?: string; when?: number; status?: string };
+        return `• ${row.text ?? 'Reminder'} — ${
+          row.when ? new Date(row.when).toLocaleString() : '?'
+        } (${row.status ?? ''})`;
+      })
+      .join('\n');
+  }
+  if (name === 'goal_create' || name === 'goal_complete' || name === 'goal_update') {
+    const d = result.data as { title?: string; status?: string; id?: string } | undefined;
+    return `Goal ${d?.status ?? 'updated'}: ${d?.title ?? d?.id ?? 'ok'}`;
+  }
+  if (name === 'goal_list') {
+    const list = Array.isArray(result.data) ? result.data : [];
+    if (!list.length) return 'No goals yet.';
+    return list
+      .slice(0, 10)
+      .map((g) => {
+        const row = g as { title?: string; status?: string };
+        return `• ${row.title ?? 'Goal'} (${row.status ?? ''})`;
+      })
+      .join('\n');
+  }
+  if (name === 'briefing_today') {
+    const d = result.data as { content?: string } | undefined;
+    return d?.content ?? 'Briefing ready.';
+  }
+  if (name === 'web_research') {
+    const d = result.data as
+      | { query?: string; note?: string; findings?: Array<{ url?: string }> }
+      | undefined;
+    const findings = d?.findings ?? [];
+    return [
+      `Research: ${d?.query ?? ''}`,
+      d?.note,
+      ...findings.slice(0, 5).map((f, i) => `${i + 1}. ${f.url ?? ''}`),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (name === 'phil_settings_get' || name === 'phil_settings_update') {
+    return 'Phil settings updated.';
+  }
   if (name === 'tabs_create') {
     const d = result.data as { id?: number; url?: string; title?: string } | undefined;
     return `Opened tab${d?.id != null ? ` #${d.id}` : ''}${d?.title ? `: ${d.title}` : ''}${
@@ -200,6 +273,18 @@ export function toolCallLabel(name: string, args: Record<string, unknown>): stri
     gmail_extract_links: 'Extracting links…',
     gmail_get_attachments: 'Listing attachments…',
     page_read: 'Reading page…',
+    focus_summary: 'Checking focus…',
+    focus_get_today: 'Checking focus…',
+    reminder_create: 'Setting reminder…',
+    reminder_list: 'Listing reminders…',
+    reminder_cancel: 'Cancelling reminder…',
+    goal_create: 'Creating goal…',
+    goal_list: 'Listing goals…',
+    goal_complete: 'Completing goal…',
+    briefing_today: 'Composing briefing…',
+    web_research: 'Researching the web…',
+    phil_settings_get: 'Reading Phil settings…',
+    phil_settings_update: 'Updating Phil settings…',
   };
   if (labels[name]) return labels[name];
   if (name === 'tabs_create') {

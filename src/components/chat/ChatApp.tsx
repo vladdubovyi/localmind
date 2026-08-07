@@ -5,6 +5,13 @@ import { BrandMark } from '@/components/common/BrandMark';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { PageActions } from '@/components/chat/PageActions';
+import {
+  FocusPanel,
+  GoalsPanel,
+  PhilSettingsPanel,
+  RemindersPanel,
+  TodayPanel,
+} from '@/components/phil/PhilPanels';
 import { ModelRestoring } from '@/components/onboarding/ModelRestoring';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
@@ -16,7 +23,9 @@ import {
 import { useChat } from '@/hooks/useChat';
 import { usePageContext } from '@/hooks/usePageContext';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
+import { usePhilQuickIntent } from '@/hooks/usePhilQuickIntent';
 import { getOnboardingState } from '@/storage/onboarding';
+import type { PhilQuickIntent } from '@/phil/types';
 import type { ChatMessage, PendingSelectionAction } from '@/types';
 import { openSidePanelFromPage } from '@/utils/sidePanel';
 import { cn } from '@/utils';
@@ -25,7 +34,14 @@ interface ChatAppProps {
   variant: 'popup' | 'sidebar';
 }
 
-type UiTab = 'chat' | 'agent';
+type UiTab =
+  | 'chat'
+  | 'today'
+  | 'focus'
+  | 'goals'
+  | 'reminders'
+  | 'agent'
+  | 'phil';
 
 function plainReplacementText(content: string): string {
   let text = content.trim();
@@ -134,6 +150,31 @@ export function ChatApp({ variant }: ChatAppProps) {
 
   usePendingSelection(variant === 'sidebar' || variant === 'popup', handlePendingSelection);
 
+  const handlePhilIntent = useCallback((intent: PhilQuickIntent) => {
+    switch (intent.kind) {
+      case 'open_today':
+      case 'whats_up':
+        setUiTab('today');
+        break;
+      case 'open_focus':
+      case 'focus_status':
+        setUiTab('focus');
+        break;
+      case 'open_goals':
+      case 'set_goal':
+        setUiTab('goals');
+        break;
+      case 'open_reminders':
+      case 'remind':
+        setUiTab('reminders');
+        break;
+      default:
+        setUiTab('chat');
+    }
+  }, []);
+
+  usePhilQuickIntent(variant === 'sidebar' || variant === 'popup', handlePhilIntent);
+
   useEffect(() => {
     if (phase !== 'ready' || !queuedSelection.current) return;
     const pending = queuedSelection.current;
@@ -207,7 +248,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   if (!settings || !conversation || phase === 'checking' || setupDone === null) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">
-        <div className="animate-pulse-soft">Starting LocalMind…</div>
+        <div className="animate-pulse-soft">Starting Phil…</div>
       </div>
     );
   }
@@ -220,41 +261,31 @@ export function ChatApp({ variant }: ChatAppProps) {
     );
   }
 
-  if (shouldShowFullOnboarding(phase, loadingFromCache)) {
-    return (
-      <div className={cn('relative h-full', variant === 'popup' ? 'w-[380px]' : 'w-full')}>
-        <Onboarding
-          selectedModelId={settings.selectedModelId}
-          progress={progress}
-          error={error}
-          isDownloading={phase === 'downloading'}
-          alreadyCached={false}
-          onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
-          onDownload={(id) => void downloadAndLoad(id)}
-        />
-      </div>
-    );
-  }
-
-  if (isRestoringEngine(phase, loadingFromCache)) {
-    return (
-      <div
-        className={cn(
-          'relative h-full',
-          variant === 'popup' ? 'w-[380px]' : 'w-full',
-        )}
-      >
-        <ModelRestoring
-          progress={progress}
-          error={error}
-          onRetry={() => void downloadAndLoad(settings.selectedModelId)}
-        />
-      </div>
-    );
-  }
-
   const messages = conversation.messages;
   const modelReady = phase === 'ready';
+  const needsModelUi =
+    shouldShowFullOnboarding(phase, loadingFromCache) ||
+    isRestoringEngine(phase, loadingFromCache);
+
+  const modelGate = needsModelUi ? (
+    shouldShowFullOnboarding(phase, loadingFromCache) ? (
+      <Onboarding
+        selectedModelId={settings.selectedModelId}
+        progress={progress}
+        error={error}
+        isDownloading={phase === 'downloading'}
+        alreadyCached={false}
+        onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
+        onDownload={(id) => void downloadAndLoad(id)}
+      />
+    ) : (
+      <ModelRestoring
+        progress={progress}
+        error={error}
+        onRetry={() => void downloadAndLoad(settings.selectedModelId)}
+      />
+    )
+  ) : null;
 
   return (
     <div
@@ -280,20 +311,51 @@ export function ChatApp({ variant }: ChatAppProps) {
         </div>
       </header>
 
-      <div className="flex gap-1 border-b border-border-subtle px-3 py-1.5">
+      <div className="flex gap-1 overflow-x-auto border-b border-border-subtle px-3 py-1.5 [scrollbar-width:none]">
         <TabChip active={uiTab === 'chat'} onClick={() => setUiTab('chat')} label="Chat" />
+        <TabChip active={uiTab === 'today'} onClick={() => setUiTab('today')} label="Today" />
+        <TabChip active={uiTab === 'focus'} onClick={() => setUiTab('focus')} label="Focus" />
+        <TabChip active={uiTab === 'goals'} onClick={() => setUiTab('goals')} label="Goals" />
+        <TabChip
+          active={uiTab === 'reminders'}
+          onClick={() => setUiTab('reminders')}
+          label="Reminders"
+        />
         <TabChip
           active={uiTab === 'agent'}
           onClick={() => setUiTab('agent')}
           label="Agent"
           icon={<Bot size={12} />}
         />
+        <TabChip active={uiTab === 'phil'} onClick={() => setUiTab('phil')} label="Phil" />
       </div>
 
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentPanel modelReady={modelReady} />
+          {modelGate ?? <AgentPanel modelReady={modelReady} />}
         </div>
+      ) : uiTab === 'today' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <TodayPanel />
+        </div>
+      ) : uiTab === 'focus' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <FocusPanel />
+        </div>
+      ) : uiTab === 'goals' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <GoalsPanel />
+        </div>
+      ) : uiTab === 'reminders' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <RemindersPanel />
+        </div>
+      ) : uiTab === 'phil' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <PhilSettingsPanel />
+        </div>
+      ) : modelGate ? (
+        <div className="min-h-0 flex-1 overflow-hidden">{modelGate}</div>
       ) : (
         <>
           <PageActions
@@ -345,7 +407,7 @@ export function ChatApp({ variant }: ChatAppProps) {
             onSend={(v) => void handleSend(v)}
             onStop={() => void stop()}
             placeholder={
-              mode === 'page' ? 'Ask anything about this page…' : 'Message LocalMind…'
+              mode === 'page' ? 'Ask anything about this page…' : 'Message Phil…'
             }
           />
         </>
@@ -443,16 +505,16 @@ function EmptyState({
   }
 
   const prompts = [
-    'Explain quantum entanglement simply',
-    'Write a TypeScript debounce helper',
-    'Give me 5 creative side-project ideas',
+    'What’s up today?',
+    'Remind me in 30 minutes to stand up',
+    'Help me stay focused on shipping my PR',
   ];
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <h2 className="font-display text-xl text-fg">What do you want to explore?</h2>
+      <h2 className="font-display text-xl text-fg">What should Phil help with?</h2>
       <p className="mt-2 max-w-[32ch] text-sm text-muted">
-        Select text for rewrite tools, or open the Agent tab to control tabs and Gmail locally.
+        Chat, track focus, set reminders and goals, or open Agent for tabs and Gmail.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
         <button

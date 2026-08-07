@@ -1,12 +1,12 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
-const version = '0.2.0';
+const version = '1.0.0';
 
 export default defineManifest({
   manifest_version: 3,
-  name: 'LocalMind',
+  name: 'Phil',
   description:
-    'Private AI that lives inside your browser. Chat, page tools, and optional local browser agent.',
+    'Your private on-device personal assistant — chat, focus, reminders, goals, research, and local browser agent.',
   version,
   icons: {
     '16': 'public/icons/icon16.png',
@@ -16,7 +16,7 @@ export default defineManifest({
   },
   action: {
     default_popup: 'src/popup/index.html',
-    default_title: 'LocalMind (opens side panel)',
+    default_title: 'Phil (opens side panel)',
     default_icon: {
       '16': 'public/icons/icon16.png',
       '32': 'public/icons/icon32.png',
@@ -43,10 +43,14 @@ export default defineManifest({
     'sidePanel',
     'contextMenus',
     'scripting',
+    'alarms',
+    'notifications',
+    'idle',
+    'tabs',
   ],
   // Granted at runtime when Agent / Gmail is enabled.
   // Note: chrome.debugger cannot be optional in MV3 — do not list it here.
-  optional_permissions: ['tabs', 'identity'],
+  optional_permissions: ['identity'],
   optional_host_permissions: [
     'http://*/*',
     'https://*/*',

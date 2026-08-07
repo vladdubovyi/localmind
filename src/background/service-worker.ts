@@ -16,29 +16,19 @@ import {
   registerFocusTracker,
   resumeFocusTracking,
 } from '@/background/phil/focusTracker';
-import { registerPhilAlarms } from '@/background/phil/reminders';
+import {
+  cancelReminderAlarm,
+  registerPhilAlarms,
+  scheduleMorningBriefingAlarm,
+  scheduleReminderAlarm,
+} from '@/background/phil/reminders';
 import { executePhilTools } from '@/background/tools/phil';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
-import { getPhilSettings, savePhilSettings } from '@/storage/phil';
+import { getPhilSettings, getReminder, savePhilSettings } from '@/storage/phil';
 import type { PhilQuickIntent } from '@/phil/types';
 import type { ToolCall } from '@/agent/types';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
-
-const PHIL_TOOL_PREFIXES = [
-  'focus_',
-  'reminder_',
-  'goal_',
-  'phil_',
-  'briefing_',
-] as const;
-
-function isPhilToolName(name: string): boolean {
-  return (
-    name === 'web_research' ||
-    PHIL_TOOL_PREFIXES.some((p) => name.startsWith(p))
-  );
-}
 
 const SELECTION_MENU_ACTIONS = [
   { id: 'explain', title: 'Explain selection' },
@@ -140,8 +130,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'PHIL_SCHEDULE_REMINDER') {
     (async () => {
-      const { getReminder } = await import('@/storage/phil');
-      const { scheduleReminderAlarm } = await import('@/background/phil/reminders');
       const id = String(message.id ?? '');
       const reminder = await getReminder(id);
       if (!reminder) {
@@ -158,7 +146,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'PHIL_CANCEL_REMINDER') {
     (async () => {
-      const { cancelReminderAlarm } = await import('@/background/phil/reminders');
       await cancelReminderAlarm(String(message.id ?? ''));
       sendResponse({ ok: true });
     })().catch((err: unknown) => {
@@ -169,7 +156,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'PHIL_RESCHEDULE_BRIEFING') {
     (async () => {
-      const { scheduleMorningBriefingAlarm } = await import('@/background/phil/reminders');
       await scheduleMorningBriefingAlarm();
       sendResponse({ ok: true });
     })().catch((err: unknown) => {
@@ -269,19 +255,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'AGENT_EXECUTE_TOOL') {
     const msg = message as AgentRuntimeMessage & { type: 'AGENT_EXECUTE_TOOL' };
     const call = msg.call as ToolCall | undefined;
-    // Phil PA tools: call the static executor (no dynamic import / circular chunk).
-    if (call && isPhilToolName(call.name) && call.name !== 'web_research') {
-      executePhilTools(call)
-        .then((result) => sendResponse(result))
-        .catch((err: unknown) =>
-          sendResponse({
-            ok: false,
-            error: String(err),
-            toolCall: call,
-          }),
-        );
-      return true;
-    }
+    // Always use the static router — Chrome MV3 forbids import() in the SW.
     routeAgentTool(call as ToolCall, Boolean(msg.confirmed))
       .then((result) => sendResponse(result))
       .catch((err: unknown) =>
@@ -340,6 +314,7 @@ installContextMenus();
       focusSnapshot: typeof focusSnapshot;
     };
     __philExecuteTool?: typeof executePhilTools;
+    __routeAgentTool?: typeof routeAgentTool;
   }
 ).__philFocus = {
   resumeFocusTracking,
@@ -348,6 +323,8 @@ installContextMenus();
 };
 (globalThis as typeof globalThis & { __philExecuteTool?: typeof executePhilTools }).__philExecuteTool =
   executePhilTools;
+(globalThis as typeof globalThis & { __routeAgentTool?: typeof routeAgentTool }).__routeAgentTool =
+  routeAgentTool;
 
 // Defer Phil trackers so a storage/alarms glitch cannot block message handling.
 queueMicrotask(() => {

@@ -118,4 +118,80 @@ test.describe('Phil data layer + manifest', () => {
     });
     expect(stored).toBe(true);
   });
+
+  test('web_research opens search tabs without SW import() errors', async ({
+    philServiceWorker,
+    philExtensionContext,
+  }) => {
+    await philServiceWorker.evaluate(async () => {
+      await chrome.storage.local.set({
+        agentSettings: {
+          enabled: true,
+          maxSteps: 8,
+          confirmModerate: false,
+          allowDebugger: false,
+          gmailClientId: '',
+          gmailMode: 'session',
+        },
+      });
+    });
+
+    await expect
+      .poll(async () => {
+        return philServiceWorker.evaluate(
+          () => typeof (globalThis as { __routeAgentTool?: unknown }).__routeAgentTool === 'function',
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    const beforeUrls = new Set(
+      philExtensionContext.pages().map((p) => {
+        try {
+          return p.url();
+        } catch {
+          return '';
+        }
+      }),
+    );
+
+    const result = await philServiceWorker.evaluate(async () => {
+      const run = (
+        globalThis as {
+          __routeAgentTool?: (
+            call: { id: string; name: string; arguments: Record<string, unknown> },
+            confirmed?: boolean,
+          ) => Promise<{ ok: boolean; error?: string; data?: { serpUrl?: string; findings?: unknown[] } }>;
+        }
+      ).__routeAgentTool;
+      if (!run) return { ok: false, error: 'route hook missing' };
+      return run(
+        {
+          id: 't_weather',
+          name: 'web_research',
+          arguments: { query: 'What is the weather today?', maxResults: 2 },
+        },
+        true,
+      );
+    });
+
+    expect(result.error ?? '').not.toMatch(/import\(\)|ServiceWorkerGlobalScope/i);
+    expect(result.ok).toBe(true);
+    expect(result.data?.serpUrl ?? '').toMatch(/duckduckgo\.com/i);
+
+    await expect
+      .poll(() => {
+        const urls = philExtensionContext.pages().map((p) => {
+          try {
+            return p.url();
+          } catch {
+            return '';
+          }
+        });
+        return urls.some(
+          (u) =>
+            /duckduckgo\.com|google\.com\/search/i.test(u) && !beforeUrls.has(u),
+        );
+      }, { timeout: 20_000 })
+      .toBe(true);
+  });
 });

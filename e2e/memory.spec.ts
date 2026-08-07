@@ -74,7 +74,11 @@ test.describe('Memory (MEM)', () => {
   });
 
   test('MEM-06: Memory off stops new indexing', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    const privacy = philPage.getByRole('heading', { name: /^Privacy$/i });
+    if (!(await privacy.isVisible().catch(() => false))) {
+      await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
+      await expect(privacy).toBeVisible({ timeout: 5_000 });
+    }
     const toggle = philPage.getByText(/Memory \(coming in Milestone 4\)/i);
     if (await toggle.isVisible().catch(() => false)) {
       expect(false, 'Memory still shows Milestone 4 stub — MEM-06 blocked').toBeTruthy();
@@ -85,7 +89,11 @@ test.describe('Memory (MEM)', () => {
   });
 
   test('MEM-07: No Milestone / coming-soon memory UI', async ({ philPage }) => {
-    await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    const privacy = philPage.getByRole('heading', { name: /^Privacy$/i });
+    if (!(await privacy.isVisible().catch(() => false))) {
+      await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
+      await expect(privacy).toBeVisible({ timeout: 5_000 });
+    }
     const body = await philPage.locator('body').innerText();
     expect(body).not.toMatch(/Milestone \d/i);
     expect(body).not.toMatch(/coming soon/i);

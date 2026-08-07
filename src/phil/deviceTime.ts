@@ -96,13 +96,10 @@ export function parseAbsoluteReminder(
   const partsNow = localPartsInDeviceTz(now, timeZone);
 
   let dayOffset = 0;
-  let matchedDay = false;
   if (/\btomorrow\b/i.test(lower)) {
     dayOffset = 1;
-    matchedDay = true;
   } else if (/\btoday\b/i.test(lower)) {
     dayOffset = 0;
-    matchedDay = true;
   }
 
   const clock = raw.match(

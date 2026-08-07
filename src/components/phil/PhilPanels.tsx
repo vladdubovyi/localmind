@@ -73,7 +73,9 @@ function usePhilStorageRefresh(onChange: () => void): void {
         changes.philSettings ||
         changes.philTabActivity ||
         changes.philBriefings ||
-        changes.philFocusLive
+        changes.philFocusLive ||
+        changes.philProjects ||
+        changes.philActiveProject
       ) {
         onChange();
       }
@@ -87,12 +89,14 @@ export function TodayPanel() {
   const [content, setContent] = useState<string>('Loading…');
   const [sources, setSources] = useState<MorningBriefing['sources'] | null>(null);
 
-  const refresh = useCallback(async () => {
-    const existing = await getBriefingByDate(localDateKey());
-    if (existing && Date.now() - existing.createdAt < 30 * 60_000) {
-      setContent(existing.content);
-      setSources(existing.sources);
-      return;
+  const refresh = useCallback(async (force = false) => {
+    if (!force) {
+      const existing = await getBriefingByDate(localDateKey());
+      if (existing && Date.now() - existing.createdAt < 30 * 60_000) {
+        setContent(existing.content);
+        setSources(existing.sources);
+        return;
+      }
     }
     const composed = await composeBriefingContent();
     const briefing: MorningBriefing = {
@@ -123,7 +127,7 @@ export function TodayPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void refresh()}
+          onClick={() => void refresh(true)}
           className="rounded-lg border border-border px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-fg"
         >
           Refresh

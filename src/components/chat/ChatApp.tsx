@@ -9,6 +9,7 @@ import {
   RemindersPanel,
   TodayPanel,
 } from '@/components/phil/PhilPanels';
+import { ProjectsPanel } from '@/components/phil/ProjectsPanel';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import {
@@ -29,7 +30,7 @@ interface ChatAppProps {
   variant: 'popup' | 'sidebar';
 }
 
-type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'phil';
+type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'projects' | 'phil';
 
 export function ChatApp({ variant }: ChatAppProps) {
   const {
@@ -176,6 +177,11 @@ export function ChatApp({ variant }: ChatAppProps) {
           onClick={() => setUiTab('reminders')}
           label="Reminders"
         />
+        <TabChip
+          active={uiTab === 'projects'}
+          onClick={() => setUiTab('projects')}
+          label="Projects"
+        />
         <TabChip active={uiTab === 'phil'} onClick={() => setUiTab('phil')} label="Phil" />
       </div>
 
@@ -221,6 +227,10 @@ export function ChatApp({ variant }: ChatAppProps) {
       ) : uiTab === 'reminders' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <RemindersPanel />
+        </div>
+      ) : uiTab === 'projects' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ProjectsPanel />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden">

@@ -3,19 +3,40 @@ import {
   isBriefingGoal,
   isFocusStatusGoal,
   isGoalSetupGoal,
+  isForgetGoal,
   isLiveInfoGoal,
+  isProjectCreateGoal,
+  isRecallGoal,
+  isRememberGoal,
+  isProjectListGoal,
+  isProjectProgressGoal,
   isReminderGoal,
   isWeatherGoal,
   isWebResearchGoal,
+  parseForgetText,
   parseGoalTitle,
+  parseProjectTitle,
+  parseRecallQuery,
+  parseRememberText,
   parseReminderInMinutes,
   parseReminderText,
 } from '../assistantIntent';
 import { uid } from '../../utils';
 import type { AgentSkill } from './types';
+import type { ProjectTemplate } from '../../phil/projectTypes';
 
 function call(name: string, args: Record<string, unknown> = {}): ToolCall {
   return { id: uid('call'), name, arguments: args };
+}
+
+function inferTemplate(text: string): ProjectTemplate {
+  const t = text.toLowerCase();
+  if (/\b(staff|principal|promo|promotion|career|engineer|manager)\b/.test(t)) return 'career';
+  if (/\b(job|interview|resume|cv|hiring|apply|applications?)\b/.test(t)) return 'job_hunt';
+  if (/\b(research|paper|study|learn|investigate)\b/.test(t)) return 'research';
+  if (/\b(exec|calendar|day plan|schedule my day|eod)\b/.test(t)) return 'exec_day';
+  if (/\b(move|relocat|spain|house|apartment|mortgage|visa)\b/.test(t)) return 'life_move';
+  return 'custom';
 }
 
 /** True for asks that likely need external facts (not pure chat/opinion). */
@@ -23,7 +44,18 @@ export function isFactualLookupGoal(goal: string): boolean {
   const g = goal.trim();
   if (!g) return false;
   if (/\bgmail|inbox|email\b/i.test(g)) return false;
-  if (isReminderGoal(g) || isGoalSetupGoal(g) || isBriefingGoal(g) || isFocusStatusGoal(g)) {
+  if (
+    isReminderGoal(g) ||
+    isGoalSetupGoal(g) ||
+    isBriefingGoal(g) ||
+    isFocusStatusGoal(g) ||
+    isRememberGoal(g) ||
+    isForgetGoal(g) ||
+    isRecallGoal(g) ||
+    isProjectCreateGoal(g) ||
+    isProjectListGoal(g) ||
+    isProjectProgressGoal(g)
+  ) {
     return false;
   }
   // Opinions / writing help stay in chat unless they also look like live facts.
@@ -49,6 +81,44 @@ export function isFactualLookupGoal(goal: string): boolean {
 
 export const AGENT_SKILLS: AgentSkill[] = [
   {
+    id: 'memory',
+    description: 'Remember, forget, or recall lasting facts',
+    score: (ctx) => {
+      if (isForgetGoal(ctx.goal) || isRememberGoal(ctx.goal) || isRecallGoal(ctx.goal)) {
+        return 0.985;
+      }
+      return 0;
+    },
+    buildToolCall: (goal) => {
+      if (isForgetGoal(goal)) {
+        return call('memory_forget', { text: parseForgetText(goal) });
+      }
+      if (isRecallGoal(goal)) {
+        return call('memory_search', { query: parseRecallQuery(goal), limit: 10 });
+      }
+      return call('memory_remember', { text: parseRememberText(goal) });
+    },
+    finalizeDirectAnswer: true,
+    hints: (goal) => {
+      if (isForgetGoal(goal)) {
+        return [
+          'Call memory_forget with the matching text or id.',
+          `Suggested text: ${parseForgetText(goal)}`,
+        ];
+      }
+      if (isRecallGoal(goal)) {
+        return [
+          'Call memory_search with keywords from the question.',
+          `Suggested query: ${parseRecallQuery(goal) || '(list recent)'}`,
+        ];
+      }
+      return [
+        'Call memory_remember with the fact to store.',
+        `Suggested text: ${parseRememberText(goal)}`,
+      ];
+    },
+  },
+  {
     id: 'reminder',
     description: 'Create or manage reminders',
     score: (ctx) => (isReminderGoal(ctx.goal) ? 0.98 : 0),
@@ -67,10 +137,48 @@ export const AGENT_SKILLS: AgentSkill[] = [
       ];
     },
   },
+  // TODO(B1/C1): replace flat `project` with dotted template skills via router factory.
+  {
+    id: 'project',
+    description: 'Create or inspect Persistent Projects',
+    score: (ctx) => {
+      if (isProjectCreateGoal(ctx.goal)) return 0.97;
+      if (isProjectListGoal(ctx.goal) || isProjectProgressGoal(ctx.goal)) return 0.96;
+      return 0;
+    },
+    buildToolCall: (goal) => {
+      if (isProjectListGoal(goal)) return call('project_list', {});
+      if (isProjectProgressGoal(goal)) return call('project_progress', {});
+      const title = parseProjectTitle(goal);
+      return call('project_create', {
+        title,
+        template: inferTemplate(title),
+      });
+    },
+    finalizeDirectAnswer: true,
+    hints: (goal) => {
+      if (isProjectListGoal(goal)) {
+        return ['Call project_list and summarize titles + status. Mention the active project.'];
+      }
+      if (isProjectProgressGoal(goal)) {
+        return [
+          'Call project_progress (or project_get) and answer in project terms with workstreams + next-week plan.',
+        ];
+      }
+      return [
+        'Call project_create with a clear title (not only goal_create).',
+        `Suggested title: ${parseProjectTitle(goal)}`,
+        "Reply like: I've set up your [title] project…",
+      ];
+    },
+  },
   {
     id: 'goal',
     description: 'Create or update focus goals',
-    score: (ctx) => (isGoalSetupGoal(ctx.goal) ? 0.96 : 0),
+    score: (ctx) => {
+      if (isProjectCreateGoal(ctx.goal)) return 0;
+      return isGoalSetupGoal(ctx.goal) ? 0.96 : 0;
+    },
     buildToolCall: (goal) => call('goal_create', { title: parseGoalTitle(goal) }),
     finalizeDirectAnswer: true,
     hints: (goal) => [

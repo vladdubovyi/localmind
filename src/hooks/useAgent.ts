@@ -43,14 +43,20 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
         !result.ok &&
         typeof result.error === 'string' &&
         /unknown tool/i.test(result.error) &&
-        (call.name === 'reminder_create' || call.name === 'goal_create')
+        (call.name === 'reminder_create' ||
+          call.name === 'goal_create' ||
+          call.name.startsWith('project_'))
       ) {
         return executePhilToolLocally(call);
       }
       return result;
     }
   } catch (err) {
-    if (call.name === 'reminder_create' || call.name === 'goal_create') {
+    if (
+      call.name === 'reminder_create' ||
+      call.name === 'goal_create' ||
+      call.name.startsWith('project_')
+    ) {
       try {
         return await executePhilToolLocally(call);
       } catch {
@@ -63,7 +69,11 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
       toolCall: call,
     };
   }
-  if (call.name === 'reminder_create' || call.name === 'goal_create') {
+  if (
+    call.name === 'reminder_create' ||
+    call.name === 'goal_create' ||
+    call.name.startsWith('project_')
+  ) {
     return executePhilToolLocally(call);
   }
   return {
@@ -97,6 +107,67 @@ async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
     }
     const goal = await createGoalFromUi(title);
     return { ok: true, data: goal, toolCall: call };
+  }
+  if (call.name === 'project_create') {
+    const { createProjectFromUi } = await import('@/phil/clientActions');
+    const title = String(call.arguments.title ?? '').trim();
+    if (!title) {
+      return { ok: false, error: 'title is required', toolCall: call };
+    }
+    const templateRaw = String(call.arguments.template ?? '');
+    const { project, goal } = await createProjectFromUi({
+      title,
+      template: (templateRaw || undefined) as
+        | 'career'
+        | 'job_hunt'
+        | 'research'
+        | 'exec_day'
+        | 'life_move'
+        | 'custom'
+        | undefined,
+    });
+    return {
+      ok: true,
+      data: {
+        project,
+        goal,
+        message: `I've set up your ${project.title} project.`,
+      },
+      toolCall: call,
+    };
+  }
+  if (call.name === 'project_list') {
+    const { listProjects, getActiveProjectId } = await import('@/storage/projects');
+    const projects = await listProjects();
+    const activeProjectId = await getActiveProjectId();
+    return { ok: true, data: { projects, activeProjectId }, toolCall: call };
+  }
+  if (call.name === 'project_set_active') {
+    const { getProject, setActiveProjectId } = await import('@/storage/projects');
+    const id = String(call.arguments.id ?? call.arguments.projectId ?? '');
+    const project = await getProject(id);
+    if (!project) return { ok: false, error: `No project ${id}`, toolCall: call };
+    const selection = await setActiveProjectId(id);
+    return { ok: true, data: { selection, project }, toolCall: call };
+  }
+  if (call.name === 'project_get' || call.name === 'project_progress') {
+    const { getProject, getActiveProject, formatProjectProgress } = await import(
+      '@/storage/projects'
+    );
+    const id = String(call.arguments.id ?? call.arguments.projectId ?? '');
+    const project = id ? await getProject(id) : await getActiveProject();
+    if (!project) {
+      return {
+        ok: false,
+        error: id ? `No project ${id}` : 'No active project',
+        toolCall: call,
+      };
+    }
+    return {
+      ok: true,
+      data: { project, progress: formatProjectProgress(project) },
+      toolCall: call,
+    };
   }
   return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
 }

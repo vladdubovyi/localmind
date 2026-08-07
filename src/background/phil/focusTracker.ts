@@ -9,6 +9,7 @@ import {
   startOfLocalDay,
   uid,
 } from '@/storage/phil';
+import { getActiveProject } from '@/storage/projects';
 
 interface ActiveDwell {
   tabId: number;
@@ -542,6 +543,24 @@ export async function composeBriefingContent(): Promise<{
   const focus = await focusSummaryToday();
 
   const lines: string[] = ['Good morning — here’s what’s up today.', ''];
+
+  // PRJ-03: mention active Persistent Project when present.
+  const activeProject = await getActiveProject();
+  if (activeProject && activeProject.status === 'active') {
+    const todayMilestone = activeProject.milestones.find(
+      (m) => m.status === 'in_progress' || m.status === 'not_started',
+    );
+    lines.push('**Active project**');
+    lines.push(
+      `- ${activeProject.title} (${activeProject.template})${
+        todayMilestone ? ` — today’s focus: ${todayMilestone.title}` : ''
+      }`,
+    );
+    lines.push('');
+  } else {
+    lines.push('No active project yet — open Projects to start a long-horizon plan.');
+    lines.push('');
+  }
 
   if (goals.length) {
     lines.push('**Active goals**');

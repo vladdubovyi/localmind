@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const pathToExtension = path.join(rootDir, 'dist');
 const gmailFixturePath = path.join(rootDir, 'e2e/fixtures/gmail-inbox.html');
+const articleFixturePath = path.join(rootDir, 'e2e/fixtures/article.html');
 /** Persistent Chromium profile so WebLLM Cache API survives across runs. */
 const userDataDir = path.join(rootDir, 'e2e/.browser-profile');
 /** Separate profile for Phil PA tests (no WebLLM) so SW updates cleanly. */
@@ -20,6 +21,12 @@ const philUserDataDir = path.join(rootDir, 'e2e/.browser-profile-phil');
 
 /** Smallest catalog model — faster first download for full-product e2e. */
 export const E2E_MODEL_LABEL = 'Gemma 2 2B';
+
+/** Unique phrase embedded in e2e/fixtures/article.html for PAGE grounding. */
+export const ARTICLE_UNIQUE_PHRASE = 'Zeldora migration runbook';
+export const ARTICLE_ROLLBACK_PHRASE = 'zeldora-rollback.sh --cluster=blue';
+export const ARTICLE_SELECTION_TEXT =
+  'Photosynthesis converts light into chemical energy.';
 
 /** First-time download can take a long time on slow networks. */
 export const MODEL_READY_TIMEOUT_MS = Number(process.env.E2E_MODEL_TIMEOUT_MS ?? 45 * 60_000);
@@ -43,6 +50,10 @@ type TestFixtures = {
   /** Phil UI/tools page — does not wait for WebLLM. */
   philPage: Page;
   gmailPage: Page;
+  /** Opens the fixture article in the Phil (no-model) context. */
+  articlePage: Page;
+  /** Opens the fixture article in the model-ready extension context. */
+  agentArticlePage: Page;
   /** Opens Agent tab on a model-ready sidebar. */
   agentPage: Page;
   sendAgentGoal: (
@@ -352,6 +363,36 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(philSidebar);
   },
 
+  articlePage: async ({ philExtensionContext }, use) => {
+    const html = fs.readFileSync(articleFixturePath, 'utf8');
+    await philExtensionContext.route('https://phil.local/article**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: html,
+      });
+    });
+    const page = await philExtensionContext.newPage();
+    await page.goto('https://phil.local/article', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /Zeldora migration runbook/i })).toBeVisible();
+    await use(page);
+  },
+
+  agentArticlePage: async ({ extensionContext }, use) => {
+    const html = fs.readFileSync(articleFixturePath, 'utf8');
+    await extensionContext.route('https://phil.local/article**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: html,
+      });
+    });
+    const page = await extensionContext.newPage();
+    await page.goto('https://phil.local/article', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /Zeldora migration runbook/i })).toBeVisible();
+    await use(page);
+  },
+
   readySidebar: [
     async ({ extensionContext, extensionId }, use) => {
       const page = await extensionContext.newPage();
@@ -470,5 +511,36 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     });
   },
 });
+
+/** Queue a selection action via chrome.storage.session (context-menu equivalent). */
+export async function queueSelectionAction(
+  worker: Worker,
+  action: string,
+  text: string,
+  meta?: { url?: string; title?: string; canReplace?: boolean },
+): Promise<void> {
+  await worker.evaluate(
+    async (payload) => {
+      await chrome.storage.session.set({
+        pendingSelectionAction: {
+          action: payload.action,
+          text: payload.text,
+          url: payload.url,
+          title: payload.title,
+          canReplace: payload.canReplace,
+          createdAt: Date.now(),
+        },
+      });
+    },
+    {
+      action,
+      text,
+      url: meta?.url ?? 'https://phil.local/article',
+      title: meta?.title ?? 'Zeldora migration runbook',
+      canReplace:
+        meta?.canReplace ?? (action === 'rewrite' || action === 'translate' || action === 'improve'),
+    },
+  );
+}
 
 export const expect = baseExpect;

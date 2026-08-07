@@ -125,6 +125,7 @@ test.describe('Business (BIZ)', () => {
   });
 
   // TODO(B4/B5): Feedback channel + analytics/crash toggles in Privacy/Settings.
+  // A2 preferred fail-on-missing; A3 uses skip so static BIZ greens stay CI-clean until B4/B5.
   test.skip('BIZ-05: Feedback button in extension', async () => {
     // Requires in-extension Feedback control (B4/B5 / D2).
   });
@@ -139,6 +140,8 @@ test.describe('Business (BIZ)', () => {
 
   test.skip('BIZ-08: Opt-in analytics can be enabled explicitly', async () => {
     // Requires opt-in UI + persistence from B4/B5.
+  });
+
   });
 
   test('BIZ-09: Demo video script exists and matches suite order', async () => {

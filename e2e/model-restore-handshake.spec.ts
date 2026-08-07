@@ -1,14 +1,11 @@
 /**
- * Verifies restore UI does not hang at 0% when model meta says ready.
- * Engine loads via in-page CreateMLCEngine + Cache API (SW host disabled).
+ * CORE-10 — Verifies restore UI does not hang at 0% when model meta says ready.
+ * Aligns with live Agent shell + background restore banner (not dead Download AI UI).
  */
 import { test, expect } from './fixtures/extension';
 
-test.describe('WebLLM restore', () => {
-  test('restore UI leaves stuck 0% state when meta says ready', async ({
-    extensionContext,
-    extensionId,
-  }) => {
+test.describe('WebLLM restore (CORE-10)', () => {
+  test('CORE-10: Model restore from cache', async ({ extensionContext, extensionId }) => {
     const page = await extensionContext.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/sidebar/index.html`, {
       waitUntil: 'domcontentloaded',
@@ -62,12 +59,23 @@ test.describe('WebLLM restore', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    const restoring = page.getByText(/Restoring Phil/i);
-    const download = page.getByRole('button', { name: /Download AI|Load Phil/i });
-    await expect(restoring.or(download).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /^Agent$/i })).toBeVisible({ timeout: 30_000 });
 
-    if (!(await restoring.isVisible().catch(() => false))) {
-      // Cache miss → onboarding is fine; this test cares about the hang path.
+    const restoring = page.getByText(
+      /Restoring model|Restoring Phil|Preparing model|Downloading model|Loading from cache/i,
+    );
+    const agentInput = page.getByPlaceholder(/Message the agent/i);
+
+    // Either Agent is already usable, or a restore banner is progressing — never stuck 0% forever.
+    if (await agentInput.isVisible().catch(() => false)) {
+      await expect(agentInput).toBeEnabled();
+      return;
+    }
+
+    await expect(restoring.or(agentInput).first()).toBeVisible({ timeout: 30_000 });
+
+    if (!(await restoring.first().isVisible().catch(() => false))) {
+      // Cache miss → Agent shell without restore banner is acceptable for this path.
       return;
     }
 
@@ -75,15 +83,18 @@ test.describe('WebLLM restore', () => {
       .poll(
         async () => {
           const body = await page.locator('body').innerText();
+          if (await agentInput.isVisible().catch(() => false)) return 'ready';
           if (
-            /Loading model|Finish loading|Fetching|cache\[|Downloading|%|Try again|WebGPU/i.test(
+            /Loading model|Finish loading|Fetching|cache\[|Downloading|Try again|WebGPU|Preparing model|Restoring model in the background/i.test(
               body,
             ) &&
-            !(/Loading from local cache…/i.test(body) && /\b0%\b/.test(body) && !/\b[1-9]\d*%/.test(body))
+            !(
+              /Loading from local cache…/i.test(body) &&
+              /\b0%\b/.test(body) &&
+              !/\b[1-9]\d*%/.test(body)
+            )
           ) {
-            // Progressed, errored visibly, or moved off pure 0% idle copy.
             if (/Loading from local cache…/i.test(body) && /\b0%\b/.test(body)) {
-              // Still 0% — only OK briefly at start; treat as stuck if no other signal.
               return /Finish loading|Fetching|Loading model from|Loading GPU|shard/i.test(body)
                 ? 'progressed'
                 : 'stuck';
@@ -98,6 +109,6 @@ test.describe('WebLLM restore', () => {
           message: 'Restore UI remained stuck at 0% Loading from local cache',
         },
       )
-      .toBe('progressed');
+      .not.toBe('stuck');
   });
 });

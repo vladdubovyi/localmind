@@ -18,8 +18,17 @@ import { getTool } from '@/agent/tools';
 import type { AgentSettings, AgentStep } from '@/agent/types';
 import { cn } from '@/utils';
 
+export interface AgentSeedGoal {
+  goal: string;
+  /** When true, submit immediately once Agent is enabled and idle. */
+  autoRun?: boolean;
+}
+
 interface AgentPanelProps {
   modelReady: boolean;
+  /** Selection / page-action handoff from ChatApp. */
+  seedGoal?: AgentSeedGoal | null;
+  onSeedConsumed?: () => void;
 }
 
 function StepBody({ step }: { step: AgentStep }) {
@@ -80,7 +89,7 @@ function stepLabel(step: AgentStep): string {
   }
 }
 
-export function AgentPanel({ modelReady }: AgentPanelProps) {
+export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelProps) {
   const {
     settings,
     permissions,
@@ -99,6 +108,7 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
   const [showSettings, setShowSettings] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const seedHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     const el = transcriptRef.current;
@@ -113,6 +123,25 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [goal]);
 
+  useEffect(() => {
+    if (!seedGoal?.goal || !settings?.enabled || running || busy) return;
+    if (seedHandledRef.current === seedGoal.goal) return;
+    seedHandledRef.current = seedGoal.goal;
+    const text = seedGoal.goal.trim();
+    if (!text) {
+      onSeedConsumed?.();
+      return;
+    }
+    if (seedGoal.autoRun) {
+      setGoal('');
+      onSeedConsumed?.();
+      void run(text);
+      return;
+    }
+    setGoal(text);
+    onSeedConsumed?.();
+  }, [seedGoal, settings?.enabled, running, busy, run, onSeedConsumed]);
+
   if (!settings) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">Loading agent…</div>
@@ -121,6 +150,12 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
 
   const submit = () => {
     const text = goal.trim();
+    if (!text || running || busy || !settings.enabled) return;
+    setGoal('');
+    void run(text);
+  };
+
+  const runQuick = (text: string) => {
     if (!text || running || busy || !settings.enabled) return;
     setGoal('');
     void run(text);
@@ -283,6 +318,32 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
             <p className="mt-2 text-[12px]">
               e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
             </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-accent ring-1 ring-accent/30 hover:bg-accent/25 disabled:opacity-40"
+                onClick={() => runQuick('Summarize this page')}
+              >
+                Summarize this page
+              </button>
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-panel px-2.5 py-1.5 text-xs font-medium text-fg-dim ring-1 ring-border hover:text-fg disabled:opacity-40"
+                onClick={() => runQuick('Explain this page')}
+              >
+                Explain this page
+              </button>
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-panel px-2.5 py-1.5 text-xs font-medium text-fg-dim ring-1 ring-border hover:text-fg disabled:opacity-40"
+                onClick={() => runQuick('Ask a question about this page: What is the main topic?')}
+              >
+                Ask about this page
+              </button>
+            </div>
           </div>
         )}
 

@@ -10,11 +10,7 @@
     "lint": "oxlint src",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
-<<<<<<< HEAD
-    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/background/webllmHandler.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts && tsx src/phil/categories.test.ts && tsx src/phil/deviceTime.test.ts && tsx src/phil/notificationPolicy.test.ts && tsx src/agent/assistantIntent.test.ts && tsx src/agent/skills/router.test.ts && tsx src/agent/skills/factory.goldens.test.ts && tsx src/background/phil/dailyReview.test.ts",
-=======
-    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/background/webllmHandler.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts && tsx src/phil/categories.test.ts && tsx src/phil/deviceTime.test.ts && tsx src/phil/notificationPolicy.test.ts && tsx src/agent/assistantIntent.test.ts && tsx src/agent/skills/router.test.ts && tsx src/agent/skills/factory.goldens.test.ts && tsx src/storage/projectPlaybooks.test.ts",
->>>>>>> da5ebd5 (feat(projects): real template skills for CA/JH/RP/LP/GA)
+    "test": "tsx src/ai/contextManager.test.ts && tsx src/ai/engineLifecycle.test.ts && tsx src/models/catalog.test.ts && tsx src/background/webllmHandler.test.ts && tsx src/agent/parser.test.ts && tsx src/agent/formatStep.test.ts && tsx src/agent/goalIntent.test.ts && tsx src/agent/gmailTools.test.ts && tsx src/phil/categories.test.ts && tsx src/phil/deviceTime.test.ts && tsx src/phil/notificationPolicy.test.ts && tsx src/agent/assistantIntent.test.ts && tsx src/agent/skills/router.test.ts && tsx src/agent/skills/factory.goldens.test.ts && tsx src/background/phil/dailyReview.test.ts && tsx src/storage/projectPlaybooks.test.ts",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:ui": "npm run build && playwright test --ui"
   },

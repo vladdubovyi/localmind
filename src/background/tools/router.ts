@@ -98,7 +98,6 @@ export async function routeAgentTool(
       return await executeGmailTools(call, settings);
     }
     if (isPhilTool(call.name)) {
-      // Dynamic import avoids SW boot cycles: router ↔ phil ↔ reminders.
       const { executePhilTools } = await import('@/background/tools/phil');
       return await executePhilTools(call);
     }

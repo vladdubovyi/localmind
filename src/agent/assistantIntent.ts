@@ -56,7 +56,10 @@ export function parseReminderInMinutes(goal: string): number | undefined {
 export function parseReminderText(goal: string): string {
   let t = goal.trim();
   t = t.replace(/^(please\s+)?(can you\s+)?/i, '');
-  t = t.replace(/^(remind\s+me|set\s+(a\s+)?reminder|ping\s+me|alarm\s+me)\s*/i, '');
+  t = t.replace(
+    /^(remind\s+me|set(\s+up)?\s+(a\s+)?reminder|ping\s+me|alarm\s+me)\s*/i,
+    '',
+  );
   t = t.replace(
     new RegExp(`^(in|after)\\s+\\d+\\s*(${TIME_UNIT})\\s*(to\\s+|that\\s+)?`, 'i'),
     '',

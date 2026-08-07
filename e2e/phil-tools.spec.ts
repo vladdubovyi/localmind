@@ -79,4 +79,43 @@ test.describe('Phil data layer + manifest', () => {
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
     await expect(philPage.getByText(/Productive/i).first()).toBeVisible();
   });
+
+  test('reminder_create tool executes in the service worker', async ({ philServiceWorker }) => {
+    await expect
+      .poll(async () => {
+        return philServiceWorker.evaluate(() =>
+          typeof (globalThis as { __philExecuteTool?: unknown }).__philExecuteTool === 'function',
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    const result = await philServiceWorker.evaluate(async () => {
+      const run = (
+        globalThis as {
+          __philExecuteTool?: (call: {
+            id: string;
+            name: string;
+            arguments: Record<string, unknown>;
+          }) => Promise<{ ok: boolean; error?: string; data?: { text?: string; id?: string } }>;
+        }
+      ).__philExecuteTool;
+      if (!run) return { ok: false, error: 'hook missing' };
+      return run({
+        id: 't_rem',
+        name: 'reminder_create',
+        arguments: { text: 'call my mom', inMinutes: 5 },
+      });
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.data?.text).toMatch(/call my mom/i);
+
+    const stored = await philServiceWorker.evaluate(async () => {
+      const all = await chrome.storage.local.get('philReminders');
+      const rows = (all.philReminders as Array<{ text: string; status: string }> | undefined) ?? [];
+      return rows.some((r) => /call my mom/i.test(r.text) && r.status === 'scheduled');
+    });
+    expect(stored).toBe(true);
+  });
 });

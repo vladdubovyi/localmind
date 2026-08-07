@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bot,
+  Calendar,
   Check,
   ChevronRight,
   Globe,
@@ -8,14 +9,17 @@ import {
   MessageCircle,
   SkipForward,
   Sparkles,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { BrandMark } from '@/components/common/BrandMark';
 import {
   getAgentPermissionState,
   requestBrowserPermissions,
+  requestCalendarPermissions,
   requestGmailPermissions,
 } from '@/agent/permissions';
-import { saveAgentSettings } from '@/storage/agentSettings';
+import { getAgentSettings, saveAgentSettings } from '@/storage/agentSettings';
 import { completeOnboarding } from '@/storage/onboarding';
 import {
   clearWizardStep,
@@ -24,7 +28,7 @@ import {
 } from '@/storage/sessionIntent';
 import { cn } from '@/utils';
 
-type StepId = 'welcome' | 'browser' | 'gmail' | 'ready';
+type StepId = 'welcome' | 'browser' | 'gmail' | 'calendar' | 'ready';
 
 interface SetupWizardProps {
   variant: 'popup' | 'sidebar';
@@ -35,9 +39,10 @@ interface StepResult {
   grantedBrowser: boolean;
   grantedGmail: boolean;
   grantedDebugger: boolean;
+  grantedCalendar: boolean;
 }
 
-const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'ready'];
+const STEPS: StepId[] = ['welcome', 'browser', 'gmail', 'calendar', 'ready'];
 
 export function SetupWizard({ onFinished }: SetupWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
@@ -48,15 +53,17 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
     grantedBrowser: false,
     grantedGmail: false,
     grantedDebugger: false,
+    grantedCalendar: false,
   });
 
   const step = STEPS[stepIndex];
 
   useEffect(() => {
     void (async () => {
-      const [savedStep, perms] = await Promise.all([
+      const [savedStep, perms, agent] = await Promise.all([
         getWizardStep(),
         getAgentPermissionState(),
+        getAgentSettings(),
       ]);
       setStepIndex(Math.min(savedStep, STEPS.length - 1));
       setResults((r) => ({
@@ -64,6 +71,7 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         grantedBrowser: perms.tabs && perms.allUrls,
         grantedGmail: perms.identity,
         grantedDebugger: false,
+        grantedCalendar: agent.calendarEnabled,
       }));
       setReady(true);
     })();
@@ -80,11 +88,13 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
       if (results.grantedBrowser) {
         await saveAgentSettings({ enabled: true });
       }
+      await saveAgentSettings({ calendarEnabled: results.grantedCalendar });
       await completeOnboarding({
         skipped,
         grantedBrowser: results.grantedBrowser,
         grantedGmail: results.grantedGmail,
         grantedDebugger: results.grantedDebugger,
+        grantedCalendar: results.grantedCalendar,
       });
       await clearWizardStep();
       onFinished();
@@ -131,10 +141,40 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
     }
   };
 
+  const connectCalendar = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const ok = await requestCalendarPermissions();
+      if (ok) {
+        await saveAgentSettings({ calendarEnabled: true });
+        setResults((r) => ({ ...r, grantedCalendar: true }));
+        setStatus('Calendar connected for daily planning.');
+      } else {
+        setStatus('Calendar connect declined — you can enable later in Privacy.');
+      }
+      goNext();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const skipCalendar = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      await saveAgentSettings({ calendarEnabled: false });
+      setResults((r) => ({ ...r, grantedCalendar: false }));
+      goNext();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!ready) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">
-        <div className="animate-pulse-soft">Preparing setup…</div>
+        <div className="animate-pulse-soft">Preparing setup...</div>
       </div>
     );
   }
@@ -165,13 +205,30 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
           <StepBody
             icon={<Sparkles size={22} />}
             title="Welcome to Phil"
-            body="Private AI in your browser. Set up optional permissions for page tools, Agent, and Gmail — or jump straight into chat."
+            body="Private on-device AI in your browser. Set up optional permissions — or jump straight into chat."
           >
-            <ul className="mt-4 space-y-2 text-sm text-fg-dim">
-              <Bullet>Everything optional — skip any step</Bullet>
-              <Bullet>Chat works with just a local model</Bullet>
-              <Bullet>Nothing leaves your device by default</Bullet>
-            </ul>
+            <div className="mt-4 space-y-3">
+              <LocalityCard
+                icon={<WifiOff size={14} />}
+                title="Stays on-device"
+                items={[
+                  'Chat prompts and replies',
+                  'Page text you ask about',
+                  'Goals, focus, and memory',
+                  'Calendar events once synced locally',
+                ]}
+              />
+              <LocalityCard
+                icon={<Wifi size={14} />}
+                title="Needs the internet"
+                items={[
+                  'First model download (CDN)',
+                  'Optional Google web research',
+                  'Optional Gmail',
+                  'Optional Calendar sync',
+                ]}
+              />
+            </div>
           </StepBody>
         )}
 
@@ -201,15 +258,33 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
           </StepBody>
         )}
 
+        {step === 'calendar' && (
+          <StepBody
+            icon={<Calendar size={22} />}
+            title="Calendar (optional)"
+            body="Connect Calendar so daily planning can see today's events — plan my workday, move deadlines, and brief mornings without inventing a fake schedule."
+          >
+            <PermissionCard
+              granted={results.grantedCalendar}
+              items={[
+                "Read today's events for daily planning",
+                'Workday plans include real meetings when connected',
+                'Skip anytime — enable later in Privacy',
+              ]}
+            />
+          </StepBody>
+        )}
+
         {step === 'ready' && (
           <StepBody
             icon={<Bot size={22} />}
             title="You're set"
-            body="Next you'll download or load a local model. Permissions you skipped can be enabled later from the Agent tab."
+            body="Next you'll download or load a local model. Permissions you skipped can be enabled later from Privacy or the Agent tab."
           >
             <div className="mt-4 space-y-2 rounded-2xl border border-border bg-panel/70 px-3 py-3 text-sm">
               <StatusRow label="Browser / Agent" ok={results.grantedBrowser} />
               <StatusRow label="Gmail OAuth" ok={results.grantedGmail} />
+              <StatusRow label="Calendar" ok={results.grantedCalendar} />
             </div>
           </StepBody>
         )}
@@ -244,6 +319,17 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
               {results.grantedGmail ? 'Continue' : 'Allow Gmail access'}
             </Primary>
             <Secondary disabled={busy} onClick={goNext}>
+              <SkipForward size={14} /> Skip for now
+            </Secondary>
+          </>
+        )}
+
+        {step === 'calendar' && (
+          <>
+            <Primary disabled={busy} onClick={() => void connectCalendar()}>
+              {results.grantedCalendar ? 'Continue' : 'Connect Calendar'}
+            </Primary>
+            <Secondary disabled={busy} onClick={() => void skipCalendar()}>
               <SkipForward size={14} /> Skip for now
             </Secondary>
           </>
@@ -308,12 +394,30 @@ function StepBody({
   );
 }
 
-function Bullet({ children }: { children: ReactNode }) {
+function LocalityCard({
+  icon,
+  title,
+  items,
+}: {
+  icon: ReactNode;
+  title: string;
+  items: string[];
+}) {
   return (
-    <li className="flex items-start gap-2">
-      <Check size={14} className="mt-0.5 shrink-0 text-accent" />
-      <span>{children}</span>
-    </li>
+    <div className="rounded-2xl border border-border bg-panel/70 px-3 py-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-fg">
+        <span className="text-accent">{icon}</span>
+        {title}
+      </div>
+      <ul className="space-y-1.5 text-xs text-fg-dim">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2">
+            <Check size={12} className="mt-0.5 shrink-0 text-accent" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

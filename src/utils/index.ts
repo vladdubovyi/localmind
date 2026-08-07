@@ -18,6 +18,21 @@ export function detectWebGPUSupport(): boolean {
   return 'gpu' in navigator;
 }
 
+/**
+ * Real WebGPU probe via `navigator.gpu.requestAdapter()`.
+ * Never throws — Chrome surfaces adapter rejection on the extension Errors page
+ * if uncaught; we swallow and return false.
+ */
+export async function probeWebGPU(): Promise<boolean> {
+  if (!('gpu' in navigator) || !navigator.gpu) return false;
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    return Boolean(adapter);
+  } catch {
+    return false;
+  }
+}
+
 export function truncate(text: string, max = 80): string {
   const cleaned = text.replace(/\s+/g, ' ').trim();
   if (cleaned.length <= max) return cleaned;

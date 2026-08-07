@@ -1,12 +1,14 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Download, Shield, WifiOff, Cpu } from 'lucide-react';
 import { BrandMark } from '@/components/common/BrandMark';
+import { ErrorRecovery } from '@/components/common/ErrorRecovery';
 import {
   MODEL_TIER_LABEL,
   MODEL_TIER_ORDER,
   estimateDownloadMinutes,
   getModelById,
   modelsByTier,
+  recommendModelForDevice,
 } from '@/models/catalog';
 import type { DownloadProgress, ModelInfo } from '@/types';
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities';
@@ -20,6 +22,16 @@ interface OnboardingProps {
   alreadyCached?: boolean;
   onSelectModel: (id: string) => void;
   onDownload: (id: string) => void;
+  onContinueWithoutModel?: () => void;
+}
+
+function pickSmallerFallback(currentId: string, memoryGb?: number): ModelInfo {
+  const light = modelsByTier('light')[0];
+  const recommended = recommendModelForDevice(memoryGb);
+  const current = getModelById(currentId);
+  if (light && current && light.id !== current.id) return light;
+  if (recommended.id !== currentId) return recommended;
+  return light ?? recommended;
 }
 
 export function Onboarding({
@@ -30,11 +42,38 @@ export function Onboarding({
   alreadyCached = false,
   onSelectModel,
   onDownload,
+  onContinueWithoutModel,
 }: OnboardingProps) {
-  const { webgpu, memoryGb, recommended } = useDeviceCapabilities();
+  const { webgpu, webgpuReady, memoryGb, recommended } = useDeviceCapabilities();
   const [picked, setPicked] = useState(selectedModelId || recommended.id);
   const model = getModelById(picked) ?? recommended;
   const minutes = estimateDownloadMinutes(model.estimatedBytes);
+  const fallback = pickSmallerFallback(picked, memoryGb);
+  const isWebgpuError =
+    webgpu === false ||
+    (error != null && /webgpu|adapter|gpu/i.test(error));
+  const isModelLoadError = Boolean(error) && !isWebgpuError;
+
+  useEffect(() => {
+    if (!selectedModelId && recommended.id) {
+      setPicked(recommended.id);
+      onSelectModel(recommended.id);
+    }
+  }, [recommended.id, selectedModelId, onSelectModel]);
+
+  if (webgpuReady && webgpu === false) {
+    return (
+      <ErrorRecovery
+        kind="webgpu"
+        message="Phil's local AI needs WebGPU. Without it, chat and Agent can't load a model on this device."
+        detail="Goals and Reminders still work — use the tabs above to plan while you fix hardware or browser support."
+        primaryLabel="Check again"
+        onPrimary={() => window.location.reload()}
+        secondaryLabel={onContinueWithoutModel ? 'Continue to Goals' : undefined}
+        onSecondary={onContinueWithoutModel}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -45,28 +84,31 @@ export function Onboarding({
           Private AI that lives inside your browser.
         </h1>
         <p className="relative mt-2 max-w-[34ch] text-sm text-muted animate-fade-up [animation-delay:120ms]">
-          Download a model once. Chat offline forever. Nothing leaves your machine.
+          Download a model once. Chat stays on-device. Optional Google research, Gmail, and Calendar
+          use the internet only when you enable them.
         </p>
       </div>
 
       <div className="space-y-3 px-5 animate-fade-up [animation-delay:160ms]">
         <Feature
           icon={<Shield size={16} />}
-          title="No cloud"
+          title="No cloud inference"
           body="No OpenAI, no API keys, no telemetry by default."
         />
         <Feature
           icon={<WifiOff size={16} />}
           title="Offline after download"
-          body="Models download once into this browser’s cache, then load offline."
+          body="Models download once into this browser's cache, then load offline."
         />
         <Feature
           icon={<Cpu size={16} />}
           title="WebGPU accelerated"
           body={
-            webgpu
-              ? `WebGPU detected${memoryGb ? ` · ~${memoryGb} GB device RAM` : ''}.`
-              : 'WebGPU not detected — enable it in Chrome flags or update Chrome.'
+            !webgpuReady
+              ? 'Checking WebGPU...'
+              : webgpu
+                ? `WebGPU detected${memoryGb ? ` · ~${memoryGb} GB device RAM` : ''}.`
+                : 'WebGPU not detected — enable it in Chrome flags or update Chrome.'
           }
         />
       </div>
@@ -121,33 +163,67 @@ export function Onboarding({
           </div>
         )}
 
-        {error && (
-          <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-            {error}
-          </div>
+        {isWebgpuError && error && (
+          <ErrorRecovery
+            variant="inline"
+            kind="webgpu"
+            message={error}
+            primaryLabel="Retry"
+            onPrimary={() => onDownload(picked)}
+          />
+        )}
+
+        {isModelLoadError && error && (
+          <ErrorRecovery
+            variant="inline"
+            kind="model"
+            message={error}
+            detail={`Try a smaller fallback model (${fallback.label}) if this device is low on memory.`}
+            primaryLabel="Retry"
+            onPrimary={() => onDownload(picked)}
+            secondaryLabel={`Try ${fallback.label}`}
+            onSecondary={() => {
+              setPicked(fallback.id);
+              onSelectModel(fallback.id);
+              onDownload(fallback.id);
+            }}
+          />
         )}
 
         <button
           type="button"
-          disabled={isDownloading || !webgpu}
+          disabled={isDownloading || webgpu === false || !webgpuReady}
           onClick={() => onDownload(picked)}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-ink transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Download size={16} />
           {isDownloading
             ? alreadyCached
-              ? 'Loading from cache…'
-              : 'Downloading…'
+              ? 'Loading from cache...'
+              : 'Downloading...'
             : alreadyCached
               ? 'Load Phil'
               : `Download AI · ${formatBytes(model.estimatedBytes)} · ~${minutes} min`}
         </button>
+        {error && !isDownloading && (
+          <button
+            type="button"
+            onClick={() => onDownload(picked)}
+            className="w-full rounded-2xl border border-border bg-panel px-4 py-2.5 text-sm font-medium text-fg-dim transition hover:bg-panel-elevated"
+          >
+            Resume / Retry download
+          </button>
+        )}
         <p className="text-center text-[11px] text-muted">
           {alreadyCached
             ? 'Model found in local cache. Loading uses WebGPU on this device.'
             : model.tier === 'high'
-              ? 'High-end models need a stronger GPU. If load fails, try a Balanced option.'
+              ? 'High-end models need a stronger GPU. If load fails, try a Balanced or Light option.'
               : 'Downloads are saved in this browser and resume if interrupted.'}
+        </p>
+        <p className="text-center text-[11px] text-muted">
+          If something fails: Retry, check permissions, or open Privacy. Optional Google research,
+          Gmail, and Calendar only leave the device when enabled.
         </p>
       </div>
     </div>

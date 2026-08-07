@@ -48,6 +48,19 @@ function StepBody({ step }: { step: AgentStep }) {
     );
   }
 
+  if (step.kind === 'error') {
+    return (
+      <div className="max-w-full space-y-1.5 text-sm [overflow-wrap:anywhere]">
+        <p className="whitespace-pre-wrap break-words">
+          What went wrong: {step.content.replace(/^Milestone\b.*$/gim, '').trim() || step.content}
+        </p>
+        <p className="text-[11px] text-danger/80">
+          Next: Retry the action, check permissions, or open Privacy to review grants.
+        </p>
+      </div>
+    );
+  }
+
   if (step.kind === 'final' || step.kind === 'thought' || step.kind === 'tool_result') {
     return (
       <div
@@ -316,7 +329,11 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
           <div className="rounded-2xl px-1 py-6 text-center text-sm text-muted">
             <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
             <p className="mt-2 text-[12px]">
-              e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
+              e.g. “Which 5 emails did I get last?” or “Research X on Google and summarize.”
+            </p>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted">
+              If something goes wrong, Phil shows what went wrong plus a next step — Retry, check
+              permissions, or open Privacy. Web research uses Google by default.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <button
@@ -420,16 +437,26 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
         </div>
       )}
 
-      {(error || (!modelReady && settings.enabled && !running)) && (
+{(error || (!modelReady && settings.enabled && !running)) && (
         <div
           className={cn(
-            'mx-3 mb-2 shrink-0 break-words rounded-xl px-3 py-2 text-xs [overflow-wrap:anywhere]',
+            'mx-3 mb-2 shrink-0 space-y-2 break-words rounded-xl px-3 py-2 text-xs [overflow-wrap:anywhere]',
             error
               ? 'border border-danger/30 bg-danger/10 text-danger'
               : 'border border-border-subtle bg-panel/70 text-muted',
           )}
+          role={error ? 'alert' : undefined}
         >
-          {error || 'Model is restoring in the background — you can send now; Phil will think until it’s ready.'}
+          <p>
+            {error
+              ? `What went wrong: ${error}`
+              : 'Model is restoring in the background — you can send now; Phil will think until it is ready.'}
+          </p>
+          {error && (
+            <p className="text-muted">
+              Next: Retry your request, check permissions, or open Privacy to review grants.
+            </p>
+          )}
         </div>
       )}
 

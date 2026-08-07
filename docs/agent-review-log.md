@@ -142,3 +142,20 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **Not run full suite:** Remaining ONB/ERR/PRIV/MEM/SET-02…/DAY/BRW/EA/PRO/POL/BIZ-05…08/WF/PRJ/RTE/SKL intentionally fail-on-missing UI until owner pods land.
   - **Website note:** `e2e/business.spec.ts` expects A3 `website/**` assets; may fail on this branch until A3 merged.
 - **Suggested owner:** D1/CI for model cache; B3+ for ONB; see prior A2 entry for group owners
+
+### 2026-08-07 — Agent B3 (Onboarding + Errors)
+- **Test IDs:** ONB-01…08, ERR-01…04
+- **Severity:** should-fix
+- **Type:** deferred | skipped-test
+- **Summary:** Wired Calendar ONB-08 + ChatApp Onboarding/ModelRestoring/WebGPU recovery; full Google Calendar OAuth sync deferred to stub `calendarEnabled` flag.
+- **Detail:** SetupWizard steps are welcome → browser → gmail → calendar → ready → model UI. Persistence: `onboarding.grantedCalendar` snapshot + live `agentSettings.calendarEnabled` for B4 Privacy/planning. Calendar connect requests identity/Google hosts when needed then sets the flag — no Calendar API event sync yet. Minimal webResearch SERP URL swap to Google to unblock ERR-03 (C3 still owns deeper research). ERR-02 full mid-load harness and ERR-03 live empty-SERP agent run still limited by e2e fixture (assert copy/UI affordances). ONB-06 asserts Resume/Retry copy rather than forced interrupt. Shared `ErrorRecovery` component added.
+- **Suggested owner:** C3 (Calendar sync + research depth), B4 (Privacy reads calendarEnabled), D1 (model/GPU CI harness for ONB-05/06 interrupt)
+
+### 2026-08-07 — Agent B3 (Onboarding + Errors)
+- **Test IDs:** ERR-01
+- **Severity:** FYI
+- **Type:** open-question
+- **Summary:** ERR-01 stubs `navigator.gpu.requestAdapter → null` via page init script after philPage seed; race with already-probed WebGPU may need fixture-level GPU disable for CI certainty.
+- **Detail:** ChatApp probes via `probeWebGPU()` on mount. Reload after init script should re-probe; if flaky, recommend extension launch arg / CDP override in fixtures.
+- **Suggested owner:** B3 follow-up / D1 fixtures
+

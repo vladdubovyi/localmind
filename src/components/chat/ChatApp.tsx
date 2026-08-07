@@ -9,6 +9,8 @@ import {
   RemindersPanel,
   TodayPanel,
 } from '@/components/phil/PhilPanels';
+import { ModelRestoring } from '@/components/onboarding/ModelRestoring';
+import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import {
@@ -16,6 +18,7 @@ import {
   shouldShowFullOnboarding,
 } from '@/ai/engineLifecycle';
 import { useChat } from '@/hooks/useChat';
+import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
 import { usePhilQuickIntent } from '@/hooks/usePhilQuickIntent';
 import { getSelectionAction } from '@/prompts/selection';
@@ -43,6 +46,7 @@ export function ChatApp({ variant }: ChatAppProps) {
     updateSettings,
   } = useChat({ surface: variant });
 
+  const { webgpu, webgpuReady } = useDeviceCapabilities();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('agent');
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
@@ -115,7 +119,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   if (!settings || !conversation || phase === 'checking' || setupDone === null) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">
-        <div className="animate-pulse-soft">Starting Phil…</div>
+        <div className="animate-pulse-soft">Starting Phil...</div>
       </div>
     );
   }
@@ -129,16 +133,11 @@ export function ChatApp({ variant }: ChatAppProps) {
   }
 
   const modelReady = phase === 'ready';
-  const restoring =
-    isRestoringEngine(phase, loadingFromCache) ||
-    shouldShowFullOnboarding(phase, loadingFromCache);
-  const restoreLabel =
-    progress?.text ||
-    (loadingFromCache
-      ? 'Restoring model in the background…'
-      : phase === 'downloading'
-        ? 'Downloading model in the background…'
-        : 'Preparing model in the background…');
+  const showFullOnboarding = shouldShowFullOnboarding(phase, loadingFromCache);
+  const showRestoring = isRestoringEngine(phase, loadingFromCache);
+  const webgpuBlocked = webgpuReady && webgpu === false;
+  const showModelGate =
+    uiTab === 'agent' && (webgpuBlocked || showFullOnboarding || showRestoring);
 
   return (
     <div
@@ -179,32 +178,43 @@ export function ChatApp({ variant }: ChatAppProps) {
         <TabChip active={uiTab === 'phil'} onClick={() => setUiTab('phil')} label="Phil" />
       </div>
 
-      {restoring && (
-        <div className="shrink-0 border-b border-border-subtle bg-panel/60 px-3 py-1.5 text-[11px] text-muted">
-          {restoreLabel}
-          {error ? ` · ${error}` : ''}
-          {phase === 'error' && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="text-accent hover:underline"
-                onClick={() => void downloadAndLoad(settings.selectedModelId)}
-              >
-                Retry
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentPanel
-            modelReady={modelReady}
-            seedGoal={agentSeed}
-            onSeedConsumed={() => setAgentSeed(null)}
-          />
+          {showModelGate ? (
+            webgpuBlocked || showFullOnboarding ? (
+              <Onboarding
+                selectedModelId={settings.selectedModelId}
+                progress={progress}
+                error={
+                  webgpuBlocked
+                    ? 'WebGPU is not available. Local AI needs Chrome/Edge with working GPU hardware.'
+                    : error
+                }
+                isDownloading={phase === 'downloading'}
+                alreadyCached={loadingFromCache}
+                onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
+                onDownload={(id) => void downloadAndLoad(id)}
+                onContinueWithoutModel={() => setUiTab('goals')}
+              />
+            ) : (
+              <ModelRestoring
+                progress={progress}
+                error={error}
+                selectedModelId={settings.selectedModelId}
+                onRetry={() => void downloadAndLoad(settings.selectedModelId)}
+                onTrySmaller={(id) => {
+                  void updateSettings({ selectedModelId: id });
+                  void downloadAndLoad(id);
+                }}
+              />
+            )
+          ) : (
+            <AgentPanel
+              modelReady={modelReady}
+              seedGoal={agentSeed}
+              onSeedConsumed={() => setAgentSeed(null)}
+            />
+          )}
         </div>
       ) : uiTab === 'today' ? (
         <div className="min-h-0 flex-1 overflow-hidden">

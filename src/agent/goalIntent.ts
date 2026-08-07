@@ -426,6 +426,22 @@ export function nudgeToolExample(goal: string, priorSteps: AgentStep[]): string 
     }
   }
 
+  // Live facts / research — force web_research instead of polite chat refusals.
+  if (
+    /\b(weather|forecast|temperature|research|look up|search (the )?web|news|stock price)\b/i.test(
+      goal,
+    ) &&
+    !/\bgmail|inbox|email\b/i.test(goal)
+  ) {
+    const q = esc(goal.trim().slice(0, 160));
+    return [
+      '<tool_call>',
+      `{"name":"web_research","arguments":{"query":"${q}","maxResults":3}}`,
+      '</tool_call>',
+      'Do not ask for permission. Research now, then answer from the findings.',
+    ].join('\n');
+  }
+
   return [
     'Output a valid <tool_call> for the user goal, or the final markdown answer if no tool is needed.',
     'Do NOT open https://en.wikipedia.org/wiki/WebGPU unless the user asked for WebGPU.',

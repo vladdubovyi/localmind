@@ -25,6 +25,7 @@ import {
   isGoalSetupGoal,
   isReminderGoal,
   isWebResearchGoal,
+  offersToActWithoutTools,
   parseGoalTitle,
   parseReminderInMinutes,
   parseReminderText,
@@ -150,9 +151,17 @@ function looksLikeMalformedToolCall(text: string): boolean {
 
 /** Model said it would use a tool but didn't emit a call. */
 function narratesToolUse(text: string): boolean {
-  return /\b(gmail_list|gmail_read|gmail_draft|gmail_send|page_read|tabs_create|tabs_navigate|reminder_create|focus_summary|briefing_today|web_research|goal_create|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
-    text,
+  return (
+    /\b(gmail_list|gmail_read|gmail_draft|gmail_send|page_read|tabs_create|tabs_navigate|reminder_create|focus_summary|briefing_today|web_research|goal_create|use the \w+ tool|fetch the emails|call the tool)\b/i.test(
+      text,
+    ) || offersToActWithoutTools(text)
   );
+}
+
+/** Informational browse tools should not pause on Allow for live-fact goals. */
+function shouldAutoConfirmTool(goal: string, name: string): boolean {
+  if (!isWebResearchGoal(goal)) return false;
+  return name === 'web_research' || name === 'tabs_create' || name === 'tabs_navigate';
 }
 
 /** Compact prior transcript so follow-up goals keep context. */
@@ -191,7 +200,8 @@ function philIntentHints(goal: string): string[] {
   }
   if (isWebResearchGoal(goal)) {
     return [
-      'Call web_research with the search query. Leave finding tabs open for the user.',
+      'Call web_research immediately with the search query (do not ask for permission).',
+      'Then answer the user from the findings. Leave useful tabs open.',
     ];
   }
   return [];
@@ -225,6 +235,13 @@ function buildPhilFastPathCall(goal: string): ToolCall | null {
   }
   if (isBriefingGoal(goal)) {
     return { id: uid('call'), name: 'briefing_today', arguments: {} };
+  }
+  if (isWebResearchGoal(goal)) {
+    return {
+      id: uid('call'),
+      name: 'web_research',
+      arguments: { query: goal.trim(), maxResults: 3 },
+    };
   }
   return null;
 }
@@ -427,6 +444,12 @@ function continueAfterToolPrompt(
         'If you have enough page content, give the final answer now. Do not call more tools unless needed.',
       );
     }
+  } else if (call.name === 'web_research') {
+    lines.push(
+      'Answer the user now from these research findings (plain language, cite domains/URLs).',
+      'If the SERP text is too thin, call page_read on one of the opened finding tabs, then answer.',
+      'Do not ask whether to open a website — tools already ran.',
+    );
   } else {
     lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
   }
@@ -499,8 +522,13 @@ export function useAgent() {
         }
 
         // Phil PA tools run via the service worker and do not need the LLM.
+        // web_research also fast-paths, but then the LLM must summarize findings.
         const fastCall = buildPhilFastPathCall(goal);
-        if (fastCall) {
+        let researchSeed:
+          | { call: ToolCall; result: ToolResult }
+          | null = null;
+
+        if (fastCall && fastCall.name !== 'web_research') {
           pushStep({
             kind: 'thought',
             content: 'Thinking…',
@@ -548,6 +576,55 @@ export function useAgent() {
           return;
         }
 
+        if (fastCall?.name === 'web_research') {
+          pushStep({
+            kind: 'thought',
+            content: 'Looking that up on the web…',
+          });
+          pushStep({
+            kind: 'tool_call',
+            content: toolCallLabel(fastCall.name, fastCall.arguments),
+            toolCall: fastCall,
+          });
+          let result = await executeTool(fastCall, shouldAutoConfirmTool(goal, fastCall.name));
+          if (!result || typeof result !== 'object') {
+            result = {
+              ok: false,
+              error: 'No response from the background tool router. Try reloading the extension.',
+              toolCall: fastCall,
+            };
+          }
+          if (result.needsConfirm && result.toolCall) {
+            pushStep({
+              kind: 'confirm',
+              content: `Confirm: ${getTool(fastCall.name)?.confirmLabel ?? fastCall.name}`,
+              toolCall: fastCall,
+            });
+            const ok = await waitForConfirm(fastCall);
+            if (!ok || abortRef.current) {
+              pushStep({ kind: 'error', content: 'User cancelled the action.' });
+              return;
+            }
+            result = await executeTool(fastCall, true);
+          }
+          pushStep({
+            kind: result.ok ? 'tool_result' : 'error',
+            content: result.ok
+              ? formatToolResultContent(fastCall.name, result)
+              : result.error || 'Tool failed',
+            toolCall: fastCall,
+            toolResult: result,
+          });
+          if (!result.ok) {
+            pushStep({
+              kind: 'error',
+              content: result.error || 'Web research failed.',
+            });
+            return;
+          }
+          researchSeed = { call: fastCall, result };
+        }
+
         const provider = getAIProvider();
         if (!provider.isReady()) {
           pushStep({
@@ -585,7 +662,23 @@ export function useAgent() {
         let stepsLeft = agentSettings.maxSteps;
         let formatNudgesLeft = 2;
         let gotSuccessfulGmail = priorHasGmail(priorSteps);
-        let gotSuccessfulTool = false;
+        let gotSuccessfulTool = Boolean(researchSeed);
+
+        if (researchSeed) {
+          history.push({
+            role: 'assistant',
+            content: `<tool_call>\n${JSON.stringify({ name: researchSeed.call.name, arguments: researchSeed.call.arguments })}\n</tool_call>`,
+          });
+          history.push({
+            role: 'user',
+            content: continueAfterToolPrompt(
+              goal,
+              stepsRef.current,
+              researchSeed.call,
+              researchSeed.result,
+            ),
+          });
+        }
 
         while (stepsLeft > 0 && !abortRef.current) {
           stepsLeft -= 1;
@@ -632,6 +725,7 @@ export function useAgent() {
                 isWebResearchGoal(goal)) &&
               !gotSuccessfulTool;
 
+            const offeredBrowse = offersToActWithoutTools(visible || reply);
             const shouldNudge =
               formatNudgesLeft > 0 &&
               (hallucinated ||
@@ -639,9 +733,13 @@ export function useAgent() {
                 needsRead ||
                 needsDraft ||
                 needsPhilTool ||
+                offeredBrowse ||
                 looksLikeMalformedToolCall(reply) ||
                 narratesToolUse(reply) ||
-                ((isEmailGoal(goal) || isOpenLinkGoal(goal) || intent === 'email_draft') &&
+                ((isEmailGoal(goal) ||
+                  isOpenLinkGoal(goal) ||
+                  intent === 'email_draft' ||
+                  isWebResearchGoal(goal)) &&
                   !gotSuccessfulTool &&
                   stepsLeft > 0));
 
@@ -666,28 +764,54 @@ export function useAgent() {
               if (forced) {
                 pushStep({
                   kind: 'thought',
-                  content: forcedPhil
-                    ? 'Running the Phil tool directly…'
-                    : 'Calling gmail_list instead of narrating…',
+                  content:
+                    forced.name === 'web_research'
+                      ? 'Opening the web instead of asking permission…'
+                      : forcedPhil
+                        ? 'Running the Phil tool directly…'
+                        : 'Calling gmail_list instead of narrating…',
                 });
                 pushStep({
                   kind: 'tool_call',
                   content: toolCallLabel(forced.name, forced.arguments),
                   toolCall: forced,
                 });
-                const forcedResult = await executeTool(forced, false);
-                const okResult =
-                  forcedResult && typeof forcedResult === 'object'
-                    ? forcedResult
-                    : {
-                        ok: false as const,
-                        error: 'No response from the background tool router.',
-                        toolCall: forced,
-                      };
+                let okResult: ToolResult =
+                  (await executeTool(forced, shouldAutoConfirmTool(goal, forced.name))) ?? {
+                    ok: false,
+                    error: 'No response from the background tool router.',
+                    toolCall: forced,
+                  };
+                if (typeof okResult !== 'object') {
+                  okResult = {
+                    ok: false,
+                    error: 'No response from the background tool router.',
+                    toolCall: forced,
+                  };
+                }
+                if (okResult.needsConfirm && okResult.toolCall) {
+                  pushStep({
+                    kind: 'confirm',
+                    content: `Confirm: ${getTool(forced.name)?.confirmLabel ?? forced.name}`,
+                    toolCall: forced,
+                  });
+                  const ok = await waitForConfirm(forced);
+                  if (!ok || abortRef.current) {
+                    pushStep({ kind: 'error', content: 'User cancelled the action.' });
+                    break;
+                  }
+                  okResult =
+                    (await executeTool(forced, true)) ?? {
+                      ok: false,
+                      error: 'No response from the background tool router.',
+                      toolCall: forced,
+                    };
+                }
                 if (okResult.ok && forced.name === 'gmail_list') {
                   gotSuccessfulGmail = true;
                   gotSuccessfulTool = true;
                 }
+                if (okResult.ok) gotSuccessfulTool = true;
                 pushStep({
                   kind: okResult.ok ? 'tool_result' : 'error',
                   content: okResult.ok
@@ -697,9 +821,8 @@ export function useAgent() {
                   toolResult: okResult,
                 });
                 if (okResult.ok) {
-                  // Continue the loop so the model can summarize tool results,
-                  // or finish immediately for Phil tools.
-                  if (forcedPhil) {
+                  // Instant Phil tools can finish; research/email need a model summary turn.
+                  if (forcedPhil && forced.name !== 'web_research') {
                     pushStep({
                       kind: 'final',
                       content: formatToolResultContent(forced.name, okResult),
@@ -721,8 +844,10 @@ export function useAgent() {
                   ? 'Refusing invented emails — requesting a real gmail tool call.'
                   : needsDraft
                     ? 'Need a real gmail_draft tool call to open Compose.'
-                    : visible ||
-                      'Model talked about a tool instead of calling it — requesting a real tool call.',
+                    : offeredBrowse
+                      ? 'Model offered to browse instead of calling a tool — forcing a tool call.'
+                      : visible ||
+                        'Model talked about a tool instead of calling it — requesting a real tool call.',
               });
               history.push({ role: 'assistant', content: reply });
               history.push({
@@ -733,7 +858,9 @@ export function useAgent() {
                     ? 'Those emails were invented. You MUST call a real tool. Never fabricate inbox contents.'
                     : needsDraft
                       ? 'Do not only write the reply in chat. Output ONLY a gmail_draft tool call now:'
-                      : 'Do not narrate. Output ONLY a valid tool call now:',
+                      : offeredBrowse || isWebResearchGoal(goal)
+                        ? 'Do not ask for permission. Output ONLY a web_research (or tabs_create) tool call now:'
+                        : 'Do not narrate. Output ONLY a valid tool call now:',
                   nudgeToolExample(goal, stepsRef.current.length ? stepsRef.current : priorSteps),
                 ].join('\n'),
               });
@@ -768,7 +895,7 @@ export function useAgent() {
             toolCall: call,
           });
 
-          let result = await executeTool(call, false);
+          let result = await executeTool(call, shouldAutoConfirmTool(goal, call.name));
           if (!result || typeof result !== 'object') {
             result = {
               ok: false,

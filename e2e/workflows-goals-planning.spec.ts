@@ -76,6 +76,23 @@ test.describe('Workflows goals & planning', () => {
     await expect(philPage.getByText(/goal|active|Add/i).first()).toBeVisible();
   });
 
+  test('WF-10: Multi-step assistant (trip to Japan)', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    await openAgentTest(philPage, philExtensionId);
+    const input = philPage.getByPlaceholder(/Message the agent/i);
+    await input.fill("I'm planning a trip to Japan next April.");
+    await philPage.getByRole('button', { name: 'Send' }).click();
+    await expect(
+      philPage.getByText(/Japan|travel|Trip to Japan|flights|booking/i).first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await philPage.getByRole('button', { name: /^Goals$/i }).click();
+    await expect(philPage.getByText(/Japan|Trip to Japan|travel/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   test('WF-14: Executive assistant (Staff Engineer interview)', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     await expect(philPage.getByRole('button', { name: /^Agent$/i })).toBeVisible();

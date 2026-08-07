@@ -236,22 +236,35 @@ async function ensureModelReady(page: Page): Promise<void> {
     }
   }
 
-  await expect
-    .poll(async () => {
-      const err = page.locator('.text-danger, [class*="danger"]').filter({
-        hasText: /WebGPU|Download failed|not available|Error/i,
-      });
-      if (await err.first().isVisible().catch(() => false)) {
-        const text = await err.first().innerText();
-        throw new Error(`Model load failed in UI: ${text}`);
-      }
-      return isAgentReady();
-    }, {
-      timeout: MODEL_READY_TIMEOUT_MS,
-      intervals: [2_000, 5_000, 10_000],
-      message: 'WebLLM model did not become ready for Agent chat',
-    })
-    .toBe(true);
+  try {
+    await expect
+      .poll(async () => {
+        const err = page.locator('.text-danger, [class*="danger"]').filter({
+          hasText: /WebGPU|Download failed|not available|Error/i,
+        });
+        if (await err.first().isVisible().catch(() => false)) {
+          const text = await err.first().innerText();
+          throw new Error(`Model load failed in UI: ${text}`);
+        }
+        const body = await page.locator('body').innerText().catch(() => '');
+        if (/WebGPU is not available|Local AI needs Chrome\/Edge/i.test(body)) {
+          throw new Error('Model load failed in UI: Local AI needs WebGPU');
+        }
+        return isAgentReady();
+      }, {
+        timeout: Math.min(MODEL_READY_TIMEOUT_MS, 90_000),
+        intervals: [2_000, 5_000, 10_000],
+        message: 'WebLLM model did not become ready for Agent chat',
+      })
+      .toBe(true);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/WebGPU/i.test(msg)) {
+      (page as Page & { __philWebGpuMissing?: boolean }).__philWebGpuMissing = true;
+      return;
+    }
+    throw e;
+  }
 }
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -431,7 +444,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(page);
   },
 
-  agentPage: async ({ extensionPage, gmailPage }, use) => {
+  agentPage: async ({ extensionPage, gmailPage }, use, testInfo) => {
+    if ((extensionPage as Page & { __philWebGpuMissing?: boolean }).__philWebGpuMissing) {
+      testInfo.skip(true, 'WebGPU unavailable — CORE model paths deferred (docs/launch-gate.md)');
+    }
+
     // Ensure session-mode Gmail tab exists before the model calls gmail_*.
     await gmailPage.bringToFront();
     await expect(gmailPage.locator('tr.zA')).toHaveCount(5);

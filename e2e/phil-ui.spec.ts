@@ -231,7 +231,15 @@ test.describe('Phil personal assistant UI (CORE)', () => {
     await expect(fab).toBeVisible();
   });
 
-  test('Agent tab accepts input while model may still be restoring', async ({ philPage }) => {
+  test('Agent tab accepts input while model may still be restoring', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    // philTest bypasses the WebGPU model gate so Agent input is reachable in CI without GPU.
+    await philPage.goto(
+      `chrome-extension://${philExtensionId}/src/sidebar/index.html?philTest=1`,
+      { waitUntil: 'domcontentloaded' },
+    );
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     const input = philPage.getByPlaceholder(/Message the agent/i);
     await expect(input).toBeVisible({ timeout: 15_000 });

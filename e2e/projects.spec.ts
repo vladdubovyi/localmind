@@ -2,6 +2,11 @@ import { test, expect } from './fixtures/extension';
 
 /** PRJ-01…06 — Persistent Projects core (Wave1 B2). */
 test.describe('Projects core (PRJ)', () => {
+  test.beforeEach(async ({ philPage }) => {
+    const close = philPage.getByRole('button', { name: /Close settings/i });
+    if (await close.isVisible().catch(() => false)) await close.click();
+  });
+
   test('PRJ-01: Create project from natural language', async ({ philPage }) => {
     await expect(philPage.getByRole('button', { name: /^Projects$/i })).toBeVisible({
       timeout: 5_000,

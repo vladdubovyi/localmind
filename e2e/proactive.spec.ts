@@ -20,8 +20,8 @@ async function seedProactiveHarness(worker: { evaluate: (fn: any, arg?: any) => 
   });
   await worker.evaluate(async () => {
     const hooks = (globalThis as { __philProactive?: { runProactiveEngine: (o?: { harness?: boolean }) => Promise<unknown> } }).__philProactive;
+    // Never chrome.runtime.sendMessage from the SW — no receiving end.
     if (hooks) await hooks.runProactiveEngine({ harness: true });
-    else await chrome.runtime.sendMessage({ type: 'PHIL_RUN_PROACTIVE', harness: true });
   });
 }
 

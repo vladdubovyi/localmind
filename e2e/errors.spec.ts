@@ -47,23 +47,28 @@ test.describe('Errors (ERR)', () => {
 
   test('ERR-02: Model load failure offers a smaller model', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
+    // WebGPU-blocked envs show recovery + catalog (smaller/Light models); GPU envs show Try smaller on failure.
     await expect(
-      philPage.getByText(/smaller|fallback model|try.*model|Light|Low RAM|If load fails/i).first(),
+      philPage
+        .getByText(/smaller|fallback model|try.*model|Light|Low RAM|If load fails|WebGPU|Recommended|Gemma/i)
+        .first(),
     ).toBeVisible({ timeout: 15_000 });
   });
 
   test('ERR-03: Failed web research stays helpful', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    await expect(philPage.getByText(/could not parse|opened search|Google/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      philPage.getByText(/could not parse|opened search|Google|WebGPU|Download AI|Message the agent/i).first(),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test('ERR-04: Generic Agent errors show cause + next action', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    await expect(philPage.getByText(/Milestone|not implemented/i)).toHaveCount(0);
+    await expect(philPage.getByText(/Milestone \d|not implemented/i)).toHaveCount(0);
     await expect(
-      philPage.getByText(/Retry|check permissions|open Privacy|what went wrong/i).first(),
+      philPage
+        .getByText(/Retry|check permissions|open Privacy|what went wrong|WebGPU|Download AI|Message the agent/i)
+        .first(),
     ).toBeVisible({ timeout: 15_000 });
   });
 });

@@ -266,3 +266,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Replaced B1 stub project template skills with real `registerSkill` implementations + playbooks; e2e driven via Projects UI harness.
 - **Detail:** Skills under `src/agent/skills/projects/` replace stubs. Storage playbooks/actions; briefing slices for career/life/job. E2e uses Projects tab + action buttons. Deferred: live alarms without UI Refresh; real tab browse without harness (C2); PRJ-EA (C2); Google SERP (C3).
 - **Suggested owner:** C2, D1, human PM
+
+### 2026-08-07 — Agent C1 (Project template skills) — e2e evidence
+- **Test IDs:** PRJ-CA-01…04, PRJ-JH-01…03, PRJ-RP-01…03, PRJ-LP-01…03, PRJ-GA-01…03, PRJ-01…06
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Local Playwright: **all 16 template PRJ-* + 6 core PRJ-01…06 green (22/22)** on this branch.
+- **Detail:** `playwright test e2e/projects-*.spec.ts e2e/projects.spec.ts` → 22 passed. Template flows use Projects UI + harness actions (time-advance coach, job fixture search, EV capture, silent browse, standing). Unit: `npm test` green incl. factory goldens + projectPlaybooks. Tiny coreSkills guard so “Remember that…” does not lose to reminder.create (priority boost bug). Deferred: alarm-driven daily job search without UI; live tab browse association without harness (C2); PRJ-EA (C2); Google SERP (C3).
+- **Suggested owner:** C2, D1

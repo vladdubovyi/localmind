@@ -12,6 +12,7 @@ import {
 import {
   checkpointFocus,
   focusSnapshot,
+  handleFocusHeartbeat,
   registerFocusTracker,
   resumeFocusTracking,
 } from '@/background/phil/focusTracker';
@@ -197,6 +198,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'PHIL_FOCUS_CHECKPOINT') {
     focusSnapshot({ checkpoint: true })
       .then((snapshot) => sendResponse({ ok: true, snapshot }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === 'PHIL_FOCUS_HEARTBEAT') {
+    handleFocusHeartbeat({
+      tabId: sender.tab?.id,
+      url: typeof message.url === 'string' ? message.url : sender.tab?.url,
+      title: typeof message.title === 'string' ? message.title : sender.tab?.title,
+      visible: message.visible !== false,
+    })
+      .then(() => sendResponse({ ok: true }))
       .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }

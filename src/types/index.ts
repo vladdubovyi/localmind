@@ -99,7 +99,13 @@ export type RuntimeMessage =
   | { type: 'REPLACE_SELECTION'; text: string }
   | { type: 'REPLACE_SELECTION_IN_TAB'; tabId: number; text: string }
   | { type: 'GET_SELECTION' }
-  | { type: 'PING' };
+  | { type: 'PING' }
+  | {
+      type: 'PHIL_FOCUS_HEARTBEAT';
+      url?: string;
+      title?: string;
+      visible?: boolean;
+    };
 
 export type SelectionAction =
   | 'explain'

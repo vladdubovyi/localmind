@@ -151,11 +151,23 @@ export function FocusPanel() {
 
   useEffect(() => {
     void refresh();
+    // Ask the SW to flush live dwell so session sleep cannot erase minutes.
+    const askCheckpoint = () => {
+      try {
+        void chrome.runtime
+          .sendMessage({ type: 'PHIL_FOCUS_CHECKPOINT' })
+          .catch(() => undefined);
+      } catch {
+        // ignore
+      }
+    };
+    askCheckpoint();
     // Tick live dwell locally from startedAt — no SW messaging required.
     const tickId = window.setInterval(() => {
       setSummary((prev) => (prev ? withLiveElapsed(prev) : prev));
     }, 1_000);
     const refreshId = window.setInterval(() => {
+      askCheckpoint();
       void refresh();
     }, 5_000);
     return () => {

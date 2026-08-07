@@ -57,6 +57,8 @@ export type RouteContext = {
   nowMs?: number;
   calendarConnected?: boolean;
   memoryEnabled?: boolean;
+  /** History permission (or harness seed). */
+  historyAvailable?: boolean;
   trigger?: RouteTrigger;
   priorPlan?: SkillPlan | null;
   correctionHint?: string | null;

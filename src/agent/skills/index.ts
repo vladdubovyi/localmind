@@ -19,3 +19,8 @@ export { AGENT_SKILLS, getSkill, isFactualLookupGoal } from './registry';
 export { routeGoal, rankSkills, skillPlanToAgentRoute } from './router';
 export { buildCoreSkills, registerCoreSkills, confirmationRequired } from './coreSkills';
 export { getDefaultRouter, resetDefaultRouter, registerSkill } from './defaultRouter';
+export {
+  buildBrowserMemorySkill,
+  registerBrowserMemorySkill,
+  isBrowserMemoryFindGoal,
+} from './browserMemorySkill';

@@ -69,6 +69,7 @@ export function buildRouteContext(
     trigger: partial.trigger ?? 'chat',
     calendarConnected: partial.calendarConnected ?? false,
     memoryEnabled: partial.memoryEnabled ?? true,
+    historyAvailable: partial.historyAvailable,
     debugRouting: partial.debugRouting ?? partial.testMode ?? false,
     testMode: partial.testMode ?? partial.debugRouting ?? false,
   };

@@ -502,6 +502,20 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       limit: { type: 'number', description: 'Max results (default 20)' },
     },
   },
+  {
+    name: 'browser_memory_search',
+    description:
+      'Search indexed browser history and tab activity for pages the user read recently.',
+    risk: 'safe',
+    parameters: {
+      query: {
+        type: 'string',
+        description: 'Natural-language find query including topic and optional time window',
+        required: true,
+      },
+      limit: { type: 'number', description: 'Max results (default 5)' },
+    },
+  },
 
 ];
 

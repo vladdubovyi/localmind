@@ -16,6 +16,7 @@ const PHIL_PREFIXES = [
   'briefing_',
   'project_',
   'memory_',
+  'browser_memory_',
 ] as const;
 
 function isPhilTool(name: string): boolean {

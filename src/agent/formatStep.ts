@@ -267,6 +267,19 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
     }
     return 'Memory updated.';
   }
+  if (name === 'browser_memory_search' || name === 'browser_memory_clear') {
+    const d = result.data as {
+      answer?: string;
+      hits?: Array<{ title?: string; url?: string }>;
+    } | undefined;
+    if (d?.answer?.trim()) return d.answer.trim();
+    if (Array.isArray(d?.hits) && d.hits.length) {
+      return d.hits
+        .map((h, i) => `${i + 1}. ${h.title ?? 'Untitled'}\n${h.url ?? ''}`)
+        .join('\n');
+    }
+    return 'Browser memory updated.';
+  }
   try {
     return JSON.stringify(result.data ?? { ok: true }, null, 2).slice(0, 1200);
   } catch {
@@ -306,6 +319,8 @@ export function toolCallLabel(name: string, args: Record<string, unknown>): stri
     goal_complete: 'Completing goal…',
     briefing_today: 'Composing briefing…',
     web_research: 'Researching the web…',
+    browser_memory_search: 'Searching browser memory…',
+    browser_memory_clear: 'Clearing browser memory…',
     phil_settings_get: 'Reading Phil settings…',
     phil_settings_update: 'Updating Phil settings…',
   };

@@ -40,6 +40,14 @@ import {
   rememberMemory,
   searchMemories,
 } from '@/storage/memory';
+import {
+  clearBrowseIndex,
+  formatBrowseHit,
+  hasHistoryPermission,
+  isBrowserMemoryAllowed,
+  listBrowseIndex,
+  searchBrowseIndex,
+} from '@/storage/browserMemory';
 import { getSettings } from '@/storage/db';
 
 function argString(call: ToolCall, key: string, fallback = ''): string {
@@ -406,7 +414,90 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
         : 'No memories stored yet.';
       return { ok: true, data: { memories, answer }, toolCall: call };
     }
-        default:
+
+    case 'browser_memory_search': {
+      const query = argString(call, 'query').trim();
+      const limit = argNumber(call, 'limit') ?? 5;
+      const memoryOn = await isBrowserMemoryAllowed();
+      if (!memoryOn) {
+        return {
+          ok: false,
+          error:
+            'Memory is off — enable Memory in Privacy / Settings to use browser memory search.',
+          toolCall: call,
+          data: {
+            answer:
+              'Memory is off — enable Memory in Privacy / Settings to use browser memory search.',
+            hits: [],
+            needsHistory: false,
+          },
+        };
+      }
+      const historyOk = await hasHistoryPermission();
+      const existing = await listBrowseIndex();
+      if (!historyOk && existing.length === 0) {
+        const answer =
+          'Browser memory needs History enabled in Privacy. Open Settings → Privacy, enable history, then try again — I won’t pretend there were no visits when I simply lacked permission.';
+        return {
+          ok: true,
+          data: {
+            answer,
+            hits: [],
+            needsHistory: true,
+            historyGranted: false,
+          },
+          toolCall: call,
+        };
+      }
+      const hits = await searchBrowseIndex(query || 'article', { limit });
+      if (!hits.length) {
+        const answer = historyOk
+          ? `I couldn’t find a matching page in your recent browse memory for “${query || 'that'}”.`
+          : 'Browser memory needs History enabled in Privacy to index Chrome history. Tab activity alone had no match — enable History in Privacy for fuller results.';
+        return {
+          ok: true,
+          data: {
+            answer,
+            hits: [],
+            needsHistory: !historyOk,
+            historyGranted: historyOk,
+          },
+          toolCall: call,
+        };
+      }
+      const answer = [
+        'Here’s what I found in your browser memory:',
+        ...hits.map((h, i) => formatBrowseHit(h, i + 1)),
+        '',
+        'Choose **Open** to open the top result.',
+      ].join('\n');
+      return {
+        ok: true,
+        data: {
+          answer,
+          hits: hits.map((h) => ({
+            id: h.id,
+            title: h.title,
+            url: h.url,
+            visitedAt: h.visitedAt,
+            score: h.score,
+          })),
+          openUrl: hits[0]?.url,
+          historyGranted: historyOk,
+          needsHistory: false,
+        },
+        toolCall: call,
+      };
+    }
+    case 'browser_memory_clear': {
+      const n = await clearBrowseIndex();
+      return {
+        ok: true,
+        data: { cleared: n, answer: `Cleared ${n} browser memory entries.` },
+        toolCall: call,
+      };
+    }
+    default:
       return { ok: false, error: `Unknown Phil tool ${call.name}`, toolCall: call };
   }
 }

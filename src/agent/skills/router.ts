@@ -31,7 +31,9 @@ function toAgentSkill(registered: RegisteredSkill): AgentSkill {
               ? 'goal'
               : registered.category === 'planning'
                 ? 'briefing'
-                : 'chat')) as SkillId;
+                : registered.category === 'memory' || registered.category === 'browser_memory'
+                  ? 'memory'
+                  : 'chat')) as SkillId;
   return {
     id: legacyId,
     description: `${registered.id}: ${registered.description}`,

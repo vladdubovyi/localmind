@@ -6,8 +6,14 @@
 import { createRouterFactory } from '../router/factory';
 import type { RouterFactory } from '../router/types';
 import { registerCoreSkills } from './coreSkills';
+import { registerBrowserMemorySkill } from './browserMemorySkill';
 
 let defaultRouter: RouterFactory | null = null;
+
+function seedDefaultSkills(router: RouterFactory): void {
+  registerCoreSkills(router);
+  registerBrowserMemorySkill(router);
+}
 
 /** Lazily create and seed the process-wide router with core skills. */
 export function getDefaultRouter(): RouterFactory {
@@ -17,7 +23,7 @@ export function getDefaultRouter(): RouterFactory {
       // Wave 1: Stage-2 WebLLM routing off by default (see agent-review-log).
       enableStage2: false,
     });
-    registerCoreSkills(defaultRouter);
+    seedDefaultSkills(defaultRouter);
   }
   return defaultRouter;
 }
@@ -30,7 +36,7 @@ export function resetDefaultRouter(router?: RouterFactory): RouterFactory {
       defaultSearchEngine: 'google',
       enableStage2: false,
     });
-  if (!router) registerCoreSkills(defaultRouter);
+  if (!router) seedDefaultSkills(defaultRouter);
   return defaultRouter;
 }
 

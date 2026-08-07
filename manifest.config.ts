@@ -50,7 +50,7 @@ export default defineManifest({
   ],
   // Granted at runtime when Agent / Gmail is enabled.
   // Note: chrome.debugger cannot be optional in MV3 — do not list it here.
-  optional_permissions: ['identity'],
+  optional_permissions: ['identity', 'history'],
   optional_host_permissions: [
     'http://*/*',
     'https://*/*',

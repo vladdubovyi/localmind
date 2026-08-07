@@ -121,6 +121,12 @@ async function flushActive(now = Date.now()): Promise<void> {
     await publishLive(null);
     return;
   }
+  const browseVisit = {
+    url: active.url,
+    title: active.title || active.domain,
+    visitedAt: active.startedAt,
+    source: 'tab' as const,
+  };
   await putTabActivity({
     id: uid('act'),
     domain: active.domain,
@@ -131,6 +137,10 @@ async function flushActive(now = Date.now()): Promise<void> {
     ms,
     category: active.category,
   });
+
+  void import('@/storage/browserMemory')
+    .then(({ upsertBrowseVisits }) => upsertBrowseVisits([browseVisit]))
+    .catch(() => undefined);
 
   const session = active;
   active = null;

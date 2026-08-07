@@ -16,6 +16,8 @@ import { useAgent } from '@/hooks/useAgent';
 import { useAgentSettings } from '@/hooks/useAgentSettings';
 import { getTool } from '@/agent/tools';
 import type { AgentSettings, AgentStep } from '@/agent/types';
+import { MemoriesPanel } from '@/components/agent/MemoriesPanel';
+import { rememberMemory } from '@/storage/memory';
 import { cn } from '@/utils';
 
 export interface AgentSeedGoal {
@@ -26,9 +28,9 @@ export interface AgentSeedGoal {
 
 interface AgentPanelProps {
   modelReady: boolean;
-  /** Selection / page-action handoff from ChatApp. */
   seedGoal?: AgentSeedGoal | null;
   onSeedConsumed?: () => void;
+  memoryEnabled?: boolean;
 }
 
 function StepBody({ step }: { step: AgentStep }) {
@@ -89,7 +91,7 @@ function stepLabel(step: AgentStep): string {
   }
 }
 
-export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelProps) {
+export function AgentPanel({ modelReady, seedGoal, onSeedConsumed, memoryEnabled = false }: AgentPanelProps) {
   const {
     settings,
     permissions,
@@ -106,6 +108,7 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
     useAgent();
   const [goal, setGoal] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [rememberStatus, setRememberStatus] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const seedHandledRef = useRef<string | null>(null);
@@ -161,6 +164,20 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
     void run(text);
   };
 
+  const rememberFromStep = async (content: string) => {
+    setRememberStatus(null);
+    if (!memoryEnabled) {
+      setRememberStatus('Memory is off — enable it in Privacy / Settings.');
+      return;
+    }
+    try {
+      const entry = await rememberMemory(content.slice(0, 2000), { source: 'message' });
+      setRememberStatus(`Remembered: ${entry.text.slice(0, 80)}`);
+    } catch (e) {
+      setRememberStatus(e instanceof Error ? e.message : 'Remember failed');
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -196,6 +213,10 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
             {showSettings ? 'Hide settings' : 'Settings'}
           </button>
         </div>
+      </div>
+
+      <div className="shrink-0">
+        <MemoriesPanel memoryEnabled={memoryEnabled} />
       </div>
 
       {showSettings && (
@@ -379,10 +400,19 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
                   </div>
                 )}
                 <StepBody step={s} />
+                {s.kind === 'final' && s.content && (
+                  <div className="mt-2">
+                    <button type="button" className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10" onClick={() => void rememberFromStep(s.content)}>
+                      Remember
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
+
+        {rememberStatus && <div className="px-1 text-[11px] text-accent">{rememberStatus}</div>}
 
         {running && (
           <div className="flex items-center gap-2 px-1 text-xs text-muted">

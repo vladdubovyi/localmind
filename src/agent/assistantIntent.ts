@@ -2,6 +2,71 @@
  * Lightweight intent helpers for Phil chat / agent goals.
  */
 
+/** “Remember that …” / “Please remember …” */
+export function isRememberGoal(goal: string): boolean {
+  if (isForgetGoal(goal) || isRecallGoal(goal)) return false;
+  return (
+    /\bremember (that|this|i|my|to)\b/i.test(goal) ||
+    /\bsave (this|that) (to |in )?(memory|memories)\b/i.test(goal) ||
+    /^remember\b/i.test(goal.trim())
+  );
+}
+
+/** “Forget …” / “Don’t remember …” */
+export function isForgetGoal(goal: string): boolean {
+  return (
+    /\bforget (that|this|about|my|the)\b/i.test(goal) ||
+    /\b(please\s+)?forget\b/i.test(goal) ||
+    /\bdon'?t remember\b/i.test(goal) ||
+    /\bremove (that |this )?(memory|fact)\b/i.test(goal)
+  );
+}
+
+/** Recall / what did I ask you to remember */
+export function isRecallGoal(goal: string): boolean {
+  return (
+    /\bwhat did i (ask you to )?remember\b/i.test(goal) ||
+    /\bwhat do you remember\b/i.test(goal) ||
+    /\brecall (what|my|the)\b/i.test(goal) ||
+    /\b(search|find|list) (my )?memor(y|ies)\b/i.test(goal) ||
+    /\bremembered (about|facts?)\b/i.test(goal)
+  );
+}
+
+/** Best-effort fact text from “Remember that …” */
+export function parseRememberText(goal: string): string {
+  let t = goal.trim();
+  t = t.replace(/^(please\s+)?/i, '');
+  t = t.replace(/^remember\s+(that\s+|this\s+|to\s+)?/i, '');
+  t = t.replace(/^save\s+(this|that)\s+(to\s+|in\s+)?(memory|memories)\s*:?\s*/i, '');
+  t = t.replace(/\.$/, '').trim();
+  return t || goal.trim();
+}
+
+/** Best-effort forget target from “Forget …” */
+export function parseForgetText(goal: string): string {
+  let t = goal.trim();
+  t = t.replace(/^(please\s+)?/i, '');
+  t = t.replace(/^forget\s+(that\s+|this\s+|about\s+|my\s+|the\s+)?/i, '');
+  t = t.replace(/^don'?t remember\s+(that\s+|this\s+|about\s+)?/i, '');
+  t = t.replace(/^remove\s+(that\s+|this\s+)?(memory|fact)\s*:?\s*/i, '');
+  t = t.replace(/\.$/, '').trim();
+  return t || goal.trim();
+}
+
+/** Query for recall / memory search */
+export function parseRecallQuery(goal: string): string {
+  let t = goal.trim();
+  t = t.replace(/^(please\s+)?/i, '');
+  t = t.replace(/^what did i (ask you to )?remember\s*(about\s+)?/i, '');
+  t = t.replace(/^what do you remember\s*(about\s+)?/i, '');
+  t = t.replace(/^recall\s+(what\s+|my\s+|the\s+)?/i, '');
+  t = t.replace(/^(search|find|list)\s+(my\s+)?memor(y|ies)\s*(for\s+|about\s+)?/i, '');
+  t = t.replace(/\?$/, '').trim();
+  if (/^(about|for)\s+/i.test(t)) t = t.replace(/^(about|for)\s+/i, '');
+  return t;
+}
+
 export function isReminderGoal(goal: string): boolean {
   return (
     /\b(remind|reminder|alarm)\b/i.test(goal) ||
@@ -128,3 +193,67 @@ export function parseGoalTitle(goal: string): string {
   t = t.replace(/\.$/, '').trim();
   return t || goal.trim();
 }
+
+/**
+ * Long-horizon intents that should create a Persistent Project (PRJ-01),
+ * not only a one-line goal. Template skills (C1) refine playbooks later.
+ */
+export function isProjectCreateGoal(goal: string): boolean {
+  const g = goal.trim();
+  if (!g) return false;
+  if (/\b(remind|reminder|email|gmail|inbox)\b/i.test(g) && !/\bproject\b/i.test(g)) {
+    return false;
+  }
+  if (/\b(create|start|set up|begin)\s+(a\s+)?(new\s+)?project\b/i.test(g)) return true;
+  if (/\b(what projects|list (my )?projects|active project)\b/i.test(g)) return false;
+  if (/\bwhere am i\b/i.test(g)) return false;
+  if (/\b(become|get promoted|promotion to)\b.+\b(staff|principal|senior|manager)\b/i.test(g)) {
+    return true;
+  }
+  if (/\b(staff|principal)\s+engineer\b.+\b(within|in)\s+\d+\s+(month|year)/i.test(g)) {
+    return true;
+  }
+  if (/\b(find|land|get)\s+(a\s+)?(new\s+)?job\b/i.test(g)) return true;
+  if (/\bjob hunt|job search|looking for (a )?roles?\b/i.test(g)) return true;
+  if (/\b(move to|relocat|buy a house|home purchase)\b/i.test(g)) return true;
+  if (/\b(research project|long[- ]term research)\b/i.test(g)) return true;
+  if (
+    /\b(within|in|over)\s+\d+\s+(months?|years?)\b/i.test(g) &&
+    /\b(want to|plan to|goal is to|become|learn|build)\b/i.test(g)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Strip lead-in phrasing for a project title. */
+export function parseProjectTitle(goal: string): string {
+  let t = goal.trim();
+  t = t.replace(/^(please\s+)?/i, '');
+  t = t.replace(
+    /^(create|start|set up|begin)\s+(a\s+)?(new\s+)?project\s*(to|for|:|called|named)?\s*/i,
+    '',
+  );
+  t = t.replace(/^(i want to|i'?d like to|help me|plan to)\s+/i, '');
+  t = t.replace(/\.$/, '').trim();
+  if (t.length) return t.charAt(0).toUpperCase() + t.slice(1);
+  return goal.trim();
+}
+
+export function isProjectListGoal(goal: string): boolean {
+  return (
+    /\bwhat projects\b/i.test(goal) ||
+    /\blist (my )?projects\b/i.test(goal) ||
+    /\bprojects am i (working|on)\b/i.test(goal) ||
+    /\bactive projects?\b/i.test(goal)
+  );
+}
+
+export function isProjectProgressGoal(goal: string): boolean {
+  return (
+    /\bwhere am i\b/i.test(goal) ||
+    /\b(project )?progress\b/i.test(goal) ||
+    /\bhow('?s| is) (my )?(project|.+) going\b/i.test(goal)
+  );
+}
+

@@ -8,6 +8,7 @@ function route(goal: string, emailIntent?: string | null) {
 }
 
 // Legacy flat-id AgentRoute bridge still works
+assert.equal(route('Remember that I prefer morning briefings at 7.').skill.id, 'memory');
 assert.equal(route('Remind me in 20 minutes to stretch').skill.id, 'reminder');
 assert.equal(route('Set a goal to finish the proposal').skill.id, 'goal');
 assert.equal(route('How much productive time today?').skill.id, 'focus');

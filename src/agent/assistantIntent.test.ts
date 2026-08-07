@@ -2,13 +2,18 @@ import assert from 'node:assert/strict';
 import {
   isBriefingGoal,
   isFocusStatusGoal,
+  isForgetGoal,
   isGoalSetupGoal,
   isLiveInfoGoal,
+  isRecallGoal,
+  isRememberGoal,
   isReminderGoal,
   isWeatherGoal,
   isWebResearchGoal,
   offersToActWithoutTools,
   parseGoalTitle,
+  parseRecallQuery,
+  parseRememberText,
   parseReminderInMinutes,
   parseReminderText,
   weatherPlaceFromQuery,
@@ -43,5 +48,12 @@ assert.equal(
   true,
 );
 assert.equal(offersToActWithoutTools('Austin is currently 84°F and sunny.'), false);
+
+assert.equal(isRememberGoal('Remember that I prefer morning briefings at 7.'), true);
+assert.equal(parseRememberText('Remember that I prefer morning briefings at 7.'), 'I prefer morning briefings at 7');
+assert.equal(isRecallGoal('What did I ask you to remember about briefings?'), true);
+assert.equal(parseRecallQuery('What did I ask you to remember about briefings?'), 'briefings');
+assert.equal(isForgetGoal('Forget that I prefer morning briefings at 7.'), true);
+assert.equal(isRememberGoal('What did I ask you to remember about briefings?'), false);
 
 console.log('agent/assistantIntent.test.ts OK');

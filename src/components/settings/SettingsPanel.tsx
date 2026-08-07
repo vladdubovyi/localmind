@@ -6,6 +6,7 @@ import {
   modelsByTier,
 } from '@/models/catalog';
 import type { AppSettings } from '@/types';
+import { PrivacyDashboard } from '@/components/settings/PrivacyDashboard';
 import { cn } from '@/utils';
 
 interface SettingsPanelProps {
@@ -111,22 +112,15 @@ export function SettingsPanel({
           />
         </Section>
 
-        <Section title="Privacy">
-          <Toggle
-            label="Memory (coming in Milestone 4)"
-            checked={settings.memoryEnabled}
-            disabled
-            onChange={(memoryEnabled) => onChange({ memoryEnabled })}
-          />
+        <Section title="Ask this page">
           <Toggle
             label="Auto-summarize on Ask this page"
             checked={settings.autoSummarize}
             onChange={(autoSummarize) => onChange({ autoSummarize })}
           />
-          <p className="text-xs text-muted">
-            Prompts, pages, and chats never leave this device. No analytics by default.
-          </p>
         </Section>
+
+        <PrivacyDashboard settings={settings} onChange={onChange} />
       </div>
     </div>
   );

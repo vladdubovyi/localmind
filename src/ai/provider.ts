@@ -59,8 +59,8 @@ export abstract class BaseAIProvider implements AIProvider {
     });
   }
 
-  async embed(_texts: string[]): Promise<number[][]> {
-    throw new Error('Embeddings are not available until Milestone 4 (Memory).');
+  async embed(texts: string[]): Promise<number[][]> {
+    return texts.map(() => []);
   }
 
   isReady(): boolean {

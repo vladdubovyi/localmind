@@ -254,6 +254,19 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
       })
       .join('\n');
   }
+
+  if (name === 'memory_remember' || name === 'memory_forget' || name === 'memory_search' || name === 'memory_list') {
+    const d = result.data as { answer?: string; text?: string; memories?: Array<{ text?: string }>; removed?: { text?: string } } | undefined;
+    if (d?.answer?.trim()) return d.answer.trim();
+    if (name === 'memory_remember' && d?.text) return `Got it — I’ll remember that: ${d.text}`;
+    if (name === 'memory_forget' && d?.removed?.text) return `Forgotten: ${d.removed.text}`;
+    const list = d?.memories;
+    if (Array.isArray(list)) {
+      if (!list.length) return 'No memories stored yet.';
+      return list.map((m, i) => `${i + 1}. ${m.text ?? ''}`).join('\n');
+    }
+    return 'Memory updated.';
+  }
   try {
     return JSON.stringify(result.data ?? { ok: true }, null, 2).slice(0, 1200);
   } catch {

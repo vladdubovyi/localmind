@@ -8,6 +8,7 @@ import type { PersistentProject, ProjectTemplate } from '../../phil/projectTypes
 export type SkillId =
   | 'reminder'
   | 'goal'
+  | 'project'
   | 'focus'
   | 'briefing'
   | 'gmail'
@@ -15,6 +16,7 @@ export type SkillId =
   | 'browse_page'
   | 'live_weather'
   | 'web_lookup'
+  | 'memory'
   | 'chat';
 
 /**

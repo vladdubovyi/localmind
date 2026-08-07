@@ -182,3 +182,18 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** B1 is exclusive owner of routing entry in `useAgent.ts` (resolveRoute → factory); other pods only `registerSkill`.
 - **Detail:** `createRouterFactory` / `getDefaultRouter` / `registerSkill` live under `src/agent/router` + `src/agent/skills`. Test harness: `?philTest=1` → `window.__PHIL_ROUTER_TEST__` with `route.skills`.
 - **Suggested owner:** all Wave1+ pods
+### 2026-08-07 — Agent B2 (Persistent Projects core)
+- **Test IDs:** PRJ-01…06
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Shipped Persistent Projects storage/UI/tools; template playbooks and dotted skill ids left to C1/B1.
+- **Detail:** `src/storage/projects.ts` (chrome.storage.local keys `philProjects` / `philActiveProject`), Projects tab + panel, tools `project_create|list|set_active|get|progress|add_knowledge`, light NL via `isProjectCreateGoal` + registry skill `project`, goals/reminders auto-link `projectId` when active, Today briefing mentions active project. Full Career/Job Hunt playbooks and router factory dotted ids (`project.career_accelerator`) are Wave 2 C1 / B1 — core uses flat `project` skill with TODO.
+- **Suggested owner:** C1 (templates), B1 (router skill ids)
+
+### 2026-08-07 — Agent B2 (Persistent Projects core)
+- **Test IDs:** PRJ-01, PRJ-06
+- **Severity:** question
+- **Type:** open-question
+- **Summary:** Confirmed A0 Q6 preference: single `project_create` + template field for Wave 1 core; C1 may later register template-specific skills that call the same store.
+- **Detail:** UI create + NL heuristics cover PRJ-01 without model. Agent-loop NL path works when project skill wins routing; model-grounded “I’ve set up your …” replies still depend on tool finalize. E2e asserts UI create path.
+- **Suggested owner:** B1, C1, human PM

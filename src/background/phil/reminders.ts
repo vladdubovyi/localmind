@@ -8,6 +8,7 @@ import {
   putReminder,
   uid,
 } from '@/storage/phil';
+import { getActiveProjectId, linkReminderToProject } from '@/storage/projects';
 import { composeBriefingContent } from '@/background/phil/focusTracker';
 
 const REMINDER_ALARM_PREFIX = 'phil-reminder:';
@@ -37,8 +38,10 @@ export async function createReminder(input: {
   text: string;
   when: number;
   repeat?: Reminder['repeat'];
+  projectId?: string;
 }): Promise<Reminder> {
   const now = Date.now();
+  const projectId = input.projectId ?? (await getActiveProjectId()) ?? undefined;
   const reminder: Reminder = {
     id: uid('rem'),
     text: input.text.trim(),
@@ -47,8 +50,12 @@ export async function createReminder(input: {
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,
+    projectId,
   };
   await putReminder(reminder);
+  if (projectId) {
+    await linkReminderToProject(projectId, reminder.id);
+  }
   // Never block tool/UI callers on chrome.alarms — schedule best-effort.
   void scheduleReminderAlarm(reminder).catch(() => undefined);
   return reminder;

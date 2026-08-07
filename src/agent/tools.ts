@@ -371,6 +371,66 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
     parameters: {},
   },
   {
+    name: 'project_create',
+    description:
+      'Create a Persistent Project (long-horizon plan) with template, milestones, and a linked goal. Prefer this over goal_create for career/job/move/research intents.',
+    risk: 'safe',
+    parameters: {
+      title: { type: 'string', description: 'Project title', required: true },
+      template: {
+        type: 'string',
+        description: 'career | job_hunt | research | exec_day | life_move | custom',
+      },
+      targetDate: { type: 'number', description: 'Optional deadline epoch ms' },
+      makeActive: {
+        type: 'boolean',
+        description: 'Set as active project (default true)',
+      },
+    },
+  },
+  {
+    name: 'project_list',
+    description: 'List Persistent Projects with status and active selection.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'project_set_active',
+    description: 'Set the active Persistent Project for subsequent Agent turns.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Project id', required: true },
+    },
+  },
+  {
+    name: 'project_get',
+    description: 'Get a Persistent Project by id, or the active project if id omitted.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional project id (defaults to active)' },
+    },
+  },
+  {
+    name: 'project_progress',
+    description: 'Summarize where the user is on a project (workstreams + next-week plan).',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional project id (defaults to active)' },
+    },
+  },
+  {
+    name: 'project_add_knowledge',
+    description: 'Attach a knowledge / research note to a project (PRJ-02).',
+    risk: 'safe',
+    parameters: {
+      projectId: { type: 'string', description: 'Project id (defaults to active)' },
+      title: { type: 'string', description: 'Note title', required: true },
+      summary: { type: 'string', description: 'Short summary' },
+      url: { type: 'string', description: 'Optional source URL' },
+      tags: { type: 'object', description: 'Optional tag list' },
+    },
+  },
+  {
     name: 'web_research',
     description:
       'Search the web via DuckDuckGo in a browser tab, open finding tabs, and return URLs. Leaves tabs open for the user.',
@@ -382,6 +442,43 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       maxResults: { type: 'number', description: 'Finding tabs to open (1–5, default 3)' },
     },
   },
+  {
+    name: 'memory_remember',
+    description:
+      'Store a lasting fact about the user (preferences, context). Requires memory to be enabled in Privacy.',
+    risk: 'safe',
+    parameters: {
+      text: { type: 'string', description: 'Fact to remember', required: true },
+      projectId: { type: 'string', description: 'Optional Persistent Project id' },
+    },
+  },
+  {
+    name: 'memory_forget',
+    description: 'Remove a remembered fact by id or matching text.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Memory id from memory_search / memory_list' },
+      text: { type: 'string', description: 'Text fragment to match if id unknown' },
+    },
+  },
+  {
+    name: 'memory_search',
+    description: 'Keyword-search stored memories (and optionally list recent ones).',
+    risk: 'safe',
+    parameters: {
+      query: { type: 'string', description: 'Search keywords (empty = recent memories)' },
+      limit: { type: 'number', description: 'Max results (default 10)' },
+    },
+  },
+  {
+    name: 'memory_list',
+    description: 'List recent remembered facts.',
+    risk: 'safe',
+    parameters: {
+      limit: { type: 'number', description: 'Max results (default 20)' },
+    },
+  },
+
 ];
 
 export function getTool(name: string): AgentToolDefinition | undefined {

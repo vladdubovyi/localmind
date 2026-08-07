@@ -188,7 +188,7 @@ test.describe('Phil data layer + manifest', () => {
     expect(result.error ?? '').not.toMatch(/import\(\)|ServiceWorkerGlobalScope/i);
     expect(result.ok).toBe(true);
     expect(result.data?.answer ?? '').toMatch(/weather|°|F|C|sun|cloud|rain|clear|overcast|Austin/i);
-    expect(result.data?.answer ?? '').not.toMatch(/could not extract deep links/i);
+    expect(result.data?.answer ?? '').not.toMatch(/could not extract deep links|<!DOCTYPE|<html/i);
     expect(result.data?.source ?? '').toMatch(/wttr/i);
 
     const opened = philExtensionContext.pages().map((p) => {

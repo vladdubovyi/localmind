@@ -62,39 +62,42 @@ async function fetchLiveWeather(place: string): Promise<{
 } | null> {
   const path = place ? encodeURIComponent(place) : '';
   const pageUrl = `https://wttr.in/${path}`;
-  const headers = { Accept: 'text/plain,application/json,*/*' };
+  // wttr.in serves the ASCII/HTML site to browsers; curl UA gets plain/json formats.
+  const headers = {
+    'User-Agent': 'curl/8.4.0',
+    Accept: 'text/plain,application/json,*/*',
+  };
   try {
     const [lineRes, jsonRes] = await Promise.all([
       fetch(`${pageUrl}?format=4`, { headers }),
       fetch(`${pageUrl}?format=j1`, { headers }),
     ]);
-    if (!lineRes.ok && !jsonRes.ok) return null;
-    const line = lineRes.ok ? (await lineRes.text()).trim() : '';
+    let line = '';
+    if (lineRes.ok) {
+      const raw = (await lineRes.text()).trim();
+      if (raw && !/^<!DOCTYPE|^<html/i.test(raw)) line = raw;
+    }
     let current: WttrCurrent | undefined;
+    let areaLabel = place;
     if (jsonRes.ok) {
-      try {
-        const json = (await jsonRes.json()) as {
-          current_condition?: WttrCurrent[];
-          nearest_area?: Array<{ areaName?: Array<{ value?: string }> }>;
-        };
-        current = json.current_condition?.[0];
-        const area = json.nearest_area?.[0]?.areaName?.[0]?.value;
-        const label = place || area || '';
-        return {
-          answer: formatWeatherAnswer(label, line, current),
-          pageUrl,
-          source: 'wttr.in',
-        };
-      } catch {
-        // fall through to line-only
+      const rawJson = (await jsonRes.text()).trim();
+      if (rawJson && !/^<!DOCTYPE|^<html/i.test(rawJson)) {
+        try {
+          const json = JSON.parse(rawJson) as {
+            current_condition?: WttrCurrent[];
+            nearest_area?: Array<{ areaName?: Array<{ value?: string }> }>;
+          };
+          current = json.current_condition?.[0];
+          areaLabel = place || json.nearest_area?.[0]?.areaName?.[0]?.value || '';
+        } catch {
+          // ignore bad json
+        }
       }
     }
-    if (!line) return null;
-    return {
-      answer: formatWeatherAnswer(place, line, current),
-      pageUrl,
-      source: 'wttr.in',
-    };
+    if (!line && !current) return null;
+    const answer = formatWeatherAnswer(areaLabel, line, current);
+    if (/<!DOCTYPE|<html/i.test(answer)) return null;
+    return { answer, pageUrl, source: 'wttr.in' };
   } catch {
     return null;
   }

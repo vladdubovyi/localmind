@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   composeBriefingContent,
   focusSnapshotFromStorage,
   type FocusSnapshot,
 } from '@/background/phil/focusTracker';
+import { EmptyState, EmptyStateCenter } from '@/components/common/EmptyState';
 import {
   cancelReminderFromUi,
   completeGoalFromUi,
@@ -11,7 +12,18 @@ import {
   createReminderFromUi,
   requestBriefingReschedule,
 } from '@/phil/clientActions';
-import type { Goal, MorningBriefing, PhilAssistantSettings, Reminder } from '@/phil/types';
+import {
+  SENSITIVITY_PRESETS,
+  sensitivityFromThresholdMs,
+  type SensitivityPreset,
+} from '@/phil/notificationPolicy';
+import type {
+  Goal,
+  MorningBriefing,
+  NotificationFrequency,
+  PhilAssistantSettings,
+  Reminder,
+} from '@/phil/types';
 import {
   getBriefingByDate,
   getPhilSettings,
@@ -115,21 +127,21 @@ export function TodayPanel() {
   });
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
           <h2 className="font-display text-lg text-fg">Today</h2>
           <p className="mt-1 text-xs text-muted">Goals, reminders, and focus so far.</p>
         </div>
         <button
           type="button"
           onClick={() => void refresh()}
-          className="rounded-lg border border-border px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-fg"
+          className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-fg"
         >
           Refresh
         </button>
       </div>
-      <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-relaxed text-fg-dim">
+      <pre className="mt-4 max-w-full whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-fg-dim [overflow-wrap:anywhere]">
         {content}
       </pre>
       {sources && (
@@ -151,7 +163,6 @@ export function FocusPanel() {
 
   useEffect(() => {
     void refresh();
-    // Ask the SW to flush live dwell so session sleep cannot erase minutes.
     const askCheckpoint = () => {
       try {
         void chrome.runtime
@@ -162,7 +173,6 @@ export function FocusPanel() {
       }
     };
     askCheckpoint();
-    // Tick live dwell locally from startedAt — no SW messaging required.
     const tickId = window.setInterval(() => {
       setSummary((prev) => (prev ? withLiveElapsed(prev) : prev));
     }, 1_000);
@@ -181,52 +191,67 @@ export function FocusPanel() {
     return <div className="grid h-full place-items-center text-sm text-muted">Loading focus…</div>;
   }
 
+  const isEmpty = summary.totalMs === 0 && summary.byDomain.length === 0 && !summary.active;
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
       <h2 className="font-display text-lg text-fg">Focus</h2>
       <p className="mt-1 text-xs text-muted">Tab time today · {formatMs(summary.totalMs)} total</p>
       {summary.active && (
-        <p className="mt-1 text-xs text-accent">
+        <p className="mt-1 truncate text-xs text-accent">
           Now: {summary.active.domain} · {formatMs(summary.active.elapsedMs)} ·{' '}
           {summary.active.category}
         </p>
       )}
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        {(
-          [
-            ['productive', 'Productive'],
-            ['leisure', 'Leisure'],
-            ['neutral', 'Neutral'],
-            ['blocked', 'Blocked'],
-          ] as const
-        ).map(([key, label]) => (
-          <div key={key} className="rounded-xl border border-border-subtle bg-panel/60 px-3 py-2">
-            <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
-            <div className="mt-1 text-sm font-medium text-fg">
-              {formatMs(summary.byCategory[key])}
-            </div>
+      {isEmpty ? (
+        <EmptyStateCenter>
+          <EmptyState
+            title="I haven’t tracked anything yet"
+            body="Browse normally — I’ll log productive vs leisure time once you visit sites. Tracking stays on this device."
+            ctaLabel="Refresh focus"
+            onCta={() => void refresh()}
+          />
+        </EmptyStateCenter>
+      ) : (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {(
+              [
+                ['productive', 'Productive'],
+                ['leisure', 'Leisure'],
+                ['neutral', 'Neutral'],
+                ['blocked', 'Blocked'],
+              ] as const
+            ).map(([key, label]) => (
+              <div
+                key={key}
+                className="min-w-0 rounded-xl border border-border-subtle bg-panel/60 px-3 py-2"
+              >
+                <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+                <div className="mt-1 text-sm font-medium text-fg">
+                  {formatMs(summary.byCategory[key])}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">Top sites</h3>
-      <ul className="mt-2 space-y-1.5">
-        {summary.byDomain.length === 0 && (
-          <li className="text-sm text-muted">No tracked time yet — browse normally.</li>
-        )}
-        {summary.byDomain.map((row) => (
-          <li
-            key={row.domain}
-            className="flex items-center justify-between gap-2 rounded-lg px-1 py-1 text-sm"
-          >
-            <span className="truncate text-fg-dim">{row.domain}</span>
-            <span className="shrink-0 text-xs text-muted">
-              {formatMs(row.ms)} · {row.category}
-            </span>
-          </li>
-        ))}
-      </ul>
+          <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">Top sites</h3>
+          <ul className="mt-2 space-y-1.5">
+            {summary.byDomain.map((row) => (
+              <li
+                key={row.domain}
+                className="flex min-w-0 items-center justify-between gap-2 rounded-lg px-1 py-1 text-sm"
+              >
+                <span className="truncate text-fg-dim">{row.domain}</span>
+                <span className="shrink-0 text-xs text-muted">
+                  {formatMs(row.ms)} · {row.category}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -235,6 +260,7 @@ export function GoalsPanel() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setGoals(await listGoals());
@@ -265,12 +291,13 @@ export function GoalsPanel() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
       <h2 className="font-display text-lg text-fg">Goals</h2>
-      <p className="mt-1 text-xs text-muted">Phil nudges you when leisure sites steal the day.</p>
+      <p className="mt-1 text-xs text-muted">I’ll nudge you when leisure sites steal the day.</p>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex min-w-0 gap-2">
         <input
+          ref={inputRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Finish the proposal…"
@@ -284,21 +311,35 @@ export function GoalsPanel() {
           type="button"
           onClick={() => void addGoal()}
           disabled={busy || !title.trim()}
-          className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50"
+          className="shrink-0 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50"
         >
           Add
         </button>
       </div>
 
       <ul className="mt-4 space-y-2">
-        {goals.length === 0 && <li className="text-sm text-muted">No goals yet.</li>}
+        {goals.length === 0 && (
+          <li>
+            <EmptyState
+              title="What are you working toward?"
+              body="Add a goal and I’ll help you stay on it — gentle nudges when leisure sites pull you away."
+              ctaLabel="Add a goal"
+              onCta={() => inputRef.current?.focus()}
+            />
+          </li>
+        )}
         {goals.map((g) => (
           <li
             key={g.id}
-            className="flex items-start justify-between gap-2 rounded-xl border border-border-subtle bg-panel/50 px-3 py-2"
+            className="flex min-w-0 items-start justify-between gap-2 rounded-xl border border-border-subtle bg-panel/50 px-3 py-2"
           >
-            <div>
-              <div className={cn('text-sm', g.status === 'completed' && 'text-muted line-through')}>
+            <div className="min-w-0">
+              <div
+                className={cn(
+                  'break-words text-sm [overflow-wrap:anywhere]',
+                  g.status === 'completed' && 'text-muted line-through',
+                )}
+              >
                 {g.title}
               </div>
               <div className="mt-0.5 text-[11px] text-muted">{g.status}</div>
@@ -321,13 +362,18 @@ export function GoalsPanel() {
 
 export function RemindersPanel() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [settings, setSettings] = useState<PhilAssistantSettings | null>(null);
   const [text, setText] = useState('');
   const [minutes, setMinutes] = useState('30');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
-    setReminders(await listReminders());
+    const [list, phil] = await Promise.all([listReminders(), getPhilSettings()]);
+    setReminders(list);
+    setSettings(phil);
+    setMinutes(String(phil.reminderDefaultLeadMinutes));
   }, []);
 
   useEffect(() => {
@@ -345,7 +391,6 @@ export function RemindersPanel() {
       const reminder = await createReminderFromUi({
         text: t,
         when: Date.now() + mins * 60_000,
-        repeat: 'none',
       });
       setReminders((prev) => [...prev.filter((r) => r.id !== reminder.id), reminder]);
       setText('');
@@ -362,32 +407,41 @@ export function RemindersPanel() {
     setReminders((prev) => prev.map((r) => (r.id === id ? next : r)));
   };
 
-  return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
-      <h2 className="font-display text-lg text-fg">Reminders</h2>
-      <p className="mt-1 text-xs text-muted">Chrome notifications when it’s time.</p>
+  const scheduled = reminders.filter((r) => r.status === 'scheduled' || r.status === 'fired');
 
-      <div className="mt-4 space-y-2">
+  return (
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
+      <h2 className="font-display text-lg text-fg">Reminders</h2>
+      <p className="mt-1 text-xs text-muted">
+        Chrome notifications when it’s time
+        {settings
+          ? ` · default ${settings.reminderDefaultLeadMinutes}m / ${settings.reminderDefaultRepeat}`
+          : ''}
+        .
+      </p>
+
+      <div className="mt-4 min-w-0 space-y-2">
         <input
+          ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Stand up / call mom / ship PR…"
           disabled={busy}
-          className="w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+          className="w-full min-w-0 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           onKeyDown={(e) => {
             if (e.key === 'Enter') void add();
           }}
         />
-        <div className="flex gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <input
             value={minutes}
             onChange={(e) => setMinutes(e.target.value)}
             inputMode="numeric"
             aria-label="Minutes from now"
             disabled={busy}
-            className="w-20 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+            className="w-20 shrink-0 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           />
-          <span className="self-center text-xs text-muted">minutes from now</span>
+          <span className="text-xs text-muted">minutes from now</span>
           <button
             type="button"
             onClick={() => void add()}
@@ -401,37 +455,50 @@ export function RemindersPanel() {
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
       <ul className="mt-4 space-y-2">
-        {reminders.filter((r) => r.status === 'scheduled' || r.status === 'fired').length === 0 && (
-          <li className="text-sm text-muted">No reminders yet.</li>
+        {scheduled.length === 0 && (
+          <li>
+            <EmptyState
+              title="Nothing on the clock yet"
+              body="Tell me what to ping you about — I’ll use your reminder defaults and fire a Chrome notification when it’s due."
+              ctaLabel="Add a reminder"
+              onCta={() => inputRef.current?.focus()}
+            />
+          </li>
         )}
-        {reminders
-          .filter((r) => r.status === 'scheduled' || r.status === 'fired')
-          .map((r) => (
-            <li
-              key={r.id}
-              className="flex items-start justify-between gap-2 rounded-xl border border-border-subtle bg-panel/50 px-3 py-2"
-            >
-              <div>
-                <div className="text-sm text-fg">{r.text}</div>
-                <div className="mt-0.5 text-[11px] text-muted">
-                  {new Date(r.when).toLocaleString()} · {r.status}
-                </div>
+        {scheduled.map((r) => (
+          <li
+            key={r.id}
+            className="flex min-w-0 items-start justify-between gap-2 rounded-xl border border-border-subtle bg-panel/50 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="break-words text-sm text-fg [overflow-wrap:anywhere]">{r.text}</div>
+              <div className="mt-0.5 text-[11px] text-muted">
+                {new Date(r.when).toLocaleString()} · {r.status}
+                {r.repeat !== 'none' ? ` · ${r.repeat}` : ''}
               </div>
-              {r.status === 'scheduled' && (
-                <button
-                  type="button"
-                  onClick={() => void cancel(r.id)}
-                  className="shrink-0 text-xs text-danger hover:underline"
-                >
-                  Cancel
-                </button>
-              )}
-            </li>
-          ))}
+            </div>
+            {r.status === 'scheduled' && (
+              <button
+                type="button"
+                onClick={() => void cancel(r.id)}
+                className="shrink-0 text-xs text-danger hover:underline"
+              >
+                Cancel
+              </button>
+            )}
+          </li>
+        ))}
       </ul>
     </div>
   );
 }
+
+const FREQUENCY_OPTIONS: Array<{ value: NotificationFrequency; label: string }> = [
+  { value: 'off', label: 'Off — no proactive nudges' },
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+];
 
 export function PhilSettingsPanel() {
   const [settings, setSettings] = useState<PhilAssistantSettings | null>(null);
@@ -463,12 +530,16 @@ export function PhilSettingsPanel() {
     }
   };
 
-  return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
-      <h2 className="font-display text-lg text-fg">Phil settings</h2>
-      <p className="mt-1 text-xs text-muted">FAB, focus tracking, nudges, and morning briefing.</p>
+  const sensitivity = sensitivityFromThresholdMs(settings.nudgeThresholdMs);
 
-      <div className="mt-4 space-y-3">
+  return (
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden px-4 py-4">
+      <h2 className="font-display text-lg text-fg">Phil settings</h2>
+      <p className="mt-1 text-xs text-muted">
+        FAB, focus, nudges, notification frequency, and reminder defaults.
+      </p>
+
+      <div className="mt-4 min-w-0 space-y-3">
         {(
           [
             ['fabEnabled', 'Always-on page button'],
@@ -477,8 +548,8 @@ export function PhilSettingsPanel() {
             ['briefingEnabled', 'Morning briefing'],
           ] as const
         ).map(([key, label]) => (
-          <label key={key} className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-fg-dim">{label}</span>
+          <label key={key} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 text-fg-dim">{label}</span>
             <input
               type="checkbox"
               checked={Boolean(settings[key])}
@@ -486,6 +557,131 @@ export function PhilSettingsPanel() {
             />
           </label>
         ))}
+
+        <label className="block min-w-0 text-sm">
+          <span className="text-muted">Notification frequency</span>
+          <select
+            value={settings.notificationFrequency}
+            onChange={(e) =>
+              void update({ notificationFrequency: e.target.value as NotificationFrequency })
+            }
+            className="mt-1 w-full min-w-0 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+          >
+            {FREQUENCY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[11px] text-muted">
+            Off blocks proactive creation. Low vs high changes the hourly cap.
+          </span>
+        </label>
+
+        <label className="block min-w-0 text-sm">
+          <span className="text-muted">Productivity sensitivity</span>
+          <select
+            value={sensitivity}
+            onChange={(e) => {
+              const preset = e.target.value as SensitivityPreset;
+              void update({ nudgeThresholdMs: SENSITIVITY_PRESETS[preset] });
+            }}
+            className="mt-1 w-full min-w-0 rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+          >
+            <option value="strict">Strict — nudge sooner</option>
+            <option value="balanced">Balanced</option>
+            <option value="chill">Chill — more patience</option>
+          </select>
+          <span className="mt-1 block text-[11px] text-muted">
+            Nudge threshold: {Math.round(settings.nudgeThresholdMs / 1000)}s leisure
+          </span>
+        </label>
+
+        <fieldset className="min-w-0 space-y-2 rounded-xl border border-border-subtle px-3 py-3">
+          <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted">
+            Reminder defaults
+          </legend>
+          <label className="block text-sm">
+            <span className="text-muted">Default lead (minutes)</span>
+            <input
+              type="number"
+              min={1}
+              max={24 * 60}
+              value={settings.reminderDefaultLeadMinutes}
+              onChange={(e) =>
+                void update({
+                  reminderDefaultLeadMinutes: Math.max(1, Number(e.target.value) || 30),
+                })
+              }
+              className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted">Default repeat</span>
+            <select
+              value={settings.reminderDefaultRepeat}
+              onChange={(e) =>
+                void update({
+                  reminderDefaultRepeat: e.target.value as Reminder['repeat'],
+                })
+              }
+              className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+            >
+              <option value="none">None</option>
+              <option value="daily">Daily</option>
+              <option value="weekdays">Weekdays</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset className="min-w-0 space-y-2 rounded-xl border border-border-subtle px-3 py-3">
+          <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted">
+            Quiet hours
+          </legend>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-fg-dim">Suppress notifications</span>
+            <input
+              type="checkbox"
+              checked={settings.quietHoursEnabled}
+              onChange={(e) => void update({ quietHoursEnabled: e.target.checked })}
+            />
+          </label>
+          <div className="flex min-w-0 gap-2">
+            <label className="min-w-0 flex-1 text-sm">
+              <span className="text-muted">Start hour</span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={settings.quietHoursStartHour}
+                onChange={(e) =>
+                  void update({
+                    quietHoursStartHour: Math.min(23, Math.max(0, Number(e.target.value) || 0)),
+                  })
+                }
+                className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+              />
+            </label>
+            <label className="min-w-0 flex-1 text-sm">
+              <span className="text-muted">End hour</span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={settings.quietHoursEndHour}
+                onChange={(e) =>
+                  void update({
+                    quietHoursEndHour: Math.min(23, Math.max(0, Number(e.target.value) || 0)),
+                  })
+                }
+                className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
+              />
+            </label>
+          </div>
+          <p className="text-[11px] text-muted">
+            Uses your device clock. Reminders stay stored; delivery waits until quiet hours end.
+          </p>
+        </fieldset>
 
         <label className="block text-sm">
           <span className="text-muted">Briefing time (local hour)</span>
@@ -508,6 +704,11 @@ export function PhilSettingsPanel() {
             className="mt-1 w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent/50"
           />
         </label>
+
+        <p className="text-[11px] leading-relaxed text-muted">
+          Example: “Remind me tomorrow at 3 PM” schedules against your device clock — there is no
+          separate picker here.
+        </p>
       </div>
     </div>
   );

@@ -52,17 +52,22 @@ export const AGENT_SKILLS: AgentSkill[] = [
     id: 'reminder',
     description: 'Create or manage reminders',
     score: (ctx) => (isReminderGoal(ctx.goal) ? 0.98 : 0),
-    buildToolCall: (goal) =>
-      call('reminder_create', {
+    buildToolCall: (goal) => {
+      const absoluteMins = parseReminderInMinutes(goal);
+      const args: Record<string, unknown> = {
         text: parseReminderText(goal),
-        inMinutes: parseReminderInMinutes(goal) ?? 30,
-      }),
+      };
+      if (absoluteMins != null) args.inMinutes = absoluteMins;
+      return call('reminder_create', args);
+    },
     finalizeDirectAnswer: true,
     hints: (goal) => {
       const mins = parseReminderInMinutes(goal);
       return [
-        'Call reminder_create with text and inMinutes (or when).',
-        mins != null ? `Suggested inMinutes: ${mins}` : 'Infer inMinutes from the request.',
+        'Call reminder_create with text and inMinutes (or when). Use device TZ for “tomorrow at 3 PM”.',
+        mins != null
+          ? `Suggested inMinutes: ${mins}`
+          : 'Omit inMinutes to use reminderDefaultLeadMinutes.',
         `Suggested text: ${parseReminderText(goal)}`,
       ];
     },

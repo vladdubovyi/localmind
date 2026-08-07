@@ -9,12 +9,30 @@ import {
   uid,
 } from '@/storage/phil';
 import { composeBriefingContent } from '@/background/phil/focusTracker';
+import { isInQuietHours } from '@/phil/notificationPolicy';
 
 const REMINDER_ALARM_PREFIX = 'phil-reminder:';
 const BRIEFING_ALARM = 'phil-morning-briefing';
+const QUIET_RETRY_ALARM_PREFIX = 'phil-quiet-retry:';
 
 export function reminderAlarmName(id: string): string {
   return `${REMINDER_ALARM_PREFIX}${id}`;
+}
+
+function quietRetryAlarmName(id: string): string {
+  return `${QUIET_RETRY_ALARM_PREFIX}${id}`;
+}
+
+/** Next device-local instant when quiet hours end (or now+1m fallback). */
+function nextQuietHoursEndMs(endHour: number, now = new Date()): number {
+  const end = new Date(now);
+  end.setSeconds(0, 0);
+  end.setMinutes(0);
+  end.setHours(endHour, 0, 0, 0);
+  if (end.getTime() <= now.getTime()) {
+    end.setDate(end.getDate() + 1);
+  }
+  return Math.max(end.getTime(), now.getTime() + 60_000);
 }
 
 export async function scheduleReminderAlarm(reminder: Reminder): Promise<void> {
@@ -31,25 +49,35 @@ export async function scheduleReminderAlarm(reminder: Reminder): Promise<void> {
 
 export async function cancelReminderAlarm(id: string): Promise<void> {
   await chrome.alarms.clear(reminderAlarmName(id));
+  await chrome.alarms.clear(quietRetryAlarmName(id));
 }
 
 export async function createReminder(input: {
   text: string;
-  when: number;
+  when?: number;
   repeat?: Reminder['repeat'];
+  projectId?: string;
+  applyDefaults?: boolean;
 }): Promise<Reminder> {
+  const settings = await getPhilSettings();
+  const applyDefaults = input.applyDefaults !== false;
   const now = Date.now();
+  const when =
+    input.when ??
+    (applyDefaults ? now + settings.reminderDefaultLeadMinutes * 60_000 : now + 30 * 60_000);
+  const repeat =
+    input.repeat ?? (applyDefaults ? settings.reminderDefaultRepeat : 'none');
   const reminder: Reminder = {
     id: uid('rem'),
     text: input.text.trim(),
-    when: input.when,
-    repeat: input.repeat ?? 'none',
+    when,
+    repeat,
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,
+    ...(input.projectId ? { projectId: input.projectId } : {}),
   };
   await putReminder(reminder);
-  // Never block tool/UI callers on chrome.alarms — schedule best-effort.
   void scheduleReminderAlarm(reminder).catch(() => undefined);
   return reminder;
 }
@@ -74,7 +102,6 @@ async function nextRepeatWhen(from: number, repeat: Reminder['repeat']): Promise
     d.setDate(d.getDate() + 1);
     return d.getTime();
   }
-  // weekdays
   do {
     d.setDate(d.getDate() + 1);
   } while (d.getDay() === 0 || d.getDay() === 6);
@@ -84,6 +111,13 @@ async function nextRepeatWhen(from: number, repeat: Reminder['repeat']): Promise
 export async function fireReminder(id: string): Promise<void> {
   const reminder = await getReminder(id);
   if (!reminder || reminder.status === 'cancelled' || reminder.status === 'done') {
+    return;
+  }
+
+  const settings = await getPhilSettings();
+  if (isInQuietHours(settings)) {
+    const retryAt = nextQuietHoursEndMs(settings.quietHoursEndHour);
+    await chrome.alarms.create(quietRetryAlarmName(id), { when: retryAt });
     return;
   }
 
@@ -157,17 +191,21 @@ export async function runMorningBriefing(): Promise<void> {
     sources: composed.sources,
   };
   await putBriefing(briefing);
-  try {
-    await chrome.notifications.create(`phil-briefing-${briefing.id}`, {
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: 'Phil — morning briefing',
-      message: 'Your day overview is ready. Open Phil to see what’s up.',
-      priority: 1,
-    });
-  } catch {
-    // ignore
+
+  if (!isInQuietHours(settings)) {
+    try {
+      await chrome.notifications.create(`phil-briefing-${briefing.id}`, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+        title: 'Phil — morning briefing',
+        message: 'Your day overview is ready. Open Phil to see what’s up.',
+        priority: 1,
+      });
+    } catch {
+      // ignore
+    }
   }
+
   await chrome.storage.session.set({
     philQuickIntent: {
       kind: 'open_today',
@@ -181,6 +219,11 @@ export function registerPhilAlarms(): void {
     void (async () => {
       if (alarm.name === BRIEFING_ALARM) {
         await runMorningBriefing();
+        return;
+      }
+      if (alarm.name.startsWith(QUIET_RETRY_ALARM_PREFIX)) {
+        const id = alarm.name.slice(QUIET_RETRY_ALARM_PREFIX.length);
+        await fireReminder(id);
         return;
       }
       if (alarm.name.startsWith(REMINDER_ALARM_PREFIX)) {

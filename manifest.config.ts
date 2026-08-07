@@ -73,4 +73,24 @@ export default defineManifest({
     extension_pages:
       "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'",
   },
+  commands: {
+    'open-phil': {
+      suggested_key: {
+        default: 'Alt+Shift+P',
+      },
+      description: 'Open Phil side panel',
+    },
+    'focus-agent': {
+      suggested_key: {
+        default: 'Alt+Shift+A',
+      },
+      description: 'Focus Agent tab',
+    },
+    'summarize-page': {
+      suggested_key: {
+        default: 'Alt+Shift+S',
+      },
+      description: 'Summarize current page',
+    },
+  },
 });

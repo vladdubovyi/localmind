@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Bot, PanelRightOpen, Settings2 } from 'lucide-react';
+import { Bot, Keyboard, PanelRightOpen, Settings2 } from 'lucide-react';
 import { AgentPanel, type AgentSeedGoal } from '@/components/agent/AgentPanel';
 import { BrandMark } from '@/components/common/BrandMark';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ShortcutsCheatsheet } from '@/components/common/ShortcutsCheatsheet';
 import {
   FocusPanel,
   GoalsPanel,
@@ -9,6 +11,7 @@ import {
   RemindersPanel,
   TodayPanel,
 } from '@/components/phil/PhilPanels';
+import { PrivacyPanel } from '@/components/phil/PrivacyPanel';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import {
@@ -29,7 +32,7 @@ interface ChatAppProps {
   variant: 'popup' | 'sidebar';
 }
 
-type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'phil';
+type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'phil' | 'privacy';
 
 export function ChatApp({ variant }: ChatAppProps) {
   const {
@@ -44,6 +47,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   } = useChat({ surface: variant });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('agent');
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
   const [agentSeed, setAgentSeed] = useState<AgentSeedGoal | null>(null);
@@ -91,6 +95,17 @@ export function ChatApp({ variant }: ChatAppProps) {
       case 'remind':
         setUiTab('reminders');
         break;
+      case 'open_privacy':
+        setUiTab('privacy');
+        break;
+      case 'open_phil_settings':
+        setUiTab('phil');
+        break;
+      case 'summarize_page':
+        setUiTab('agent');
+        setAgentSeed({ goal: 'Summarize this page', autoRun: true });
+        break;
+      case 'open_agent':
       default:
         setUiTab('agent');
     }
@@ -102,6 +117,20 @@ export function ChatApp({ variant }: ChatAppProps) {
     if (phase !== 'ready' || !queuedSelection.current) return;
     queuedSelection.current = null;
   }, [phase]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const openSidePanel = async () => {
     await openSidePanelFromPage();
@@ -143,7 +172,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   return (
     <div
       className={cn(
-        'relative flex h-full flex-col overflow-hidden',
+        'relative flex h-full max-w-full min-w-0 flex-col overflow-hidden',
         variant === 'popup' ? 'w-[380px]' : 'w-full',
       )}
     >
@@ -155,6 +184,9 @@ export function ChatApp({ variant }: ChatAppProps) {
               <PanelRightOpen size={15} />
             </IconButton>
           )}
+          <IconButton label="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}>
+            <Keyboard size={15} />
+          </IconButton>
           <IconButton label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings2 size={15} />
           </IconButton>
@@ -177,6 +209,11 @@ export function ChatApp({ variant }: ChatAppProps) {
           label="Reminders"
         />
         <TabChip active={uiTab === 'phil'} onClick={() => setUiTab('phil')} label="Phil" />
+        <TabChip
+          active={uiTab === 'privacy'}
+          onClick={() => setUiTab('privacy')}
+          label="Privacy"
+        />
       </div>
 
       {restoring && (
@@ -199,31 +236,43 @@ export function ChatApp({ variant }: ChatAppProps) {
       )}
 
       {uiTab === 'agent' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <AgentPanel
             modelReady={modelReady}
             seedGoal={agentSeed}
             onSeedConsumed={() => setAgentSeed(null)}
+            emptyHint={
+              <EmptyState
+                title="What should I do in your browser?"
+                body="I can summarize this page, dig through Gmail, or help you stay on a goal — say the word."
+                ctaLabel="Summarize this page"
+                onCta={() => setAgentSeed({ goal: 'Summarize this page', autoRun: true })}
+              />
+            }
           />
         </div>
       ) : uiTab === 'today' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <TodayPanel />
         </div>
       ) : uiTab === 'focus' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <FocusPanel />
         </div>
       ) : uiTab === 'goals' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <GoalsPanel />
         </div>
       ) : uiTab === 'reminders' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <RemindersPanel />
         </div>
+      ) : uiTab === 'privacy' ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <PrivacyPanel />
+        </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <PhilSettingsPanel />
         </div>
       )}
@@ -237,7 +286,10 @@ export function ChatApp({ variant }: ChatAppProps) {
           setSettingsOpen(false);
           void downloadAndLoad(id);
         }}
+        onOpenPrivacy={() => setUiTab('privacy')}
       />
+
+      <ShortcutsCheatsheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }
@@ -258,7 +310,7 @@ function TabChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition',
+        'inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition',
         active ? 'bg-accent text-ink' : 'text-muted hover:bg-panel hover:text-fg',
       )}
     >

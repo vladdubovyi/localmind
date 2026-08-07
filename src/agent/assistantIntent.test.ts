@@ -11,8 +11,10 @@ import {
   parseGoalTitle,
   parseReminderInMinutes,
   parseReminderText,
+  parseReminderWhenMs,
   weatherPlaceFromQuery,
 } from './assistantIntent.ts';
+import { localPartsInDeviceTz } from '../phil/deviceTime.ts';
 
 assert.equal(isReminderGoal('Remind me in 20 minutes to stretch'), true);
 assert.equal(parseReminderInMinutes('Remind me in 20 minutes to stretch'), 20);
@@ -43,5 +45,14 @@ assert.equal(
   true,
 );
 assert.equal(offersToActWithoutTools('Austin is currently 84°F and sunny.'), false);
+
+assert.equal(isReminderGoal('Remind me tomorrow at 3 PM'), true);
+{
+  const now = new Date('2026-08-07T15:00:00');
+  const when = parseReminderWhenMs('Remind me tomorrow at 3 PM', now);
+  assert.ok(when != null);
+  const parts = localPartsInDeviceTz(new Date(when!));
+  assert.equal(parts.hour, 15);
+}
 
 console.log('agent/assistantIntent.test.ts OK');

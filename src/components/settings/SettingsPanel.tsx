@@ -14,6 +14,8 @@ interface SettingsPanelProps {
   onClose: () => void;
   onChange: (partial: Partial<AppSettings>) => void;
   onReloadModel: (modelId: string) => void;
+  /** Navigate to Privacy dashboard (B4) — SET-07. */
+  onOpenPrivacy?: () => void;
 }
 
 export function SettingsPanel({
@@ -22,13 +24,14 @@ export function SettingsPanel({
   onClose,
   onChange,
   onReloadModel,
+  onOpenPrivacy,
 }: SettingsPanelProps) {
   const [localModel, setLocalModel] = useState(settings.selectedModelId);
 
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-ink/95 backdrop-blur-md animate-fade-up">
+    <div className="absolute inset-0 z-40 flex min-w-0 flex-col overflow-x-hidden bg-ink/95 backdrop-blur-md animate-fade-up">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Settings2 size={16} className="text-accent" />
@@ -44,7 +47,7 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden px-4 py-4">
         <Section title="Model">
           <select
             value={localModel}
@@ -126,6 +129,21 @@ export function SettingsPanel({
           <p className="text-xs text-muted">
             Prompts, pages, and chats never leave this device. No analytics by default.
           </p>
+          <p className="text-xs text-muted">
+            Remind me tomorrow at 3 PM — scheduling uses your device timezone (no picker).
+          </p>
+          {onOpenPrivacy && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenPrivacy();
+              }}
+              className="mt-1 w-full rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20"
+            >
+              Open Privacy controls
+            </button>
+          )}
         </Section>
       </div>
     </div>

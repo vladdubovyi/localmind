@@ -377,4 +377,26 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   });
 });
 
+
+chrome.commands.onCommand.addListener((command) => {
+  void (async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.windowId != null) {
+      await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+    }
+
+    if (command === 'open-phil') {
+      await setPhilQuickIntent({ kind: 'open_agent', createdAt: Date.now() });
+      return;
+    }
+    if (command === 'focus-agent') {
+      await setPhilQuickIntent({ kind: 'open_agent', createdAt: Date.now() });
+      return;
+    }
+    if (command === 'summarize-page') {
+      await setPhilQuickIntent({ kind: 'summarize_page', createdAt: Date.now() });
+    }
+  })();
+});
+
 export {};

@@ -142,3 +142,17 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **Not run full suite:** Remaining ONB/ERR/PRIV/MEM/SET-02…/DAY/BRW/EA/PRO/POL/BIZ-05…08/WF/PRJ/RTE/SKL intentionally fail-on-missing UI until owner pods land.
   - **Website note:** `e2e/business.spec.ts` expects A3 `website/**` assets; may fail on this branch until A3 merged.
 - **Suggested owner:** D1/CI for model cache; B3+ for ONB; see prior A2 entry for group owners
+
+### 2026-08-07 — Agent B5 (Settings + Polish)
+- **Test IDs:** SET-02…08, POL-01…05
+- **Severity:** should-fix
+- **Type:** deferred | conflict-with-ADR
+- **Summary:** Shipped Phil settings matrix + polish; POL-04 still blocked by B4 Memory Milestone stub; SET-02/03/06 delivery caps wired for C2.
+- **Detail:**
+  - **Added settings fields:** `notificationFrequency` (off/low/normal/high + caps), productivity sensitivity → `nudgeThresholdMs`, `reminderDefaultLeadMinutes` / `reminderDefaultRepeat`, quiet hours (`quietHoursEnabled`/`StartHour`/`EndHour`). Helpers in `src/phil/notificationPolicy.ts` for C2 proactive engine.
+  - **SET-08:** No TZ picker; `parseAbsoluteReminder` / device Intl util; Phil copy avoids the word “timezone”; Settings notes “Remind me tomorrow at 3 PM” + device timezone.
+  - **SET-07 / POL Privacy:** Added Privacy tab + Settings “Open Privacy controls” link (coordinate with B4 — tab/heading name **Privacy**). Minimal PrivacyPanel shell; B4 owns full PRIV/MEM.
+  - **POL-01…03/05:** Empty states (Agent/Goals/Reminders/Focus), `chrome.commands` + in-app Shortcuts cheatsheet (`?`), narrow overflow-x guards.
+  - **POL-04:** Left Settings “Memory (coming in Milestone 4)” alone per ownership (B4). Expect POL-04 red until B4 removes it.
+  - **SET-02/03 e2e:** Scaffold asserts UI visibility; full proactive harness remains C2. Frequency off / caps enforced in focus nudges + `canDeliverNotification`.
+- **Suggested owner:** B4 for Memory stub / POL-04; C2 to consume notificationPolicy caps for PRO-*

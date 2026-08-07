@@ -65,6 +65,9 @@ export interface MorningBriefing {
   };
 }
 
+/** Proactive / nudge delivery frequency (SET-02/03). */
+export type NotificationFrequency = 'off' | 'low' | 'normal' | 'high';
+
 export interface PhilAssistantSettings {
   fabEnabled: boolean;
   trackingEnabled: boolean;
@@ -73,8 +76,20 @@ export interface PhilAssistantSettings {
   /** Local hour 0–23 for morning briefing. */
   briefingHour: number;
   briefingMinute: number;
-  /** Continuous leisure ms before a goal nudge. */
+  /** Continuous leisure ms before a goal nudge (SET-04 sensitivity). */
   nudgeThresholdMs: number;
+  /** Caps proactive + nudge notifications (SET-02/03). */
+  notificationFrequency: NotificationFrequency;
+  /** Default lead time when creating a reminder without an explicit when (SET-05). */
+  reminderDefaultLeadMinutes: number;
+  /** Default repeat applied to new reminders when not overridden (SET-05). */
+  reminderDefaultRepeat: Reminder['repeat'];
+  /** Suppress Chrome notifications during this local-hour window (SET-06). */
+  quietHoursEnabled: boolean;
+  /** Inclusive start hour 0–23 in device TZ. */
+  quietHoursStartHour: number;
+  /** Exclusive end hour 0–23 in device TZ (may wrap past midnight). */
+  quietHoursEndHour: number;
   locality: string;
   categoryOverrides: Record<string, FocusCategory>;
 }
@@ -87,6 +102,12 @@ export const DEFAULT_PHIL_SETTINGS: PhilAssistantSettings = {
   briefingHour: 8,
   briefingMinute: 0,
   nudgeThresholdMs: 2 * 60_000,
+  notificationFrequency: 'normal',
+  reminderDefaultLeadMinutes: 30,
+  reminderDefaultRepeat: 'none',
+  quietHoursEnabled: false,
+  quietHoursStartHour: 22,
+  quietHoursEndHour: 7,
   locality: '',
   categoryOverrides: {},
 };
@@ -96,6 +117,10 @@ export type PhilQuickIntentKind =
   | 'open_focus'
   | 'open_goals'
   | 'open_reminders'
+  | 'open_agent'
+  | 'open_privacy'
+  | 'open_phil_settings'
+  | 'summarize_page'
   | 'remind'
   | 'set_goal'
   | 'whats_up'

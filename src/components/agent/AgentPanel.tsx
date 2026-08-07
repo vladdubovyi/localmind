@@ -9,7 +9,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgent } from '@/hooks/useAgent';
@@ -29,6 +29,8 @@ interface AgentPanelProps {
   /** Selection / page-action handoff from ChatApp. */
   seedGoal?: AgentSeedGoal | null;
   onSeedConsumed?: () => void;
+  /** Optional POL-01 empty-state override (assistant voice + CTA). */
+  emptyHint?: ReactNode;
 }
 
 function StepBody({ step }: { step: AgentStep }) {
@@ -89,7 +91,12 @@ function stepLabel(step: AgentStep): string {
   }
 }
 
-export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelProps) {
+export function AgentPanel({
+  modelReady,
+  seedGoal,
+  onSeedConsumed,
+  emptyHint,
+}: AgentPanelProps) {
   const {
     settings,
     permissions,
@@ -314,10 +321,14 @@ export function AgentPanel({ modelReady, seedGoal, onSeedConsumed }: AgentPanelP
       >
         {steps.length === 0 && (
           <div className="rounded-2xl px-1 py-6 text-center text-sm text-muted">
-            <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
-            <p className="mt-2 text-[12px]">
-              e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
-            </p>
+            {emptyHint ?? (
+              <>
+                <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
+                <p className="mt-2 text-[12px]">
+                  e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
+                </p>
+              </>
+            )}
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <button
                 type="button"

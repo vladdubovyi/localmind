@@ -5,12 +5,14 @@
 import assert from 'node:assert/strict';
 import { createRouterFactory } from '../router/factory.ts';
 import { registerCoreSkills } from './coreSkills.ts';
+import { registerBrowserMemorySkill } from './browserMemorySkill.ts';
 import type { PersistentProject } from '../../phil/projectTypes.ts';
 import type { RouteContext } from './types.ts';
 
 function makeRouter() {
   const router = createRouterFactory({ defaultSearchEngine: 'google', enableStage2: false });
   registerCoreSkills(router);
+  registerBrowserMemorySkill(router);
   return router;
 }
 
@@ -108,6 +110,7 @@ expectSkill('Help me stay focused while I work on my thesis today.', 'focus.coac
 expectSkill('How productive was I today?', 'focus.summary');
 expectSkill('Help me stay productive today.', 'project.exec_day');
 expectSkill('Remember that I prefer morning briefings at 7.', 'memory.remember');
+expectSkill('Find that Kubernetes article I read last week.', 'browser_memory.find');
 expectSkill('What is the weather today?', 'research.web.weather');
 expectSkill('Open https://example.com in a new tab', 'tabs.open_url');
 expectSkill('Do you think I should take the job?', 'assistant.general');
@@ -146,6 +149,7 @@ expectSkill('Send that email', 'email.send');
     'focus.coach',
     'focus.summary',
     'memory.remember',
+    'browser_memory.find',
     'planning.workday',
     'briefing.morning',
     'project.career_accelerator',

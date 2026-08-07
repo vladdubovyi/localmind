@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AppSettings } from '@/types';
 import {
   clearAllMemories,
+  clearBrowserMemory,
   clearChats,
   clearFocusHistory,
   connectCalendarFromPrivacy,
+  enableHistoryFromPrivacy,
   getPermissionInventory,
   leavesDeviceRows,
   localDataRows,
@@ -49,20 +51,21 @@ export function PrivacyDashboard({ settings, onChange }: PrivacyDashboardProps) 
   const calendarOn = perms.find((p) => p.id === 'calendar')?.granted ?? false;
   const gmailOn = perms.find((p) => p.id === 'gmail')?.granted ?? false;
 
-  const runClear = async (kind: 'chats' | 'memories' | 'focus') => {
+  const runClear = async (kind: 'chats' | 'memories' | 'focus' | 'browser') => {
     const labels = {
       chats: 'Clear all saved chats?',
       memories: 'Clear all memories?',
       focus: 'Clear focus history?',
+      browser: 'Clear browser memory?',
     };
     if (!window.confirm(labels[kind])) return;
     setBusy(true);
     setStatus(null);
     try {
-      if (kind === 'chats') await clearChats();
-      else if (kind === 'memories') await clearAllMemories();
-      else await clearFocusHistory();
-      setStatus(kind === 'chats' ? 'Chats cleared.' : kind === 'memories' ? 'Memories cleared.' : 'Focus history cleared.');
+      if (kind === 'chats') { await clearChats(); setStatus('Chats cleared.'); }
+      else if (kind === 'memories') { await clearAllMemories(); setStatus('Memories cleared.'); }
+      else if (kind === 'browser') { const n = await clearBrowserMemory(); setStatus(`Browser memory cleared (${n} entries).`); }
+      else { await clearFocusHistory(); setStatus('Focus history cleared.'); }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Clear failed');
     } finally {
@@ -97,13 +100,34 @@ export function PrivacyDashboard({ settings, onChange }: PrivacyDashboardProps) 
           <Toggle
             label={settings.memoryEnabled ? 'Memory on' : 'Memory is off'}
             checked={settings.memoryEnabled}
-            onChange={(memoryEnabled) => onChange({ memoryEnabled })}
+            onChange={(memoryEnabled) => {
+              onChange({ memoryEnabled });
+              if (!memoryEnabled) {
+                void clearBrowserMemory().then((n) => {
+                  setStatus(
+                    n > 0
+                      ? 'Memory is off — browser memory index cleared.'
+                      : 'Memory is off — Phil will not store new facts or browser memory hits.',
+                  );
+                });
+              }
+            }}
           />
           <p className="text-[11px] text-muted">
             {settings.memoryEnabled
-              ? 'New “remember that…” facts are stored on this device.'
-              : 'Memory is off — Phil will not store new facts until you turn it on.'}
+              ? 'New “remember that…” facts and browser memory indexing stay on this device.'
+              : 'Memory is off — Phil will not store new facts or return browser memory hits until you turn it on.'}
           </p>
+          {!settings.memoryEnabled && (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg px-2 py-1 text-[11px] text-danger ring-1 ring-border hover:bg-panel-elevated disabled:opacity-40"
+              onClick={() => void runClear('browser')}
+            >
+              Disable browser memory
+            </button>
+          )}
         </div>
       </section>
 
@@ -135,6 +159,28 @@ export function PrivacyDashboard({ settings, onChange }: PrivacyDashboardProps) 
                           await refresh();
                           setBusy(false);
                           setStatus('Calendar marked enabled. Full OAuth is completed in onboarding.');
+                        })();
+                      }}
+                    >
+                      Enable
+                    </button>
+                  )}
+                  {p.id === 'history' && !p.granted && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10 disabled:opacity-40"
+                      onClick={() => {
+                        void (async () => {
+                          setBusy(true);
+                          const ok = await enableHistoryFromPrivacy();
+                          await refresh();
+                          setBusy(false);
+                          setStatus(
+                            ok
+                              ? 'History enabled — Phil can index recent visits for browser memory.'
+                              : 'Could not enable History. Check the Chrome permission prompt.',
+                          );
                         })();
                       }}
                     >
@@ -184,6 +230,7 @@ export function PrivacyDashboard({ settings, onChange }: PrivacyDashboardProps) 
           <button type="button" disabled={busy} className="rounded-xl border border-border bg-panel-elevated px-3 py-2 text-xs text-fg hover:border-accent/40 disabled:opacity-40" onClick={() => void runClear('chats')}>Clear chats</button>
           <button type="button" disabled={busy} className="rounded-xl border border-border bg-panel-elevated px-3 py-2 text-xs text-fg hover:border-accent/40 disabled:opacity-40" onClick={() => void runClear('memories')}>Clear memories</button>
           <button type="button" disabled={busy} className="rounded-xl border border-border bg-panel-elevated px-3 py-2 text-xs text-fg hover:border-accent/40 disabled:opacity-40" onClick={() => void runClear('focus')}>Clear focus history</button>
+          <button type="button" disabled={busy} className="rounded-xl border border-border bg-panel-elevated px-3 py-2 text-xs text-fg hover:border-accent/40 disabled:opacity-40" onClick={() => void runClear('browser')}>Clear browser memory</button>
         </div>
       </section>
 

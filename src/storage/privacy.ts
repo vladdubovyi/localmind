@@ -7,6 +7,12 @@ import {
   AGENT_OPTIONAL_PERMISSIONS,
 } from '@/agent/permissions';
 import { clearMemories } from '@/storage/memory';
+import {
+  clearBrowseIndex,
+  hasHistoryPermission,
+  requestHistoryPermission,
+  revokeHistoryPermission,
+} from '@/storage/browserMemory';
 import { clearConversations, getSettings, saveSettings } from '@/storage/db';
 import { getOnboardingState } from '@/storage/onboarding';
 
@@ -41,14 +47,6 @@ export async function setCalendarConnected(connected: boolean): Promise<Calendar
   return next;
 }
 
-async function hasHistoryPermission(): Promise<boolean> {
-  try {
-    return await chrome.permissions.contains({ permissions: ['history'] });
-  } catch {
-    return false;
-  }
-}
-
 async function hasNotificationPermission(): Promise<boolean> {
   try {
     const all = await chrome.permissions.getAll();
@@ -69,7 +67,7 @@ export async function getPermissionInventory(): Promise<PermissionRow[]> {
     { id: 'notifications', label: 'notifications', detail: 'Reminder, nudge, and briefing alerts', granted: notifications, optional: false },
     { id: 'gmail', label: 'Gmail', detail: 'identity + Gmail hosts (optional)', granted: agent.identity, optional: true },
     { id: 'calendar', label: 'Calendar', detail: 'Google Calendar for daily planning (optional)', granted: calendar.connected, optional: true },
-    { id: 'history', label: 'history', detail: 'Browser history index (optional — enable in Privacy when available)', granted: history, optional: true },
+    { id: 'history', label: 'history', detail: 'Browser memory — index recent visits so Phil can find articles you read', granted: history, optional: true },
     { id: 'hosts', label: 'site access', detail: 'http(s) hosts for Agent page control + research', granted: agent.allUrls, optional: true },
   ];
 }
@@ -81,6 +79,7 @@ export function localDataRows(calendarEnabled: boolean): DataFlowRow[] {
     { label: 'Goals & reminders', detail: 'chrome.storage.local only' },
     { label: 'Focus sessions', detail: 'Tab dwell stays on device' },
     { label: 'Memories', detail: 'Keyword memory store on this device' },
+    { label: 'Browser memory', detail: 'Indexed visits (history + tab activity) stay on this device' },
   ];
   if (calendarEnabled) {
     rows.push({ label: 'Calendar event summaries', detail: 'Cached locally after sync' });
@@ -124,6 +123,14 @@ export async function clearFocusHistory(): Promise<void> {
   }
 }
 
+export async function clearBrowserMemory(): Promise<number> {
+  return clearBrowseIndex();
+}
+
+export async function enableHistoryFromPrivacy(): Promise<boolean> {
+  return requestHistoryPermission();
+}
+
 export async function revokeOptionalPermission(
   id: 'gmail' | 'hosts' | 'calendar' | 'history',
 ): Promise<boolean> {
@@ -132,11 +139,8 @@ export async function revokeOptionalPermission(
     return true;
   }
   if (id === 'history') {
-    try {
-      return await chrome.permissions.remove({ permissions: ['history'] });
-    } catch {
-      return false;
-    }
+    await clearBrowseIndex();
+    return revokeHistoryPermission();
   }
   if (id === 'gmail') {
     try {

@@ -106,6 +106,7 @@ async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<Agen
     ...projectMeta,
     modelReady: true,
     memoryEnabled: settings?.memoryEnabled !== false,
+    historyAvailable: undefined,
     recentTurns: recentTurnsFromSteps(priorSteps),
     priorPlan: lastRoutePlan,
     correctionHint,
@@ -113,6 +114,13 @@ async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<Agen
     debugRouting: testMode,
     trigger: 'chat',
   };
+
+  try {
+    const { hasHistoryPermission } = await import('@/storage/browserMemory');
+    ctx.historyAvailable = await hasHistoryPermission();
+  } catch {
+    ctx.historyAvailable = false;
+  }
 
   const route = routeGoal(ctx);
   lastRoutePlan = route.plan ?? null;
@@ -790,7 +798,10 @@ export function useAgent() {
               kind: 'final',
               content: formatToolResultContent(fastCall.name, result),
             });
-          } else if (fastCall.name.startsWith('memory_') && result.error) {
+          } else if (
+            (fastCall.name.startsWith('memory_') || fastCall.name.startsWith('browser_memory_')) &&
+            result.error
+          ) {
             pushStep({ kind: 'final', content: result.error });
           }
           return;

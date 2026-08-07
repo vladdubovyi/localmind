@@ -244,3 +244,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Privacy dashboard + chrome.storage keyword memory shipped; Calendar Privacy enable is local flag until B3 OAuth.
 - **Detail:** Storage: `philMemories` in chrome.storage.local (SW-safe). Conversations remain IDB with keyword search. Embeddings/vector stubs are no-ops. History shown as not granted until C4. Analytics/crash default OFF; Feedback via GitHub + mailto.
 - **Suggested owner:** B3 (Calendar OAuth), C4 (history), D2 (feedback email)
+
+### 2026-08-07 — Agent C4 (Browser memory)
+- **Test IDs:** BRW-01…04
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Shipped keyword browse index + `browser_memory.find` / `browser_memory_search` (no MiniSearch dep); History optional permission + Privacy Enable/Clear hooks.
+- **Detail:** Index stores `philBrowseIndex` (14-day retention) from tab activity + `chrome.history` when granted. E2E seeds `philHistoryPermissionSeed` because Playwright cannot click Chrome optional-permission prompts. Memory toggle off clears the browse index (BRW-04). Skill registered via factory `registerBrowserMemorySkill` (aliases include `browser_memory_search`).
+- **Suggested owner:** D1 (real history permission e2e), D2 (demo talk track)

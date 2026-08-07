@@ -106,6 +106,25 @@ function stepLabel(step: AgentStep): string {
   }
 }
 
+/** Prefer openUrl from the latest browser_memory_search tool result before this final step. */
+function findBrowserMemoryOpenUrl(steps: AgentStep[], finalStepId: string): string | null {
+  const idx = steps.findIndex((s) => s.id === finalStepId);
+  const slice = idx >= 0 ? steps.slice(0, idx + 1) : steps;
+  for (let i = slice.length - 1; i >= 0; i -= 1) {
+    const step = slice[i];
+    if (step?.kind !== 'tool_result' || step.toolCall?.name !== 'browser_memory_search') continue;
+    const data = step.toolResult?.data as
+      | { openUrl?: string; hits?: Array<{ url?: string }> }
+      | undefined;
+    if (data?.openUrl && /^https?:/i.test(data.openUrl)) return data.openUrl;
+    const hitUrl = data?.hits?.[0]?.url;
+    if (hitUrl && /^https?:/i.test(hitUrl)) return hitUrl;
+  }
+  const final = steps.find((s) => s.id === finalStepId);
+  const match = final?.content?.match(/https?:\/\/[^\s)>\]"']+/i);
+  return match?.[0] ?? null;
+}
+
 export function AgentPanel({
   modelReady,
   seedGoal,
@@ -430,10 +449,25 @@ export function AgentPanel({
                 )}
                 <StepBody step={s} />
                 {s.kind === 'final' && s.content && (
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <button type="button" className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10" onClick={() => void rememberFromStep(s.content)}>
                       Remember
                     </button>
+                    {(() => {
+                      const openUrl = findBrowserMemoryOpenUrl(steps, s.id);
+                      if (!openUrl) return null;
+                      return (
+                        <button
+                          type="button"
+                          className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10"
+                          onClick={() => {
+                            void chrome.tabs.create({ url: openUrl, active: true });
+                          }}
+                        >
+                          Open
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

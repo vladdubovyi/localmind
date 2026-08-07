@@ -197,3 +197,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Confirmed A0 Q6 preference: single `project_create` + template field for Wave 1 core; C1 may later register template-specific skills that call the same store.
 - **Detail:** UI create + NL heuristics cover PRJ-01 without model. Agent-loop NL path works when project skill wins routing; model-grounded “I’ve set up your …” replies still depend on tool finalize. E2e asserts UI create path.
 - **Suggested owner:** B1, C1, human PM
+
+### 2026-08-07 — Agent B4 (Privacy + Memory)
+- **Test IDs:** PRIV-01…06, MEM-01…07; BIZ-05…08
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Privacy dashboard + chrome.storage keyword memory shipped; Calendar Privacy enable is local flag until B3 OAuth.
+- **Detail:** Storage: `philMemories` in chrome.storage.local (SW-safe). Conversations remain IDB with keyword search. Embeddings/vector stubs are no-ops. History shown as not granted until C4. Analytics/crash default OFF; Feedback via GitHub + mailto.
+- **Suggested owner:** B3 (Calendar OAuth), C4 (history), D2 (feedback email)

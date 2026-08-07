@@ -274,6 +274,37 @@ async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
       toolCall: call,
     };
   }
+
+  if (call.name.startsWith('memory_')) {
+    const { forgetMemory, listMemories, rememberMemory, searchMemories } = await import('@/storage/memory');
+    const { getSettings } = await import('@/storage/db');
+    if (call.name === 'memory_remember') {
+      const settings = await getSettings();
+      if (!settings.memoryEnabled) {
+        return { ok: false, error: 'Memory is off. Enable Memory in Privacy / Settings to store new facts.', toolCall: call };
+      }
+      const text = String(call.arguments.text ?? '').trim();
+      if (!text) return { ok: false, error: 'text is required', toolCall: call };
+      const entry = await rememberMemory(text, { projectId: String(call.arguments.projectId ?? '') || undefined, source: 'tool' });
+      return { ok: true, data: { ...entry, answer: `Got it — I’ll remember that: ${entry.text}` }, toolCall: call };
+    }
+    if (call.name === 'memory_forget') {
+      const removed = await forgetMemory(String(call.arguments.id ?? call.arguments.text ?? '').trim());
+      if (!removed) return { ok: false, error: 'No matching memory found to forget.', toolCall: call };
+      return { ok: true, data: { removed, answer: `Forgotten: ${removed.text}` }, toolCall: call };
+    }
+    if (call.name === 'memory_search' || call.name === 'memory_list') {
+      const query = String(call.arguments.query ?? '');
+      const limit = Number(call.arguments.limit);
+      const hits = call.name === 'memory_list'
+        ? (await listMemories()).slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20).map((m) => ({ ...m, score: 0 }))
+        : await searchMemories(query, Number.isFinite(limit) ? limit : 10);
+      const answer = hits.length
+        ? hits.map((m, i) => `${i + 1}. ${m.text}`).join('\n')
+        : query ? `No memories matched “${query}”.` : 'No memories stored yet.';
+      return { ok: true, data: { memories: hits, answer }, toolCall: call };
+    }
+  }
   return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
 }
 
@@ -759,6 +790,8 @@ export function useAgent() {
               kind: 'final',
               content: formatToolResultContent(fastCall.name, result),
             });
+          } else if (fastCall.name.startsWith('memory_') && result.error) {
+            pushStep({ kind: 'final', content: result.error });
           }
           return;
         }

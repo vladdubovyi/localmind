@@ -7,16 +7,22 @@ import type { ToolCall } from '../types';
 import {
   isBriefingGoal,
   isFocusStatusGoal,
+  isForgetGoal,
   isGoalSetupGoal,
   isLiveInfoGoal,
   isProjectCreateGoal,
   isProjectListGoal,
   isProjectProgressGoal,
+  isRecallGoal,
+  isRememberGoal,
   isReminderGoal,
   isWeatherGoal,
   isWebResearchGoal,
+  parseForgetText,
   parseGoalTitle,
   parseProjectTitle,
+  parseRecallQuery,
+  parseRememberText,
   parseReminderInMinutes,
   parseReminderText,
 } from '../assistantIntent';
@@ -55,7 +61,10 @@ export function isFactualLookupGoal(goal: string): boolean {
     isFocusStatusGoal(g) ||
     isProjectCreateGoal(g) ||
     isProjectListGoal(g) ||
-    isProjectProgressGoal(g)
+    isProjectProgressGoal(g) ||
+    isRememberGoal(g) ||
+    isForgetGoal(g) ||
+    isRecallGoal(g)
   ) {
     return false;
   }
@@ -572,33 +581,86 @@ export function buildCoreSkills(): RegisteredSkill[] {
     execute: stubExecute('Page ask'),
   };
 
-  const memoryRemember: RegisteredSkill = {
-    id: 'memory.remember',
-    aliases: ['memory.save'],
-    description: 'Remember a user preference or fact',
-    category: 'memory',
-    examples: ['Remember that I prefer morning briefings at 7.', 'Save this comparison'],
-    confirmationLevel: 'none',
-    permissions: ['storage_memory'],
-    canHandle: (ctx) => ctx.memoryEnabled !== false,
-    routeScore: (ctx) => {
-      const g = goalOf(ctx);
-      if (/\bremember that\b/i.test(g) || /\bsave this\b/i.test(g)) return 0.9;
-      return 0;
+  const memoryRemember: RegisteredSkill = withBridge(
+    {
+      id: 'memory.remember',
+      aliases: ['memory', 'memory.save'],
+      description: 'Remember a user preference or fact',
+      category: 'memory',
+      examples: ['Remember that I prefer morning briefings at 7.', 'Save this comparison'],
+      confirmationLevel: 'none',
+      permissions: ['storage_memory'],
+      canHandle: (ctx) => ctx.memoryEnabled !== false,
+      routeScore: (ctx) => {
+        const g = goalOf(ctx);
+        if (isForgetGoal(g) || isRecallGoal(g)) return 0;
+        if (isRememberGoal(g) || /\bremember that\b/i.test(g) || /\bsave this\b/i.test(g)) return 0.985;
+        return 0;
+      },
+      execute: stubExecute('Memory remember'),
     },
-    execute: stubExecute('Memory remember'),
-  };
+    {
+      legacyId: 'memory',
+      finalizeDirectAnswer: true,
+      buildToolCall: (goal) => call('memory_remember', { text: parseRememberText(goal) }),
+      hints: (goal) => [
+        'Call memory_remember with the fact to store.',
+        `Suggested text: ${parseRememberText(goal)}`,
+      ],
+    },
+  );
 
-  const memoryRecall: RegisteredSkill = {
-    id: 'memory.recall',
-    description: 'Recall something previously remembered',
-    category: 'memory',
-    examples: ['What did I ask you to remember about briefings?'],
-    confirmationLevel: 'none',
-    routeScore: (ctx) =>
-      /\b(what did i|remember about|did i ask you to remember)\b/i.test(goalOf(ctx)) ? 0.88 : 0,
-    execute: stubExecute('Memory recall'),
-  };
+  const memoryForget: RegisteredSkill = withBridge(
+    {
+      id: 'memory.forget',
+      aliases: ['memory'],
+      description: 'Forget a previously remembered fact',
+      category: 'memory',
+      examples: ['Forget that I prefer morning briefings at 7.'],
+      confirmationLevel: 'none',
+      permissions: ['storage_memory'],
+      routeScore: (ctx) => (isForgetGoal(goalOf(ctx)) ? 0.99 : 0),
+      execute: stubExecute('Memory forget'),
+    },
+    {
+      legacyId: 'memory',
+      finalizeDirectAnswer: true,
+      buildToolCall: (goal) => call('memory_forget', { text: parseForgetText(goal) }),
+      hints: (goal) => [
+        'Call memory_forget with the matching text or id.',
+        `Suggested text: ${parseForgetText(goal)}`,
+      ],
+    },
+  );
+
+  const memoryRecall: RegisteredSkill = withBridge(
+    {
+      id: 'memory.recall',
+      aliases: ['memory'],
+      description: 'Recall something previously remembered',
+      category: 'memory',
+      examples: ['What did I ask you to remember about briefings?'],
+      confirmationLevel: 'none',
+      routeScore: (ctx) => {
+        const g = goalOf(ctx);
+        if (isForgetGoal(g) || isRememberGoal(g)) return 0;
+        if (isRecallGoal(g) || /\b(what did i|remember about|did i ask you to remember)\b/i.test(g)) {
+          return 0.98;
+        }
+        return 0;
+      },
+      execute: stubExecute('Memory recall'),
+    },
+    {
+      legacyId: 'memory',
+      finalizeDirectAnswer: true,
+      buildToolCall: (goal) => call('memory_search', { query: parseRecallQuery(goal), limit: 10 }),
+      hints: (goal) => [
+        'Call memory_search with keywords from the question.',
+        `Suggested query: ${parseRecallQuery(goal) || '(list recent)'}`,
+      ],
+    },
+  );
 
   const dataClear: RegisteredSkill = {
     id: 'data.clear',
@@ -860,6 +922,7 @@ export function buildCoreSkills(): RegisteredSkill[] {
     pageCounterargue,
     pageAsk,
     memoryRemember,
+    memoryForget,
     memoryRecall,
     dataClear,
     metaClarify,

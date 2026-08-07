@@ -5,6 +5,16 @@ import type { Page } from '@playwright/test';
 
 const K8S_URL = 'https://phil.local/articles/kubernetes-operators-deep-dive';
 const K8S_TITLE = 'Kubernetes operators deep dive';
+const FIND_UTTERANCE = 'Find that Kubernetes article I read last week.';
+
+async function openPhilTest(page: Page, extensionId: string): Promise<void> {
+  await page.goto(`chrome-extension://${extensionId}/src/sidebar/index.html?philTest=1`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await expect(page.getByRole('button', { name: /^Today$/i })).toBeVisible({
+    timeout: 30_000,
+  });
+}
 
 async function enableMemory(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -39,14 +49,7 @@ async function seedBrowserMemory(
   const visitedAt = Date.now() - 7 * 24 * 60 * 60 * 1000;
   await page.evaluate(
     async (payload) => {
-      const chromeApi = (
-        globalThis as unknown as {
-          chrome: {
-            storage: { local: { set: (v: Record<string, unknown>) => Promise<void> } };
-          };
-        }
-      ).chrome;
-      await chromeApi.storage.local.set({
+      await chrome.storage.local.set({
         philHistoryPermissionSeed: payload.historyGranted,
         philBrowseIndex: payload.withVisit
           ? [
@@ -59,6 +62,15 @@ async function seedBrowserMemory(
               },
             ]
           : [],
+        agentSettings: {
+          enabled: true,
+          maxSteps: 8,
+          confirmModerate: false,
+          allowDebugger: false,
+          gmailClientId: '',
+          gmailMode: 'session',
+          calendarEnabled: false,
+        },
       });
     },
     {
@@ -73,7 +85,7 @@ async function seedBrowserMemory(
 
 async function openAgentAndAsk(page: Page, goal: string): Promise<void> {
   await page.getByRole('button', { name: /^Agent$/i }).click();
-  await expect(page.getByText('Browser Agent')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Browser Agent')).toBeVisible({ timeout: 15_000 });
   const enableBtn = page.getByRole('button', { name: /Enable \+ grant permissions/i });
   if (await enableBtn.isVisible().catch(() => false)) {
     await page.getByRole('button', { name: /^Settings$/ }).last().click();
@@ -94,9 +106,13 @@ async function openAgentAndAsk(page: Page, goal: string): Promise<void> {
 }
 
 test.describe('Browser memory (BRW)', () => {
-  test('BRW-01: Find article from last week with history granted', async ({ philPage }) => {
+  test('BRW-01: Find article from last week with history granted', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: true, withVisit: true });
-    await openAgentAndAsk(philPage, 'Find that Kubernetes article I read last week.');
+    await openAgentAndAsk(philPage, FIND_UTTERANCE);
     await expect(philPage.getByText(/Kubernetes operators deep dive/i).first()).toBeVisible({
       timeout: 20_000,
     });
@@ -108,12 +124,16 @@ test.describe('Browser memory (BRW)', () => {
     });
   });
 
-  test('BRW-02: Open found result', async ({ philPage, philExtensionContext }) => {
+  test('BRW-02: Open found result', async ({
+    philPage,
+    philExtensionId,
+    philExtensionContext,
+  }) => {
+    await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: true, withVisit: true });
-    await openAgentAndAsk(philPage, 'Find that Kubernetes article I read last week.');
+    await openAgentAndAsk(philPage, FIND_UTTERANCE);
     const openBtn = philPage.getByRole('button', { name: /^Open$/i }).first();
     await expect(openBtn).toBeVisible({ timeout: 20_000 });
-
     await openBtn.click();
     await expect
       .poll(
@@ -130,9 +150,13 @@ test.describe('Browser memory (BRW)', () => {
       .toBe(true);
   });
 
-  test('BRW-03: Without history permission, Phil explains how to enable', async ({ philPage }) => {
+  test('BRW-03: Without history permission, Phil explains how to enable', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: false, withVisit: false });
-    await openAgentAndAsk(philPage, 'Find that Kubernetes article I read last week.');
+    await openAgentAndAsk(philPage, FIND_UTTERANCE);
     await expect(
       philPage
         .getByText(/History enabled in Privacy|browser memory needs History/i)
@@ -141,26 +165,26 @@ test.describe('Browser memory (BRW)', () => {
     await expect(philPage.getByText(/Kubernetes operators deep dive/i)).toHaveCount(0);
   });
 
-  test('BRW-04: Clear / disable browser memory removes results', async ({ philPage }) => {
+  test('BRW-04: Clear / disable browser memory removes results', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    await openPhilTest(philPage, philExtensionId);
     await seedBrowserMemory(philPage, { historyGranted: true, withVisit: true });
 
-    const privacy = philPage.getByRole('heading', { name: /^Privacy$/i });
-    if (!(await privacy.isVisible().catch(() => false))) {
-      await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
-      await expect(privacy).toBeVisible({ timeout: 5_000 });
-    }
-    await expect(
-      philPage.getByRole('button', { name: /Clear browser memory|Disable browser memory/i }),
-    ).toBeVisible({ timeout: 5_000 });
+    await philPage.getByRole('button', { name: /^Privacy$/i }).click();
+    await expect(philPage.getByRole('heading', { name: /^Privacy$/i })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(philPage.getByRole('button', { name: 'Clear browser memory' })).toBeVisible({
+      timeout: 5_000,
+    });
 
     philPage.once('dialog', (d) => d.accept());
-    await philPage.getByRole('button', { name: /Clear browser memory/i }).click();
+    await philPage.getByRole('button', { name: 'Clear browser memory' }).click();
     await expect(philPage.getByText(/Browser memory cleared/i)).toBeVisible({ timeout: 10_000 });
 
-    const close = philPage.getByRole('button', { name: /Close settings/i });
-    if (await close.isVisible().catch(() => false)) await close.click();
-
-    await openAgentAndAsk(philPage, 'Find that Kubernetes article I read last week.');
+    await openAgentAndAsk(philPage, FIND_UTTERANCE);
     await expect(philPage.getByText(/Kubernetes operators deep dive/i)).toHaveCount(0, {
       timeout: 20_000,
     });

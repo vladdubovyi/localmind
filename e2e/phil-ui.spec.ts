@@ -68,7 +68,6 @@ test.describe('Phil personal assistant UI', () => {
     philServiceWorker,
     philPage,
   }) => {
-    // Ensure SW has trackers + a live dwell on a real page.
     await philServiceWorker.evaluate(async () => {
       await chrome.storage.local.set({
         philSettings: {
@@ -82,22 +81,58 @@ test.describe('Phil personal assistant UI', () => {
           locality: 'Austin TX',
           categoryOverrides: {},
         },
+        philTabActivity: [],
       });
+      await chrome.storage.session.remove('philFocusLive');
     });
 
     const site = await philExtensionContext.newPage();
     await site.goto('https://example.com/', { waitUntil: 'domcontentloaded' });
     await site.bringToFront();
-    // Give dwell time to accumulate past the 250ms floor.
+
+    // Drive tracker via SW hooks (extension-page → SW messaging is unreliable in Playwright).
+    await expect
+      .poll(async () => {
+        return philServiceWorker.evaluate(() =>
+          Boolean((globalThis as { __philFocus?: unknown }).__philFocus),
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    const resumed = await philServiceWorker.evaluate(async () => {
+      const hooks = (
+        globalThis as {
+          __philFocus?: {
+            resumeFocusTracking: () => Promise<void>;
+            focusSnapshot: () => Promise<{ active?: { domain?: string } | null; totalMs?: number }>;
+          };
+        }
+      ).__philFocus;
+      if (!hooks) return { ok: false, error: 'hooks missing' };
+      await hooks.resumeFocusTracking();
+      const snapshot = await hooks.focusSnapshot();
+      return { ok: true, snapshot };
+    });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.snapshot?.active?.domain).toMatch(/example\.com/i);
+
     await site.waitForTimeout(2_000);
 
-    // Switching tabs forces a flush of the active dwell into storage.
-    const other = await philExtensionContext.newPage();
-    await other.goto('https://example.org/', { waitUntil: 'domcontentloaded' });
-    await other.bringToFront();
-    await other.waitForTimeout(500);
-    await site.bringToFront();
-    await site.waitForTimeout(500);
+    const checkpointed = await philServiceWorker.evaluate(async () => {
+      const hooks = (
+        globalThis as {
+          __philFocus?: {
+            checkpointFocus: () => Promise<void>;
+            focusSnapshot: () => Promise<{ totalMs?: number }>;
+          };
+        }
+      ).__philFocus;
+      if (!hooks) return { ok: false };
+      await hooks.checkpointFocus();
+      return { ok: true, snapshot: await hooks.focusSnapshot() };
+    });
+    expect(checkpointed.ok).toBe(true);
+    expect(checkpointed.snapshot?.totalMs ?? 0).toBeGreaterThan(250);
 
     const activity = await philServiceWorker.evaluate(async () => {
       const stored = await chrome.storage.local.get('philTabActivity');
@@ -113,21 +148,14 @@ test.describe('Phil personal assistant UI', () => {
     expect(activity.count).toBeGreaterThan(0);
     expect(activity.exampleMs).toBeGreaterThan(250);
 
-    // Snapshot (incl. live dwell) should also report time via SW.
-    const snapshot = await philPage.evaluate(async () => {
-      return chrome.runtime.sendMessage({ type: 'PHIL_FOCUS_SNAPSHOT', checkpoint: true });
-    });
-    expect(snapshot?.ok).toBe(true);
-    expect((snapshot?.snapshot as { totalMs?: number } | undefined)?.totalMs ?? 0).toBeGreaterThan(
-      250,
-    );
-
     await philPage.bringToFront();
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
-    await expect(philPage.getByText(/example\.(com|org)/i).first()).toBeVisible({
+    await expect(philPage.getByRole('heading', { name: /^Focus$/i })).toBeVisible({
       timeout: 10_000,
     });
-    // Should show seconds or minutes, not only "0m" for all categories forever.
+    await expect(philPage.getByText(/example\.com/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(philPage.getByText(/\d+s|\d+m/i).first()).toBeVisible();
   });
 

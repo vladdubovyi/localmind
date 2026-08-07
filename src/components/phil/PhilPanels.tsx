@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { composeBriefingContent } from '@/background/phil/focusTracker';
-import type { FocusSnapshot } from '@/background/phil/focusTracker';
+import {
+  composeBriefingContent,
+  focusSnapshotFromStorage,
+  type FocusSnapshot,
+} from '@/background/phil/focusTracker';
 import {
   cancelReminderFromUi,
   completeGoalFromUi,
@@ -32,17 +35,29 @@ function formatMs(ms: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-async function fetchFocusSnapshot(checkpoint = false): Promise<FocusSnapshot | null> {
-  try {
-    const resp = (await chrome.runtime.sendMessage({
-      type: 'PHIL_FOCUS_SNAPSHOT',
-      checkpoint,
-    })) as { ok?: boolean; snapshot?: FocusSnapshot } | undefined;
-    if (resp?.ok && resp.snapshot) return resp.snapshot;
-  } catch {
-    // SW unavailable — fall through
+function withLiveElapsed(snapshot: FocusSnapshot, now = Date.now()): FocusSnapshot {
+  if (!snapshot.active) return snapshot;
+  const elapsedMs = Math.max(0, now - snapshot.active.startedAt);
+  const delta = elapsedMs - snapshot.active.elapsedMs;
+  if (delta === 0) return snapshot;
+  const byCategory = { ...snapshot.byCategory };
+  byCategory[snapshot.active.category] += delta;
+  const domainMap = new Map(snapshot.byDomain.map((d) => [d.domain, { ...d }]));
+  const prev = domainMap.get(snapshot.active.domain);
+  if (prev) prev.ms += delta;
+  else {
+    domainMap.set(snapshot.active.domain, {
+      domain: snapshot.active.domain,
+      ms: elapsedMs,
+      category: snapshot.active.category,
+    });
   }
-  return null;
+  return {
+    byCategory,
+    totalMs: snapshot.totalMs + delta,
+    byDomain: [...domainMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 25),
+    active: { ...snapshot.active, elapsedMs },
+  };
 }
 
 function usePhilStorageRefresh(onChange: () => void): void {
@@ -51,13 +66,14 @@ function usePhilStorageRefresh(onChange: () => void): void {
       changes: Record<string, chrome.storage.StorageChange>,
       area: string,
     ) => {
-      if (area !== 'local') return;
+      if (area !== 'local' && area !== 'session') return;
       if (
         changes.philReminders ||
         changes.philGoals ||
         changes.philSettings ||
         changes.philTabActivity ||
-        changes.philBriefings
+        changes.philBriefings ||
+        changes.philFocusLive
       ) {
         onChange();
       }
@@ -128,35 +144,26 @@ export function TodayPanel() {
 export function FocusPanel() {
   const [summary, setSummary] = useState<FocusSnapshot | null>(null);
 
-  const refresh = useCallback(async (checkpoint = false) => {
-    const snapshot = await fetchFocusSnapshot(checkpoint);
-    if (snapshot) {
-      setSummary(snapshot);
-      return;
-    }
-    // Last-resort: storage only (no live dwell — SW may be asleep).
-    const { focusSummaryToday } = await import('@/background/phil/focusTracker');
-    const base = await focusSummaryToday();
-    setSummary({ ...base, active: null });
+  const refresh = useCallback(async () => {
+    const snapshot = await focusSnapshotFromStorage();
+    setSummary(withLiveElapsed(snapshot));
   }, []);
 
   useEffect(() => {
-    void refresh(true);
-    // Poll live dwell from the service worker so counters move while this tab is open.
-    const id = window.setInterval(() => {
-      void refresh(false);
-    }, 2_000);
-    const checkpointId = window.setInterval(() => {
-      void refresh(true);
-    }, 15_000);
+    void refresh();
+    // Tick live dwell locally from startedAt — no SW messaging required.
+    const tickId = window.setInterval(() => {
+      setSummary((prev) => (prev ? withLiveElapsed(prev) : prev));
+    }, 1_000);
+    const refreshId = window.setInterval(() => {
+      void refresh();
+    }, 5_000);
     return () => {
-      window.clearInterval(id);
-      window.clearInterval(checkpointId);
+      window.clearInterval(tickId);
+      window.clearInterval(refreshId);
     };
   }, [refresh]);
-  usePhilStorageRefresh(() => {
-    void refresh(false);
-  });
+  usePhilStorageRefresh(refresh);
 
   if (!summary) {
     return <div className="grid h-full place-items-center text-sm text-muted">Loading focus…</div>;

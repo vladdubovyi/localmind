@@ -1,5 +1,18 @@
 /** Phil personal-assistant domain types. */
 
+export type {
+  ActiveProjectSelection,
+  MilestoneStatus,
+  PersistentProject,
+  ProjectKnowledgeEntry,
+  ProjectLinkFields,
+  ProjectMetrics,
+  ProjectMilestone,
+  ProjectScopedMemoryRef,
+  ProjectStatus,
+  ProjectTemplate,
+} from './projectTypes';
+
 export type FocusCategory = 'productive' | 'leisure' | 'neutral' | 'blocked';
 
 export interface TabActivitySession {
@@ -22,6 +35,8 @@ export interface Reminder {
   status: 'scheduled' | 'fired' | 'done' | 'cancelled';
   createdAt: number;
   updatedAt: number;
+  /** Optional Persistent Project link (plan §16 / Wave-0 freeze). */
+  projectId?: string;
 }
 
 export interface Goal {
@@ -34,6 +49,8 @@ export interface Goal {
   blockedDomains: string[];
   createdAt: number;
   updatedAt: number;
+  /** Optional Persistent Project link (plan §16 / Wave-0 freeze). */
+  projectId?: string;
 }
 
 export interface MorningBriefing {

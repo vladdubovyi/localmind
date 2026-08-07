@@ -20,3 +20,19 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 
 ## Entries
 
+### 2026-08-07 — Agent A1 (Wave 0 Contracts)
+- **Test IDs:** RTE-*, SKL-*, PRJ-01…06 (types only)
+- **Severity:** question
+- **Type:** open-question
+- **Summary:** A0 ADR (`docs/adr/0001-skills-router.md`) was not present when contracts were frozen; field names may need a same-day patch if ADR renames Skill/SkillPlan.
+- **Detail:** Froze additive types on top of shipped `AgentSkill` / `routeGoal` → `AgentRoute`. New `Skill` uses `routeScore` + `execute` + `confirmationLevel`; `Skill.id` is `string` (dotted ids) while registry keeps `SkillId` union intact. `RouteContext` adds `utterance?`, `activeProjectId?`, `pageUrl?`, `selection?`, `modelReady?` without removing required `goal`. `NotImplementedError` lives in `src/agent/router/types.ts`. Sync with A0 when ADR lands.
+- **Suggested owner:** A0 → A1 follow-up; B1 consumes
+
+### 2026-08-07 — Agent A1 (Wave 0 Contracts)
+- **Test IDs:** PRJ-JH-*, PRJ-LP-*
+- **Severity:** should-fix
+- **Type:** deferred
+- **Summary:** `ProjectMetrics` is an open bag; job-hunt application status machine and Life Planner subproject nesting are only lightly typed.
+- **Detail:** Core `PersistentProject` includes `parentProjectId?` and milestone `parentMilestoneId?`, plus optional salary/location/techStack metrics keys. Full application status enum (`saved → drafted → applied → follow-up`) and richer template metrics were left for B2/C1 so A1 does not over-constrain storage. Reminders/Goals gained optional `projectId?` on existing `src/phil/types.ts` interfaces.
+- **Suggested owner:** B2 / C1
+

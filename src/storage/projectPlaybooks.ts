@@ -9,7 +9,10 @@ import type {
   ProjectMilestone,
   ProjectTemplate,
 } from '@/phil/projectTypes';
-import { uid } from '@/storage/phil';
+
+function uid(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+}
 
 const MS_DAY = 86_400_000;
 
@@ -133,8 +136,13 @@ export function researchPlaybook(title: string, now = Date.now()) {
       ms('Resolve conflicting claims', 'not_started', now),
       ms('Recommendation + remaining unknowns', 'not_started', now),
     ],
-    metrics: { topic: title, comparisonTable: [] as ComparisonRow[], conflicts: [] as string[], recommendation: null } as ProjectMetrics,
-    statusSummary: 'Research project ready — knowledge store empty but ready for EV / topic capture.',
+    metrics: {
+      topic: title,
+      comparisonTable: [] as ComparisonRow[],
+      conflicts: [] as string[],
+      recommendation: null,
+    } as ProjectMetrics,
+    statusSummary: `Research project ready — knowledge store empty but ready for EV / topic capture (${title}).`,
     targetDate: now + 180 * MS_DAY,
   };
 }
@@ -174,7 +182,7 @@ export function homeBuyingPlaybook(title: string, now = Date.now()) {
       banksCompared: 0, apartmentsViewed: 0, apartmentsShortlisted: 0,
       taxesEstimated: false, insuranceResearched: false, lawyerSelected: false,
     } as ProjectMetrics,
-    statusSummary: 'Home purchase project — workstreams for mortgage, apartments, taxes, insurance, lawyer, and more.',
+    statusSummary: `Home purchase project “${title}” — workstreams for mortgage, apartments, taxes, insurance, lawyer, and more.`,
     targetDate: now + 120 * MS_DAY,
   };
 }

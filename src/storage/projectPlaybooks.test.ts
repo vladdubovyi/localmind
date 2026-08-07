@@ -1,5 +1,6 @@
 /**
  * Unit tests for project template playbooks (C1).
+ * Imports playbooks via relative path; projectTypes uses type-only imports.
  */
 import assert from 'node:assert/strict';
 import {
@@ -79,8 +80,7 @@ import type { PersistentProject } from '../phil/projectTypes.ts';
     milestones: [], linkedGoalIds: [], linkedReminderIds: [], knowledgeEntries: entries,
     metrics: { conflicts }, lastProgressAt: 1,
   } as PersistentProject;
-  const rec = researchRecommendation(project);
-  assert.match(rec, /trade-offs|remaining unknowns|recommendation/i);
+  assert.match(researchRecommendation(project), /trade-offs|remaining unknowns|recommendation/i);
 }
 
 {
@@ -94,8 +94,7 @@ import type { PersistentProject } from '../phil/projectTypes.ts';
     },
     lastProgressAt: 1,
   } as PersistentProject;
-  const standing = homeStandingSummary(project);
-  assert.match(standing, /Where am I|timeline|next week/i);
+  assert.match(homeStandingSummary(project), /Where am I|timeline|next week/i);
 }
 
 console.log('storage/projectPlaybooks.test.ts OK');

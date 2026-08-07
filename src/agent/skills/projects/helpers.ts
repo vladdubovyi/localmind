@@ -8,7 +8,11 @@ export function goalOf(ctx: RouteContext): string {
   return (ctx.utterance ?? ctx.goal ?? '').trim();
 }
 export function call(name: string, args: Record<string, unknown> = {}): ToolCall {
-  return { name, arguments: args };
+  return {
+    id: `call_${Math.random().toString(36).slice(2, 10)}`,
+    name,
+    arguments: args,
+  };
 }
 export function okMessage(message: string, artifacts?: Record<string, unknown>): SkillExecuteResult {
   return { ok: true, message, artifacts };

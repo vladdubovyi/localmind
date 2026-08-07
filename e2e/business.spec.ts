@@ -124,8 +124,7 @@ test.describe('Business (BIZ)', () => {
     }
   });
 
-  // TODO(B4/B5): Feedback channel + analytics/crash toggles in Privacy/Settings.
-  // A2 preferred fail-on-missing; A3 uses skip so static BIZ greens stay CI-clean until B4/B5.
+  // BIZ-05…08: Feedback + analytics/crash defaults (Privacy dashboard).
   test('BIZ-05: Feedback button in extension', async ({ philPage }) => {
     await philPage.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(philPage.getByRole('link', { name: /^Feedback$/i })).toBeVisible({ timeout: 5_000 });
@@ -151,8 +150,6 @@ test.describe('Business (BIZ)', () => {
     await expect(checkbox).toBeVisible({ timeout: 5_000 });
     await checkbox.check();
     await expect(checkbox).toBeChecked();
-  });
-
   });
 
   test('BIZ-09: Demo video script exists and matches suite order', async () => {

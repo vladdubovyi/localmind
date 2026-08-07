@@ -162,8 +162,8 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 ### 2026-08-07 — Agent B3 (Onboarding + Errors) — e2e evidence
 - **Test IDs:** ONB-01…08, ERR-01…04
 - **Severity:** FYI
-- **Type:** skipped-test | deferred
-- **Summary:** Local Playwright: ONB-01/02/03/07 + ERR-01 green; remaining IDs depend on WebGPU/model harness depth.
-- **Detail:** Re-ran after keeping model catalog visible under inline WebGPU recovery (no GPU in this env). ONB-08 wizard-step persistence fixed via clearing `setupWizardStep`. ERR-01 uses isolated page so GPU stub does not poison shared `philPage`. ERR-02/03/04 assert product copy on model gate when Agent empty state is gated; full mid-load / live SERP harness still deferred.
-- **Suggested owner:** D1 (GPU CI), C3 (live research ERR-03)
+- **Type:** deferred
+- **Summary:** Local Playwright: **all ONB-01…08 and ERR-01…04 green** (12/12) on this branch.
+- **Detail:** Ran `playwright test e2e/onboarding.spec.ts e2e/errors.spec.ts` → 12 passed. Environment has no WebGPU; model gate shows inline WebGPU recovery + catalog (Recommended/Download/Google/Retry copy). ERR-02/03 assert copy/UI affordances rather than forced mid-load / live empty-SERP agent runs. Full Calendar OAuth sync still stubbed via `calendarEnabled`. ERR-01 uses isolated page for GPU stub.
+- **Suggested owner:** D1 (real GPU/model interrupt harness), C3 (live research + Calendar API sync)
 

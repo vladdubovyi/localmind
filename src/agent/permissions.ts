@@ -74,6 +74,31 @@ export async function requestGmailPermissions(): Promise<boolean> {
   }
 }
 
+/**
+ * Calendar connect for ONB-08.
+ *
+ * Full Google Calendar OAuth + event sync is deferred (Wave2 / C3 planning).
+ * This records a connect grant the Privacy dashboard and planning skills can read
+ * via `agentSettings.calendarEnabled`. Host access for Google APIs is requested
+ * when identity is not yet granted (same surface as Gmail OAuth hosts).
+ */
+export async function requestCalendarPermissions(): Promise<boolean> {
+  try {
+    const state = await getAgentPermissionState();
+    if (!state.identity) {
+      const ok = await chrome.permissions.request({
+        permissions: [...GMAIL_PERMISSIONS] as chrome.runtime.ManifestPermission[],
+        origins: [...GMAIL_ORIGINS],
+      });
+      if (!ok) return false;
+    }
+    // Connect flag is persisted by the wizard via saveAgentSettings({ calendarEnabled: true }).
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Debugger cannot be requested at runtime in MV3. */
 export async function requestDebuggerPermission(): Promise<boolean> {
   return false;

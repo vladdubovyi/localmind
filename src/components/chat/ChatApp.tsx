@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Bot, PanelRightOpen, Settings2 } from 'lucide-react';
-import { AgentPanel } from '@/components/agent/AgentPanel';
+import { Bot, Keyboard, PanelRightOpen, Settings2 } from 'lucide-react';
+import { AgentPanel, type AgentSeedGoal } from '@/components/agent/AgentPanel';
+import { RouterTestHarness } from '@/components/agent/RouterTestHarness';
 import { BrandMark } from '@/components/common/BrandMark';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ShortcutsCheatsheet } from '@/components/common/ShortcutsCheatsheet';
 import {
   FocusPanel,
   GoalsPanel,
@@ -9,6 +12,10 @@ import {
   RemindersPanel,
   TodayPanel,
 } from '@/components/phil/PhilPanels';
+import { ProjectsPanel } from '@/components/phil/ProjectsPanel';
+import { PrivacyPanel } from '@/components/phil/PrivacyPanel';
+import { ModelRestoring } from '@/components/onboarding/ModelRestoring';
+import { Onboarding } from '@/components/onboarding/Onboarding';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import {
@@ -16,8 +23,10 @@ import {
   shouldShowFullOnboarding,
 } from '@/ai/engineLifecycle';
 import { useChat } from '@/hooks/useChat';
+import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
 import { usePhilQuickIntent } from '@/hooks/usePhilQuickIntent';
+import { getSelectionAction } from '@/prompts/selection';
 import { getOnboardingState } from '@/storage/onboarding';
 import type { PhilQuickIntent } from '@/phil/types';
 import type { PendingSelectionAction } from '@/types';
@@ -28,7 +37,7 @@ interface ChatAppProps {
   variant: 'popup' | 'sidebar';
 }
 
-type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'phil';
+type UiTab = 'agent' | 'today' | 'focus' | 'goals' | 'reminders' | 'projects' | 'phil' | 'privacy';
 
 export function ChatApp({ variant }: ChatAppProps) {
   const {
@@ -40,12 +49,14 @@ export function ChatApp({ variant }: ChatAppProps) {
     loadingFromCache,
     downloadAndLoad,
     updateSettings,
-    setError,
   } = useChat({ surface: variant });
 
+  const { webgpu, webgpuReady } = useDeviceCapabilities();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('agent');
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
+  const [agentSeed, setAgentSeed] = useState<AgentSeedGoal | null>(null);
   const queuedSelection = useRef<PendingSelectionAction | null>(null);
 
   useEffect(() => {
@@ -56,15 +67,19 @@ export function ChatApp({ variant }: ChatAppProps) {
     })();
   }, [phase]);
 
-  const handlePendingSelection = useCallback(
-    async (_pending: PendingSelectionAction) => {
-      setUiTab('agent');
-      setError(
-        'Selection actions open Agent. Ask Phil what to do with the selection, or enable Agent tools for the page.',
-      );
-    },
-    [setError],
-  );
+  const handlePendingSelection = useCallback(async (pending: PendingSelectionAction) => {
+    setUiTab('agent');
+    const def = getSelectionAction(pending.action);
+    const clipped = pending.text.slice(0, 8000);
+    const label = def?.label ?? pending.action;
+    const prompt =
+      def?.buildPrompt(clipped) ??
+      `${label} the following selection:\n\n--- SELECTED TEXT ---\n${clipped}\n--- END ---`;
+    setAgentSeed({
+      goal: prompt,
+      autoRun: true,
+    });
+  }, []);
 
   usePendingSelection(variant === 'sidebar' || variant === 'popup', handlePendingSelection);
 
@@ -86,6 +101,17 @@ export function ChatApp({ variant }: ChatAppProps) {
       case 'remind':
         setUiTab('reminders');
         break;
+      case 'open_privacy':
+        setUiTab('privacy');
+        break;
+      case 'open_phil_settings':
+        setUiTab('phil');
+        break;
+      case 'summarize_page':
+        setUiTab('agent');
+        setAgentSeed({ goal: 'Summarize this page', autoRun: true });
+        break;
+      case 'open_agent':
       default:
         setUiTab('agent');
     }
@@ -97,6 +123,20 @@ export function ChatApp({ variant }: ChatAppProps) {
     if (phase !== 'ready' || !queuedSelection.current) return;
     queuedSelection.current = null;
   }, [phase]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const openSidePanel = async () => {
     await openSidePanelFromPage();
@@ -110,7 +150,7 @@ export function ChatApp({ variant }: ChatAppProps) {
   if (!settings || !conversation || phase === 'checking' || setupDone === null) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">
-        <div className="animate-pulse-soft">Starting Phil…</div>
+        <div className="animate-pulse-soft">Starting Phil...</div>
       </div>
     );
   }
@@ -124,24 +164,28 @@ export function ChatApp({ variant }: ChatAppProps) {
   }
 
   const modelReady = phase === 'ready';
-  const restoring =
-    isRestoringEngine(phase, loadingFromCache) ||
-    shouldShowFullOnboarding(phase, loadingFromCache);
-  const restoreLabel =
-    progress?.text ||
-    (loadingFromCache
-      ? 'Restoring model in the background…'
-      : phase === 'downloading'
-        ? 'Downloading model in the background…'
-        : 'Preparing model in the background…');
+  const showFullOnboarding = shouldShowFullOnboarding(phase, loadingFromCache);
+  const showRestoring = isRestoringEngine(phase, loadingFromCache);
+  const webgpuBlocked = webgpuReady && webgpu === false;
+  // Wave2 C3 / C4: e2e (?philTest=1) exercises finalizeDirectAnswer + Agent fast-path
+  // skills (reminders, browser memory, workflows) without WebGPU. Production still gates.
+  const philTestMode =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('philTest') ||
+      Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
+  const showModelGate =
+    uiTab === 'agent' &&
+    !philTestMode &&
+    (webgpuBlocked || showFullOnboarding || showRestoring);
 
   return (
     <div
       className={cn(
-        'relative flex h-full flex-col overflow-hidden',
+        'relative flex h-full max-w-full min-w-0 flex-col overflow-hidden',
         variant === 'popup' ? 'w-[380px]' : 'w-full',
       )}
     >
+      <RouterTestHarness />
       <header className="flex items-center justify-between gap-2 border-b border-border-subtle px-3 py-2.5">
         <BrandMark size="sm" />
         <div className="flex items-center gap-1">
@@ -150,6 +194,9 @@ export function ChatApp({ variant }: ChatAppProps) {
               <PanelRightOpen size={15} />
             </IconButton>
           )}
+          <IconButton label="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}>
+            <Keyboard size={15} />
+          </IconButton>
           <IconButton label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings2 size={15} />
           </IconButton>
@@ -171,50 +218,108 @@ export function ChatApp({ variant }: ChatAppProps) {
           onClick={() => setUiTab('reminders')}
           label="Reminders"
         />
+        <TabChip
+          active={uiTab === 'projects'}
+          onClick={() => setUiTab('projects')}
+          label="Projects"
+        />
         <TabChip active={uiTab === 'phil'} onClick={() => setUiTab('phil')} label="Phil" />
+        <TabChip
+          active={uiTab === 'privacy'}
+          onClick={() => setUiTab('privacy')}
+          label="Privacy"
+        />
       </div>
 
-      {restoring && (
-        <div className="shrink-0 border-b border-border-subtle bg-panel/60 px-3 py-1.5 text-[11px] text-muted">
-          {restoreLabel}
-          {error ? ` · ${error}` : ''}
-          {phase === 'error' && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="text-accent hover:underline"
-                onClick={() => void downloadAndLoad(settings.selectedModelId)}
-              >
-                Retry
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-border-subtle px-3 py-1 text-[11px] text-muted">
+        <button
+          type="button"
+          onClick={() => setShortcutsOpen(true)}
+          className="shrink-0 font-medium text-accent hover:underline"
+        >
+          Shortcuts
+        </button>
+        <span className="min-w-0 truncate">
+          Focus Agent · Summarize page · Open Phil — press ? for the command cheatsheet
+        </span>
+      </div>
 
       {uiTab === 'agent' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentPanel modelReady={modelReady} />
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          {showModelGate ? (
+            webgpuBlocked || showFullOnboarding ? (
+              <Onboarding
+                selectedModelId={settings.selectedModelId}
+                progress={progress}
+                error={
+                  webgpuBlocked
+                    ? 'WebGPU is not available. Local AI needs Chrome/Edge with working GPU hardware.'
+                    : error
+                }
+                isDownloading={phase === 'downloading'}
+                alreadyCached={loadingFromCache}
+                onSelectModel={(id) => void updateSettings({ selectedModelId: id })}
+                onDownload={(id) => void downloadAndLoad(id)}
+                onContinueWithoutModel={() => setUiTab('goals')}
+              />
+            ) : (
+              <ModelRestoring
+                progress={progress}
+                error={error}
+                selectedModelId={settings.selectedModelId}
+                onRetry={() => void downloadAndLoad(settings.selectedModelId)}
+                onTrySmaller={(id) => {
+                  void updateSettings({ selectedModelId: id });
+                  void downloadAndLoad(id);
+                }}
+              />
+            )
+          ) : (
+            <AgentPanel
+              modelReady={modelReady}
+              seedGoal={agentSeed}
+              onSeedConsumed={() => setAgentSeed(null)}
+              memoryEnabled={settings.memoryEnabled}
+              emptyHint={
+                <EmptyState
+                  title="What should I do in your browser?"
+                  body="I can summarize this page, dig through Gmail, or help you stay on a goal — say the word."
+                  ctaLabel="Summarize this page"
+                  onCta={() => setAgentSeed({ goal: 'Summarize this page', autoRun: true })}
+                />
+              }
+            />
+          )}
         </div>
       ) : uiTab === 'today' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <TodayPanel />
         </div>
       ) : uiTab === 'focus' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <FocusPanel />
         </div>
       ) : uiTab === 'goals' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <GoalsPanel />
         </div>
       ) : uiTab === 'reminders' ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <RemindersPanel />
         </div>
+      ) : uiTab === 'projects' ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <ProjectsPanel />
+        </div>
+      ) : uiTab === 'privacy' ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <PrivacyPanel
+            settings={settings}
+            onChange={(partial) => void updateSettings(partial)}
+          />
+        </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <PhilSettingsPanel />
         </div>
       )}
@@ -228,7 +333,10 @@ export function ChatApp({ variant }: ChatAppProps) {
           setSettingsOpen(false);
           void downloadAndLoad(id);
         }}
+        onOpenPrivacy={() => setUiTab('privacy')}
       />
+
+      <ShortcutsCheatsheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }
@@ -249,7 +357,7 @@ function TabChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition',
+        'inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition',
         active ? 'bg-accent text-ink' : 'text-muted hover:bg-panel hover:text-fg',
       )}
     >

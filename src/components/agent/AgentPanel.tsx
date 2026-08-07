@@ -9,17 +9,30 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgent } from '@/hooks/useAgent';
 import { useAgentSettings } from '@/hooks/useAgentSettings';
 import { getTool } from '@/agent/tools';
 import type { AgentSettings, AgentStep } from '@/agent/types';
+import { MemoriesPanel } from '@/components/agent/MemoriesPanel';
+import { rememberMemory } from '@/storage/memory';
 import { cn } from '@/utils';
+
+export interface AgentSeedGoal {
+  goal: string;
+  /** When true, submit immediately once Agent is enabled and idle. */
+  autoRun?: boolean;
+}
 
 interface AgentPanelProps {
   modelReady: boolean;
+  seedGoal?: AgentSeedGoal | null;
+  onSeedConsumed?: () => void;
+  memoryEnabled?: boolean;
+  /** Optional POL-01 empty-state override (assistant voice + CTA). */
+  emptyHint?: ReactNode;
 }
 
 function StepBody({ step }: { step: AgentStep }) {
@@ -35,6 +48,19 @@ function StepBody({ step }: { step: AgentStep }) {
     return (
       <div className="max-w-full whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg-dim [overflow-wrap:anywhere]">
         {step.content}
+      </div>
+    );
+  }
+
+  if (step.kind === 'error') {
+    return (
+      <div className="max-w-full space-y-1.5 text-sm [overflow-wrap:anywhere]">
+        <p className="whitespace-pre-wrap break-words">
+          What went wrong: {step.content.replace(/^Milestone\b.*$/gim, '').trim() || step.content}
+        </p>
+        <p className="text-[11px] text-danger/80">
+          Next: Retry the action, check permissions, or open Privacy to review grants.
+        </p>
       </div>
     );
   }
@@ -80,7 +106,32 @@ function stepLabel(step: AgentStep): string {
   }
 }
 
-export function AgentPanel({ modelReady }: AgentPanelProps) {
+/** Prefer openUrl from the latest browser_memory_search tool result before this final step. */
+function findBrowserMemoryOpenUrl(steps: AgentStep[], finalStepId: string): string | null {
+  const idx = steps.findIndex((s) => s.id === finalStepId);
+  const slice = idx >= 0 ? steps.slice(0, idx + 1) : steps;
+  for (let i = slice.length - 1; i >= 0; i -= 1) {
+    const step = slice[i];
+    if (step?.kind !== 'tool_result' || step.toolCall?.name !== 'browser_memory_search') continue;
+    const data = step.toolResult?.data as
+      | { openUrl?: string; hits?: Array<{ url?: string }> }
+      | undefined;
+    if (data?.openUrl && /^https?:/i.test(data.openUrl)) return data.openUrl;
+    const hitUrl = data?.hits?.[0]?.url;
+    if (hitUrl && /^https?:/i.test(hitUrl)) return hitUrl;
+  }
+  const final = steps.find((s) => s.id === finalStepId);
+  const match = final?.content?.match(/https?:\/\/[^\s)>\]"']+/i);
+  return match?.[0] ?? null;
+}
+
+export function AgentPanel({
+  modelReady,
+  seedGoal,
+  onSeedConsumed,
+  memoryEnabled = false,
+  emptyHint,
+}: AgentPanelProps) {
   const {
     settings,
     permissions,
@@ -97,8 +148,10 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     useAgent();
   const [goal, setGoal] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [rememberStatus, setRememberStatus] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const seedHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     const el = transcriptRef.current;
@@ -113,6 +166,25 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [goal]);
 
+  useEffect(() => {
+    if (!seedGoal?.goal || !settings?.enabled || running || busy) return;
+    if (seedHandledRef.current === seedGoal.goal) return;
+    seedHandledRef.current = seedGoal.goal;
+    const text = seedGoal.goal.trim();
+    if (!text) {
+      onSeedConsumed?.();
+      return;
+    }
+    if (seedGoal.autoRun) {
+      setGoal('');
+      onSeedConsumed?.();
+      void run(text);
+      return;
+    }
+    setGoal(text);
+    onSeedConsumed?.();
+  }, [seedGoal, settings?.enabled, running, busy, run, onSeedConsumed]);
+
   if (!settings) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">Loading agent…</div>
@@ -124,6 +196,26 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
     if (!text || running || busy || !settings.enabled) return;
     setGoal('');
     void run(text);
+  };
+
+  const runQuick = (text: string) => {
+    if (!text || running || busy || !settings.enabled) return;
+    setGoal('');
+    void run(text);
+  };
+
+  const rememberFromStep = async (content: string) => {
+    setRememberStatus(null);
+    if (!memoryEnabled) {
+      setRememberStatus('Memory is off — enable it in Privacy / Settings.');
+      return;
+    }
+    try {
+      const entry = await rememberMemory(content.slice(0, 2000), { source: 'message' });
+      setRememberStatus(`Remembered: ${entry.text.slice(0, 80)}`);
+    } catch (e) {
+      setRememberStatus(e instanceof Error ? e.message : 'Remember failed');
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -161,6 +253,10 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
             {showSettings ? 'Hide settings' : 'Settings'}
           </button>
         </div>
+      </div>
+
+      <div className="shrink-0">
+        <MemoriesPanel memoryEnabled={memoryEnabled} />
       </div>
 
       {showSettings && (
@@ -279,10 +375,44 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
       >
         {steps.length === 0 && (
           <div className="rounded-2xl px-1 py-6 text-center text-sm text-muted">
-            <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
-            <p className="mt-2 text-[12px]">
-              e.g. “Which 5 emails did I get last?” or “Open Wikipedia WebGPU and summarize it.”
-            </p>
+            {emptyHint ?? (
+              <>
+                <p className="text-fg-dim">Ask the agent to do something in your browser.</p>
+                <p className="mt-2 text-[12px]">
+                  e.g. “Which 5 emails did I get last?” or “Research X on Google and summarize.”
+                </p>
+                <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                  If something goes wrong, Phil shows what went wrong plus a next step — Retry, check
+                  permissions, or open Privacy. Web research uses Google by default.
+                </p>
+              </>
+            )}
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-accent ring-1 ring-accent/30 hover:bg-accent/25 disabled:opacity-40"
+                onClick={() => runQuick('Summarize this page')}
+              >
+                Summarize this page
+              </button>
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-panel px-2.5 py-1.5 text-xs font-medium text-fg-dim ring-1 ring-border hover:text-fg disabled:opacity-40"
+                onClick={() => runQuick('Explain this page')}
+              >
+                Explain this page
+              </button>
+              <button
+                type="button"
+                disabled={running || busy || !settings.enabled}
+                className="rounded-xl bg-panel px-2.5 py-1.5 text-xs font-medium text-fg-dim ring-1 ring-border hover:text-fg disabled:opacity-40"
+                onClick={() => runQuick('Ask a question about this page: What is the main topic?')}
+              >
+                Ask about this page
+              </button>
+            </div>
           </div>
         )}
 
@@ -318,10 +448,48 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
                   </div>
                 )}
                 <StepBody step={s} />
+                {s.kind === 'final' && s.content && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10" onClick={() => void rememberFromStep(s.content)}>
+                      Remember
+                    </button>
+                    {(() => {
+                      const openUrl = findBrowserMemoryOpenUrl(steps, s.id);
+                      if (!openUrl) return null;
+                      return (
+                        <button
+                          type="button"
+                          className="rounded-lg px-2 py-1 text-[11px] text-accent ring-1 ring-accent/30 hover:bg-accent/10"
+                          onClick={() => {
+                            void (async () => {
+                              try {
+                                await chrome.runtime.sendMessage({
+                                  type: 'AGENT_EXECUTE_TOOL',
+                                  call: {
+                                    id: `open_${Date.now().toString(36)}`,
+                                    name: 'tabs_create',
+                                    arguments: { url: openUrl, active: true },
+                                  },
+                                  confirmed: true,
+                                });
+                              } catch {
+                                await chrome.tabs.create({ url: openUrl, active: true });
+                              }
+                            })();
+                          }}
+                        >
+                          Open
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
+
+        {rememberStatus && <div className="px-1 text-[11px] text-accent">{rememberStatus}</div>}
 
         {running && (
           <div className="flex items-center gap-2 px-1 text-xs text-muted">
@@ -359,16 +527,26 @@ export function AgentPanel({ modelReady }: AgentPanelProps) {
         </div>
       )}
 
-      {(error || (!modelReady && settings.enabled && !running)) && (
+{(error || (!modelReady && settings.enabled && !running)) && (
         <div
           className={cn(
-            'mx-3 mb-2 shrink-0 break-words rounded-xl px-3 py-2 text-xs [overflow-wrap:anywhere]',
+            'mx-3 mb-2 shrink-0 space-y-2 break-words rounded-xl px-3 py-2 text-xs [overflow-wrap:anywhere]',
             error
               ? 'border border-danger/30 bg-danger/10 text-danger'
               : 'border border-border-subtle bg-panel/70 text-muted',
           )}
+          role={error ? 'alert' : undefined}
         >
-          {error || 'Model is restoring in the background — you can send now; Phil will think until it’s ready.'}
+          <p>
+            {error
+              ? `What went wrong: ${error}`
+              : 'Model is restoring in the background — you can send now; Phil will think until it is ready.'}
+          </p>
+          {error && (
+            <p className="text-muted">
+              Next: Retry your request, check permissions, or open Privacy to review grants.
+            </p>
+          )}
         </div>
       )}
 

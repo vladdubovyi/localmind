@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures/extension';
 
 test.describe('Gmail product — list recent mail via agent chat', () => {
-  test('agent lists recent emails from the Gmail tab', async ({
+  test('CORE-08: Gmail list/read path (fixture)', async ({
     agentPage,
     gmailPage,
     sendAgentGoal,

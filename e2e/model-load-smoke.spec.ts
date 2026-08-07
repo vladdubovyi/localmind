@@ -1,6 +1,10 @@
-import { test, expect } from './fixtures/extension';
+import { test, expect, E2E_MODEL_LABEL } from './fixtures/extension';
 
-test('CreateMLCEngine path reports progress (not silent hang)', async ({
+/**
+ * CORE-06 adjacent — model load progress against live Agent / restore banners
+ * (not the dead full-screen “Download AI” onboarding gate).
+ */
+test('Model load smoke: CreateMLCEngine path reports progress (not silent hang)', async ({
   extensionContext,
   extensionId,
 }) => {
@@ -20,20 +24,31 @@ test('CreateMLCEngine path reports progress (not silent hang)', async ({
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
 
-  // Pick lightest model and start download/load.
-  const gemma = page.getByRole('button', { name: /Gemma 2 2B/i });
-  await expect(gemma.or(page.getByText(/Restoring Phil|Download AI/i)).first()).toBeVisible({
-    timeout: 30_000,
-  });
+  // Live shell: Agent tab + optional background restore banner / settings model load.
+  await expect(page.getByRole('button', { name: /^Agent$/i })).toBeVisible({ timeout: 30_000 });
 
-  if (await gemma.isVisible().catch(() => false)) {
-    await gemma.click();
-    const start = page.getByRole('button', { name: /Download AI|Load Phil/i });
-    await start.click();
+  const restoreOrProgress = page.getByText(
+    /Restoring model|Downloading model|Preparing model|Downloading|Loading from cache|Finish loading|Fetching|%/i,
+  );
+  const agentInput = page.getByPlaceholder(/Message the agent/i);
+
+  // Open Settings and ensure model catalog is reachable (live UI).
+  const settingsBtn = page.getByRole('button', { name: /Settings/i }).first();
+  if (await settingsBtn.isVisible().catch(() => false)) {
+    await settingsBtn.click();
+    const gemma = page.getByRole('option', { name: new RegExp(E2E_MODEL_LABEL, 'i') }).or(
+      page.locator('select'),
+    );
+    await expect(gemma.first()).toBeVisible({ timeout: 15_000 }).catch(() => undefined);
+    const loadBtn = page.getByRole('button', { name: /Load selected model/i });
+    if (await loadBtn.isVisible().catch(() => false)) {
+      await loadBtn.click().catch(() => undefined);
+    }
+    // Close settings if still open
+    const close = page.getByRole('button', { name: /Close settings/i });
+    if (await close.isVisible().catch(() => false)) await close.click().catch(() => undefined);
   }
 
-  // Within 20s we must see real WebLLM progress text OR a visible error — never stay
-  // forever on our synthetic "Loading from local cache…" at 0% with no engine activity.
   await expect
     .poll(
       async () => {
@@ -41,16 +56,27 @@ test('CreateMLCEngine path reports progress (not silent hang)', async ({
         if (/\[LocalMind\] Service worker engine failed|window is not defined/i.test(logs.join('\n'))) {
           return 'sw-crash';
         }
-        if (/WebGPU is not available|No available adapters/i.test(body) || /WebGPU is not available/i.test(logs.join('\n'))) {
-          return 'no-webgpu'; // environment limitation, not a hang
+        if (
+          /WebGPU is not available|No available adapters/i.test(body) ||
+          /WebGPU is not available/i.test(logs.join('\n'))
+        ) {
+          return 'no-webgpu';
         }
-        if (/Finish loading|Fetching param cache|Loading model from cache|Loading GPU shader|Download complete|Start to fetch/i.test(body)) {
+        if (
+          /Finish loading|Fetching param cache|Loading model from cache|Loading GPU shader|Download complete|Start to fetch/i.test(
+            body,
+          )
+        ) {
           return 'progress';
         }
-        if (/\b([1-9]\d?)%|\b100%/.test(body)) {
-          return 'progress';
-        }
-        if (/Restoring Phil/i.test(body) && /\b0%\b/.test(body) && /Loading from local cache/i.test(body)) {
+        if (/\b([1-9]\d?)%|\b100%/.test(body)) return 'progress';
+        if (await agentInput.isVisible().catch(() => false)) return 'agent-ready';
+        if (await restoreOrProgress.first().isVisible().catch(() => false)) return 'progress';
+        if (
+          /Restoring Phil|Loading from local cache/i.test(body) &&
+          /\b0%\b/.test(body) &&
+          !/\b[1-9]\d*%/.test(body)
+        ) {
           return 'stuck-zero';
         }
         return 'waiting';

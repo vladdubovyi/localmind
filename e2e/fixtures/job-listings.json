@@ -1,0 +1,7 @@
+[
+  {"id":"job-1","title":"Senior Backend Engineer","company":"Nordic Cloud","salary":130000,"currency":"EUR","location":"remote","stack":["backend","Node.js","TypeScript"]},
+  {"id":"job-2","title":"Backend Engineer","company":"Duplicate Corp","salary":125000,"currency":"EUR","location":"remote","stack":["backend","Go"]},
+  {"id":"job-2","title":"Backend Engineer (repost)","company":"Duplicate Corp","salary":125000,"currency":"EUR","location":"remote","stack":["backend","Go"]},
+  {"id":"job-3","title":"Platform Engineer","company":"EU Fintech","salary":140000,"currency":"EUR","location":"remote EU","stack":["backend","Python","TypeScript"]},
+  {"id":"job-4","title":"Junior Frontend","company":"LowBall","salary":55000,"currency":"EUR","location":"on-site Berlin","stack":["frontend"]}
+]

@@ -1,9 +1,13 @@
 import { categorizeDomain, domainFromUrl } from '@/phil/categories';
+import {
+  isInQuietHours,
+  nudgeCooldownMs,
+  proactiveAllowed,
+} from '@/phil/notificationPolicy';
 import type { FocusCategory } from '@/phil/types';
 import {
   getPhilSettings,
   listGoals,
-  listReminders,
   listTabActivitySince,
   putTabActivity,
   startOfLocalDay,
@@ -117,6 +121,12 @@ async function flushActive(now = Date.now()): Promise<void> {
     await publishLive(null);
     return;
   }
+  const browseVisit = {
+    url: active.url,
+    title: active.title || active.domain,
+    visitedAt: active.startedAt,
+    source: 'tab' as const,
+  };
   await putTabActivity({
     id: uid('act'),
     domain: active.domain,
@@ -128,6 +138,10 @@ async function flushActive(now = Date.now()): Promise<void> {
     category: active.category,
   });
 
+  void import('@/storage/browserMemory')
+    .then(({ upsertBrowseVisits }) => upsertBrowseVisits([browseVisit]))
+    .catch(() => undefined);
+
   const session = active;
   active = null;
   await publishLive(null);
@@ -137,6 +151,8 @@ async function flushActive(now = Date.now()): Promise<void> {
 async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promise<void> {
   const settings = await getPhilSettings();
   if (!settings.nudgesEnabled) return;
+  if (!proactiveAllowed(settings.notificationFrequency)) return;
+  if (isInQuietHours(settings, new Date(now))) return;
 
   const goals = (await listGoals()).filter((g) => g.status === 'active');
   if (!goals.length) {
@@ -175,7 +191,7 @@ async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promis
   }
 
   if (leisureStreakMs < settings.nudgeThresholdMs) return;
-  if (now - lastNudgeAt < 10 * 60_000) return;
+  if (now - lastNudgeAt < nudgeCooldownMs(settings.notificationFrequency)) return;
 
   lastNudgeAt = now;
   leisureStreakMs = 0;
@@ -527,62 +543,5 @@ export function installFocusTestHooks(): void {
   };
 }
 
-export async function composeBriefingContent(): Promise<{
-  content: string;
-  sources: {
-    reminderCount: number;
-    activeGoalCount: number;
-    focusMs: { productive: number; leisure: number; neutral: number; blocked: number };
-  };
-}> {
-  const reminders = (await listReminders()).filter(
-    (r) => r.status === 'scheduled' && r.when >= startOfLocalDay(),
-  );
-  const goals = (await listGoals()).filter((g) => g.status === 'active');
-  const focus = await focusSummaryToday();
-
-  const lines: string[] = ['Good morning — here’s what’s up today.', ''];
-
-  if (goals.length) {
-    lines.push('**Active goals**');
-    for (const g of goals) lines.push(`- ${g.title}`);
-    lines.push('');
-  } else {
-    lines.push('No active goals yet. Tell Phil what you want to finish today.');
-    lines.push('');
-  }
-
-  if (reminders.length) {
-    lines.push('**Reminders**');
-    for (const r of reminders.slice(0, 8)) {
-      const t = new Date(r.when);
-      lines.push(
-        `- ${t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — ${r.text}`,
-      );
-    }
-    lines.push('');
-  } else {
-    lines.push('No reminders scheduled for later today.');
-    lines.push('');
-  }
-
-  const mins = (ms: number) => Math.round(ms / 60_000);
-  lines.push('**Focus so far**');
-  lines.push(
-    `- Productive: ${mins(focus.byCategory.productive)}m · Leisure: ${mins(focus.byCategory.leisure)}m · Other: ${mins(focus.byCategory.neutral + focus.byCategory.blocked)}m`,
-  );
-  if (focus.byDomain[0]) {
-    lines.push(
-      `- Top site: ${focus.byDomain[0].domain} (${mins(focus.byDomain[0].ms)}m, ${focus.byDomain[0].category})`,
-    );
-  }
-
-  return {
-    content: lines.join('\n'),
-    sources: {
-      reminderCount: reminders.length,
-      activeGoalCount: goals.length,
-      focusMs: { ...focus.byCategory },
-    },
-  };
-}
+/** Re-export richer briefing compose (DAY-* / PRJ-EA) from dailyReview. */
+export { composeBriefingContent } from '@/background/phil/dailyReview';

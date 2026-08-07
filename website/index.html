@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phil — Private AI chief of staff in your browser</title>
+    <meta
+      name="description"
+      content="Phil is a private on-device AI chief of staff in your browser. Persistent Projects keep goals, research, and briefings together — chat and page data stay on your device."
+    />
+    <link rel="icon" type="image/png" sizes="32x32" href="../public/icons/icon32.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Sora:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="site-bg" aria-hidden="true"></div>
+
+    <header class="wrap">
+      <nav class="topnav" aria-label="Primary">
+        <a class="wordmark" href="index.html">Phil</a>
+        <div class="topnav-links">
+          <a class="hide-sm" href="#projects">Projects</a>
+          <a class="hide-sm" href="#privacy">Privacy</a>
+          <a href="#waitlist">Waitlist</a>
+          <a href="privacy.html">Policy</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero wrap" aria-labelledby="brand">
+        <div class="hero-plane" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <h1 id="brand" class="brand-hero">Phil</h1>
+          <p class="pitch" data-testid="north-star-pitch">
+            A <strong>private AI chief of staff</strong> in your browser —
+            understands what you’re working on, researches faster, keeps you on
+            track, and assists throughout your day.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn btn-primary"
+              href="#waitlist"
+              data-testid="install-cta"
+              id="install-cta"
+              >Join the waitlist</a
+            >
+            <a class="btn btn-ghost" href="#projects">See Persistent Projects</a>
+          </div>
+          <p class="hero-note">
+            On-device by default ·
+            <a href="privacy.html">Privacy</a> ·
+            <a href="terms.html">Terms</a>
+          </p>
+        </div>
+      </section>
+
+      <section class="projects wrap" id="projects" aria-labelledby="projects-title">
+        <p class="section-kicker">The unlock</p>
+        <h2 id="projects-title" class="section-title">Persistent Projects</h2>
+        <p class="section-lead" data-testid="projects-callout">
+          Persistent Projects keep goals, reminders, email drafts, web research,
+          and daily briefings on named long-running work — not scattered chat
+          threads. Ask “Where am I?” and Phil answers from project context
+          generic chatbots cannot keep.
+        </p>
+        <ul class="project-list">
+          <li>
+            <span class="tag">Career</span>
+            <p>Staff Engineer promotion — roadmap, study blocks, progress nudges.</p>
+          </li>
+          <li>
+            <span class="tag">Life move</span>
+            <p>Move to Spain — visa, flights, housing workstreams in one place.</p>
+          </li>
+          <li>
+            <span class="tag">Home</span>
+            <p>Buy a house — silent browse capture, then a standing “Where am I?”</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="privacy-band wrap" id="privacy" aria-labelledby="privacy-title">
+        <p class="section-kicker">Private local AI</p>
+        <h2 id="privacy-title" class="section-title">Your browser. Your device.</h2>
+        <p class="section-lead">
+          Phil runs models locally with WebGPU. Prompts, page text, and chats
+          stay on-device by default — no cloud inference, no Phil servers reading
+          your work.
+        </p>
+        <ul class="points">
+          <li>Chat, page context, goals, focus, and memories stay local.</li>
+          <li>
+            Internet only when needed: first model download, optional Google web
+            research, optional Gmail, optional Calendar.
+          </li>
+          <li>Analytics and crash reporting default <strong>off</strong>.</li>
+        </ul>
+        <p style="margin-top: 1.5rem">
+          <a href="privacy.html">Read the privacy policy →</a>
+        </p>
+      </section>
+
+      <section class="waitlist wrap" id="waitlist" aria-labelledby="waitlist-title">
+        <p class="section-kicker">Early access</p>
+        <h2 id="waitlist-title" class="section-title">Get Phil when it ships</h2>
+        <p class="section-lead">
+          Join the waitlist for Chrome Web Store launch notes. We only email
+          product updates — no tracking pixels on this form.
+        </p>
+        <form
+          class="waitlist-form"
+          data-testid="waitlist-form"
+          action="mailto:waitlist@phil.local?subject=Phil%20waitlist"
+          method="post"
+          enctype="text/plain"
+        >
+          <label for="waitlist-email">Email</label>
+          <input
+            id="waitlist-email"
+            name="email"
+            type="email"
+            required
+            autocomplete="email"
+            placeholder="you@company.com"
+            data-testid="waitlist-email"
+          />
+          <button class="btn btn-primary" type="submit" data-testid="waitlist-submit">
+            Join waitlist
+          </button>
+        </form>
+        <p class="waitlist-note">
+          Prefer the store? Install CTA will point at the Chrome Web Store
+          listing once published.
+        </p>
+      </section>
+    </main>
+
+    <footer class="wrap site-footer">
+      <p>© <span id="y"></span> Phil · Private on-device browser AI</p>
+      <nav aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="../docs/cws-listing.md">Chrome Web Store</a>
+      </nav>
+    </footer>
+    <script>
+      document.getElementById("y").textContent = String(new Date().getFullYear());
+    </script>
+  </body>
+</html>

@@ -289,7 +289,15 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       text: { type: 'string', description: 'Reminder text', required: true },
       when: { type: 'number', description: 'Fire time as epoch milliseconds' },
       inMinutes: { type: 'number', description: 'Fire this many minutes from now' },
-      repeat: { type: 'string', description: 'none | daily | weekdays (default none)' },
+      repeat: { type: 'string', description: 'none | daily | weekdays | weekly (default none)' },
+      repeatWeekday: {
+        type: 'number',
+        description: '0=Sun … 6=Sat when repeat is weekly (device TZ)',
+      },
+      allowConflict: {
+        type: 'boolean',
+        description: 'If true, create even when a schedule conflict exists',
+      },
     },
   },
   {
@@ -344,6 +352,13 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
     },
   },
   {
+    name: 'plan_workday',
+    description:
+      'Plan the workday from active goals, reminders due today, and calendar when connected.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
     name: 'phil_settings_get',
     description: 'Read Phil assistant settings (FAB, tracking, nudges, briefing, locality).',
     risk: 'safe',
@@ -360,7 +375,25 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       briefingEnabled: { type: 'boolean', description: 'Morning briefing notification' },
       briefingHour: { type: 'number', description: 'Local hour 0–23' },
       briefingMinute: { type: 'number', description: 'Local minute 0–59' },
+      eveningRecapEnabled: { type: 'boolean', description: 'Evening recap notification' },
+      eveningRecapHour: { type: 'number', description: 'Local hour 0–23 for evening recap' },
+      eveningRecapMinute: { type: 'number', description: 'Local minute 0–59 for evening recap' },
       nudgeThresholdMs: { type: 'number', description: 'Leisure ms before nudge' },
+      notificationFrequency: {
+        type: 'string',
+        description: 'off | low | normal | high',
+      },
+      reminderDefaultLeadMinutes: {
+        type: 'number',
+        description: 'Default minutes until reminder fires',
+      },
+      reminderDefaultRepeat: {
+        type: 'string',
+        description: 'none | daily | weekdays',
+      },
+      quietHoursEnabled: { type: 'boolean', description: 'Suppress notifications in quiet hours' },
+      quietHoursStartHour: { type: 'number', description: 'Quiet hours start (0–23, device TZ)' },
+      quietHoursEndHour: { type: 'number', description: 'Quiet hours end (0–23, device TZ)' },
       locality: { type: 'string', description: 'City/region bias for web research' },
     },
   },
@@ -371,9 +404,75 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
     parameters: {},
   },
   {
+    name: 'briefing_evening',
+    description: 'Compose today’s evening recap (work completed, distractions, tomorrow priorities).',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'project_create',
+    description:
+      'Create a Persistent Project (long-horizon plan) with template, milestones, and a linked goal. Prefer this over goal_create for career/job/move/research intents.',
+    risk: 'safe',
+    parameters: {
+      title: { type: 'string', description: 'Project title', required: true },
+      template: {
+        type: 'string',
+        description: 'career | job_hunt | research | exec_day | life_move | custom',
+      },
+      targetDate: { type: 'number', description: 'Optional deadline epoch ms' },
+      makeActive: {
+        type: 'boolean',
+        description: 'Set as active project (default true)',
+      },
+    },
+  },
+  {
+    name: 'project_list',
+    description: 'List Persistent Projects with status and active selection.',
+    risk: 'safe',
+    parameters: {},
+  },
+  {
+    name: 'project_set_active',
+    description: 'Set the active Persistent Project for subsequent Agent turns.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Project id', required: true },
+    },
+  },
+  {
+    name: 'project_get',
+    description: 'Get a Persistent Project by id, or the active project if id omitted.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional project id (defaults to active)' },
+    },
+  },
+  {
+    name: 'project_progress',
+    description: 'Summarize where the user is on a project (workstreams + next-week plan).',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Optional project id (defaults to active)' },
+    },
+  },
+  {
+    name: 'project_add_knowledge',
+    description: 'Attach a knowledge / research note to a project (PRJ-02).',
+    risk: 'safe',
+    parameters: {
+      projectId: { type: 'string', description: 'Project id (defaults to active)' },
+      title: { type: 'string', description: 'Note title', required: true },
+      summary: { type: 'string', description: 'Short summary' },
+      url: { type: 'string', description: 'Optional source URL' },
+      tags: { type: 'object', description: 'Optional tag list' },
+    },
+  },
+  {
     name: 'web_research',
     description:
-      'Search the web via DuckDuckGo in a browser tab, open finding tabs, and return URLs. Leaves tabs open for the user.',
+      'Search the web via Google in a browser tab (DuckDuckGo only as fallback), open finding tabs, and return URLs. Leaves tabs open for the user.',
     risk: 'moderate',
     confirmLabel: 'Research the web and open result tabs',
     parameters: {
@@ -382,6 +481,57 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       maxResults: { type: 'number', description: 'Finding tabs to open (1–5, default 3)' },
     },
   },
+  {
+    name: 'memory_remember',
+    description:
+      'Store a lasting fact about the user (preferences, context). Requires memory to be enabled in Privacy.',
+    risk: 'safe',
+    parameters: {
+      text: { type: 'string', description: 'Fact to remember', required: true },
+      projectId: { type: 'string', description: 'Optional Persistent Project id' },
+    },
+  },
+  {
+    name: 'memory_forget',
+    description: 'Remove a remembered fact by id or matching text.',
+    risk: 'safe',
+    parameters: {
+      id: { type: 'string', description: 'Memory id from memory_search / memory_list' },
+      text: { type: 'string', description: 'Text fragment to match if id unknown' },
+    },
+  },
+  {
+    name: 'memory_search',
+    description: 'Keyword-search stored memories (and optionally list recent ones).',
+    risk: 'safe',
+    parameters: {
+      query: { type: 'string', description: 'Search keywords (empty = recent memories)' },
+      limit: { type: 'number', description: 'Max results (default 10)' },
+    },
+  },
+  {
+    name: 'memory_list',
+    description: 'List recent remembered facts.',
+    risk: 'safe',
+    parameters: {
+      limit: { type: 'number', description: 'Max results (default 20)' },
+    },
+  },
+  {
+    name: 'browser_memory_search',
+    description:
+      'Search indexed browser history and tab activity for pages the user read recently.',
+    risk: 'safe',
+    parameters: {
+      query: {
+        type: 'string',
+        description: 'Natural-language find query including topic and optional time window',
+        required: true,
+      },
+      limit: { type: 'number', description: 'Max results (default 5)' },
+    },
+  },
+
 ];
 
 export function getTool(name: string): AgentToolDefinition | undefined {

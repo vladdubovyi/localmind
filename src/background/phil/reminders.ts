@@ -8,13 +8,34 @@ import {
   putReminder,
   uid,
 } from '@/storage/phil';
-import { composeBriefingContent } from '@/background/phil/focusTracker';
+import { getActiveProjectId, linkReminderToProject } from '@/storage/projects';
+import {
+  buildEveningBriefingRecord,
+  buildMorningBriefingRecord,
+} from '@/background/phil/dailyReview';
+import { isInQuietHours } from '@/phil/notificationPolicy';
+import { deviceTimeZone, localPartsInDeviceTz, zonedLocalToUtcMs } from '@/phil/deviceTime';
 
 const REMINDER_ALARM_PREFIX = 'phil-reminder:';
 const BRIEFING_ALARM = 'phil-morning-briefing';
+const EVENING_ALARM = 'phil-evening-recap';
+const QUIET_RETRY_ALARM_PREFIX = 'phil-quiet-retry:';
 
 export function reminderAlarmName(id: string): string {
   return `${REMINDER_ALARM_PREFIX}${id}`;
+}
+
+function quietRetryAlarmName(id: string): string {
+  return `${QUIET_RETRY_ALARM_PREFIX}${id}`;
+}
+
+function nextQuietHoursEndMs(endHour: number, now = new Date()): number {
+  const end = new Date(now);
+  end.setSeconds(0, 0);
+  end.setMinutes(0);
+  end.setHours(endHour, 0, 0, 0);
+  if (end.getTime() <= now.getTime()) end.setDate(end.getDate() + 1);
+  return Math.max(end.getTime(), now.getTime() + 60_000);
 }
 
 export async function scheduleReminderAlarm(reminder: Reminder): Promise<void> {
@@ -24,32 +45,44 @@ export async function scheduleReminderAlarm(reminder: Reminder): Promise<void> {
     await fireReminder(reminder.id);
     return;
   }
-  await chrome.alarms.create(reminderAlarmName(reminder.id), {
-    when: reminder.when,
-  });
+  await chrome.alarms.create(reminderAlarmName(reminder.id), { when: reminder.when });
 }
 
 export async function cancelReminderAlarm(id: string): Promise<void> {
   await chrome.alarms.clear(reminderAlarmName(id));
+  await chrome.alarms.clear(quietRetryAlarmName(id));
 }
 
 export async function createReminder(input: {
   text: string;
-  when: number;
+  when?: number;
   repeat?: Reminder['repeat'];
+  repeatWeekday?: number;
+  projectId?: string;
+  applyDefaults?: boolean;
 }): Promise<Reminder> {
+  const settings = await getPhilSettings();
+  const applyDefaults = input.applyDefaults !== false;
   const now = Date.now();
+  const projectId = input.projectId ?? (await getActiveProjectId()) ?? undefined;
+  const when =
+    input.when ??
+    (applyDefaults ? now + settings.reminderDefaultLeadMinutes * 60_000 : now + 30 * 60_000);
+  const repeat =
+    input.repeat ?? (applyDefaults ? settings.reminderDefaultRepeat : 'none');
   const reminder: Reminder = {
     id: uid('rem'),
     text: input.text.trim(),
-    when: input.when,
-    repeat: input.repeat ?? 'none',
+    when,
+    repeat,
+    repeatWeekday: input.repeatWeekday,
     status: 'scheduled',
     createdAt: now,
     updatedAt: now,
+    projectId,
   };
   await putReminder(reminder);
-  // Never block tool/UI callers on chrome.alarms — schedule best-effort.
+  if (projectId) await linkReminderToProject(projectId, reminder.id);
   void scheduleReminderAlarm(reminder).catch(() => undefined);
   return reminder;
 }
@@ -57,33 +90,76 @@ export async function createReminder(input: {
 export async function cancelReminder(id: string): Promise<Reminder | undefined> {
   const existing = await getReminder(id);
   if (!existing) return undefined;
-  const next: Reminder = {
-    ...existing,
-    status: 'cancelled',
-    updatedAt: Date.now(),
-  };
+  const next: Reminder = { ...existing, status: 'cancelled', updatedAt: Date.now() };
   await putReminder(next);
   void cancelReminderAlarm(id).catch(() => undefined);
   return next;
 }
 
-async function nextRepeatWhen(from: number, repeat: Reminder['repeat']): Promise<number | null> {
+function dowFromLabel(weekday: string): number {
+  const map: Record<string, number> = {
+    sun: 0,
+    mon: 1,
+    tue: 2,
+    wed: 3,
+    thu: 4,
+    fri: 5,
+    sat: 6,
+  };
+  return map[weekday.toLowerCase().slice(0, 3)] ?? -1;
+}
+
+async function nextRepeatWhen(from: number, reminder: Reminder): Promise<number | null> {
+  const repeat = reminder.repeat;
   if (repeat === 'none') return null;
-  const d = new Date(from);
+  const tz = deviceTimeZone();
+  const parts = localPartsInDeviceTz(new Date(from), tz);
+
   if (repeat === 'daily') {
-    d.setDate(d.getDate() + 1);
-    return d.getTime();
+    const next = new Date(
+      zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + 24 * 60 * 60_000,
+    );
+    const np = localPartsInDeviceTz(next, tz);
+    return zonedLocalToUtcMs(np.year, np.month, np.day, parts.hour, parts.minute, 0, tz);
   }
-  // weekdays
-  do {
-    d.setDate(d.getDate() + 1);
-  } while (d.getDay() === 0 || d.getDay() === 6);
-  return d.getTime();
+
+  if (repeat === 'weekly') {
+    const target = reminder.repeatWeekday ?? dowFromLabel(parts.weekday);
+    for (let add = 1; add <= 8; add++) {
+      const day = new Date(
+        zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + add * 24 * 60 * 60_000,
+      );
+      const p = localPartsInDeviceTz(day, tz);
+      if (dowFromLabel(p.weekday) === target) {
+        return zonedLocalToUtcMs(p.year, p.month, p.day, parts.hour, parts.minute, 0, tz);
+      }
+    }
+    return from + 7 * 24 * 60 * 60_000;
+  }
+
+  // weekdays — next Mon–Fri
+  for (let add = 1; add <= 8; add++) {
+    const day = new Date(
+      zonedLocalToUtcMs(parts.year, parts.month, parts.day, 12, 0, 0, tz) + add * 24 * 60 * 60_000,
+    );
+    const p = localPartsInDeviceTz(day, tz);
+    const dow = dowFromLabel(p.weekday);
+    if (dow >= 1 && dow <= 5) {
+      return zonedLocalToUtcMs(p.year, p.month, p.day, parts.hour, parts.minute, 0, tz);
+    }
+  }
+  return from + 24 * 60 * 60_000;
 }
 
 export async function fireReminder(id: string): Promise<void> {
   const reminder = await getReminder(id);
-  if (!reminder || reminder.status === 'cancelled' || reminder.status === 'done') {
+  if (!reminder || reminder.status === 'cancelled' || reminder.status === 'done') return;
+
+  const settings = await getPhilSettings();
+  if (isInQuietHours(settings)) {
+    await chrome.alarms.create(quietRetryAlarmName(id), {
+      when: nextQuietHoursEndMs(settings.quietHoursEndHour),
+    });
     return;
   }
 
@@ -96,10 +172,10 @@ export async function fireReminder(id: string): Promise<void> {
       priority: 2,
     });
   } catch {
-    // ignore missing permission
+    // ignore
   }
 
-  const nextWhen = await nextRepeatWhen(reminder.when, reminder.repeat);
+  const nextWhen = await nextRepeatWhen(reminder.when, reminder);
   if (nextWhen) {
     const next: Reminder = {
       ...reminder,
@@ -110,21 +186,22 @@ export async function fireReminder(id: string): Promise<void> {
     await putReminder(next);
     await scheduleReminderAlarm(next);
   } else {
-    await putReminder({
-      ...reminder,
-      status: 'fired',
-      updatedAt: Date.now(),
-    });
+    await putReminder({ ...reminder, status: 'fired', updatedAt: Date.now() });
   }
 }
 
 export async function rescheduleAllReminders(): Promise<void> {
-  const reminders = await listReminders();
-  for (const r of reminders) {
-    if (r.status === 'scheduled') {
-      await scheduleReminderAlarm(r);
-    }
+  for (const r of await listReminders()) {
+    if (r.status === 'scheduled') await scheduleReminderAlarm(r);
   }
+}
+
+function nextLocalAlarmMs(hour: number, minute: number, now = new Date()): number {
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next.getTime();
 }
 
 export async function scheduleMorningBriefingAlarm(): Promise<void> {
@@ -133,45 +210,81 @@ export async function scheduleMorningBriefingAlarm(): Promise<void> {
     await chrome.alarms.clear(BRIEFING_ALARM);
     return;
   }
-  const now = new Date();
-  const next = new Date();
-  next.setHours(settings.briefingHour, settings.briefingMinute, 0, 0);
-  if (next.getTime() <= now.getTime()) {
-    next.setDate(next.getDate() + 1);
-  }
   await chrome.alarms.create(BRIEFING_ALARM, {
-    when: next.getTime(),
+    when: nextLocalAlarmMs(settings.briefingHour, settings.briefingMinute),
     periodInMinutes: 24 * 60,
   });
+}
+
+export async function scheduleEveningRecapAlarm(): Promise<void> {
+  const settings = await getPhilSettings();
+  if (!settings.eveningRecapEnabled) {
+    await chrome.alarms.clear(EVENING_ALARM);
+    return;
+  }
+  await chrome.alarms.create(EVENING_ALARM, {
+    when: nextLocalAlarmMs(settings.eveningRecapHour, settings.eveningRecapMinute),
+    periodInMinutes: 24 * 60,
+  });
+}
+
+export async function scheduleDailyReviewAlarms(): Promise<void> {
+  await scheduleMorningBriefingAlarm();
+  await scheduleEveningRecapAlarm();
 }
 
 export async function runMorningBriefing(): Promise<void> {
   const settings = await getPhilSettings();
   if (!settings.briefingEnabled) return;
-  const composed = await composeBriefingContent();
-  const briefing = {
-    id: uid('brief'),
-    dateKey: localDateKey(),
-    content: composed.content,
-    createdAt: Date.now(),
-    sources: composed.sources,
-  };
+  const briefing = await buildMorningBriefingRecord();
   await putBriefing(briefing);
-  try {
-    await chrome.notifications.create(`phil-briefing-${briefing.id}`, {
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: 'Phil — morning briefing',
-      message: 'Your day overview is ready. Open Phil to see what’s up.',
-      priority: 1,
-    });
-  } catch {
-    // ignore
+
+  if (!isInQuietHours(settings)) {
+    try {
+      await chrome.notifications.create(`phil-briefing-${briefing.id}`, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+        title: 'Phil — morning briefing',
+        message: 'Your day overview is ready. Open Phil to see what’s up.',
+        priority: 1,
+      });
+    } catch {
+      // ignore
+    }
   }
+
   await chrome.storage.session.set({
-    philQuickIntent: {
-      kind: 'open_today',
+    philQuickIntent: { kind: 'open_today', createdAt: Date.now() },
+  });
+}
+
+export async function runEveningRecap(opts?: { notify?: boolean }): Promise<void> {
+  const settings = await getPhilSettings();
+  const recap = await buildEveningBriefingRecord();
+  if (!recap.dateKey) recap.dateKey = localDateKey();
+  await putBriefing(recap);
+
+  const shouldNotify = opts?.notify !== false && settings.eveningRecapEnabled;
+  if (shouldNotify && !isInQuietHours(settings)) {
+    try {
+      await chrome.notifications.create(`phil-evening-${recap.id}`, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+        title: 'Phil — evening recap',
+        message: 'Your evening summary is ready — work completed and priorities for tomorrow.',
+        priority: 1,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  await chrome.storage.session.set({
+    philQuickIntent: { kind: 'open_today', createdAt: Date.now() },
+    philEveningNotification: {
+      id: recap.id,
       createdAt: Date.now(),
+      message: 'evening notification / evening briefing ready',
     },
   });
 }
@@ -183,9 +296,16 @@ export function registerPhilAlarms(): void {
         await runMorningBriefing();
         return;
       }
+      if (alarm.name === EVENING_ALARM) {
+        await runEveningRecap();
+        return;
+      }
+      if (alarm.name.startsWith(QUIET_RETRY_ALARM_PREFIX)) {
+        await fireReminder(alarm.name.slice(QUIET_RETRY_ALARM_PREFIX.length));
+        return;
+      }
       if (alarm.name.startsWith(REMINDER_ALARM_PREFIX)) {
-        const id = alarm.name.slice(REMINDER_ALARM_PREFIX.length);
-        await fireReminder(id);
+        await fireReminder(alarm.name.slice(REMINDER_ALARM_PREFIX.length));
       }
     })();
   });
@@ -193,10 +313,8 @@ export function registerPhilAlarms(): void {
   chrome.notifications.onClicked.addListener((notificationId) => {
     void (async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.windowId != null) {
-        await chrome.sidePanel.open({ windowId: tab.windowId });
-      }
-      if (notificationId.includes('briefing')) {
+      if (tab?.windowId != null) await chrome.sidePanel.open({ windowId: tab.windowId });
+      if (notificationId.includes('briefing') || notificationId.includes('evening')) {
         await chrome.storage.session.set({
           philQuickIntent: { kind: 'open_today', createdAt: Date.now() },
         });
@@ -204,14 +322,14 @@ export function registerPhilAlarms(): void {
         await chrome.storage.session.set({
           philQuickIntent: { kind: 'open_reminders', createdAt: Date.now() },
         });
-      } else if (notificationId.includes('nudge')) {
+      } else if (notificationId.includes('nudge') || notificationId.includes('proactive')) {
         await chrome.storage.session.set({
-          philQuickIntent: { kind: 'open_goals', createdAt: Date.now() },
+          philQuickIntent: { kind: 'open_today', createdAt: Date.now() },
         });
       }
     })();
   });
 
   void rescheduleAllReminders();
-  void scheduleMorningBriefingAlarm();
+  void scheduleDailyReviewAlarms();
 }

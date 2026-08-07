@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const pathToExtension = path.join(rootDir, 'dist');
 const gmailFixturePath = path.join(rootDir, 'e2e/fixtures/gmail-inbox.html');
+const articleFixturePath = path.join(rootDir, 'e2e/fixtures/article.html');
 /** Persistent Chromium profile so WebLLM Cache API survives across runs. */
 const userDataDir = path.join(rootDir, 'e2e/.browser-profile');
 /** Separate profile for Phil PA tests (no WebLLM) so SW updates cleanly. */
@@ -20,6 +21,12 @@ const philUserDataDir = path.join(rootDir, 'e2e/.browser-profile-phil');
 
 /** Smallest catalog model — faster first download for full-product e2e. */
 export const E2E_MODEL_LABEL = 'Gemma 2 2B';
+
+/** Unique phrase embedded in e2e/fixtures/article.html for PAGE grounding. */
+export const ARTICLE_UNIQUE_PHRASE = 'Zeldora migration runbook';
+export const ARTICLE_ROLLBACK_PHRASE = 'zeldora-rollback.sh --cluster=blue';
+export const ARTICLE_SELECTION_TEXT =
+  'Photosynthesis converts light into chemical energy.';
 
 /** First-time download can take a long time on slow networks. */
 export const MODEL_READY_TIMEOUT_MS = Number(process.env.E2E_MODEL_TIMEOUT_MS ?? 45 * 60_000);
@@ -43,6 +50,10 @@ type TestFixtures = {
   /** Phil UI/tools page — does not wait for WebLLM. */
   philPage: Page;
   gmailPage: Page;
+  /** Opens the fixture article in the Phil (no-model) context. */
+  articlePage: Page;
+  /** Opens the fixture article in the model-ready extension context. */
+  agentArticlePage: Page;
   /** Opens Agent tab on a model-ready sidebar. */
   agentPage: Page;
   sendAgentGoal: (
@@ -84,6 +95,7 @@ async function seedExtensionStorage(page: Page): Promise<void> {
         allowDebugger: false,
         gmailClientId: '',
         gmailMode: 'session',
+        calendarEnabled: false,
       },
       philSettings: {
         fabEnabled: true,
@@ -224,22 +236,35 @@ async function ensureModelReady(page: Page): Promise<void> {
     }
   }
 
-  await expect
-    .poll(async () => {
-      const err = page.locator('.text-danger, [class*="danger"]').filter({
-        hasText: /WebGPU|Download failed|not available|Error/i,
-      });
-      if (await err.first().isVisible().catch(() => false)) {
-        const text = await err.first().innerText();
-        throw new Error(`Model load failed in UI: ${text}`);
-      }
-      return isAgentReady();
-    }, {
-      timeout: MODEL_READY_TIMEOUT_MS,
-      intervals: [2_000, 5_000, 10_000],
-      message: 'WebLLM model did not become ready for Agent chat',
-    })
-    .toBe(true);
+  try {
+    await expect
+      .poll(async () => {
+        const err = page.locator('.text-danger, [class*="danger"]').filter({
+          hasText: /WebGPU|Download failed|not available|Error/i,
+        });
+        if (await err.first().isVisible().catch(() => false)) {
+          const text = await err.first().innerText();
+          throw new Error(`Model load failed in UI: ${text}`);
+        }
+        const body = await page.locator('body').innerText().catch(() => '');
+        if (/WebGPU is not available|Local AI needs Chrome\/Edge/i.test(body)) {
+          throw new Error('Model load failed in UI: Local AI needs WebGPU');
+        }
+        return isAgentReady();
+      }, {
+        timeout: Math.min(MODEL_READY_TIMEOUT_MS, 90_000),
+        intervals: [2_000, 5_000, 10_000],
+        message: 'WebLLM model did not become ready for Agent chat',
+      })
+      .toBe(true);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/WebGPU/i.test(msg)) {
+      (page as Page & { __philWebGpuMissing?: boolean }).__philWebGpuMissing = true;
+      return;
+    }
+    throw e;
+  }
 }
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -352,6 +377,36 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(philSidebar);
   },
 
+  articlePage: async ({ philExtensionContext }, use) => {
+    const html = fs.readFileSync(articleFixturePath, 'utf8');
+    await philExtensionContext.route('https://phil.local/article**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: html,
+      });
+    });
+    const page = await philExtensionContext.newPage();
+    await page.goto('https://phil.local/article', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /Zeldora migration runbook/i })).toBeVisible();
+    await use(page);
+  },
+
+  agentArticlePage: async ({ extensionContext }, use) => {
+    const html = fs.readFileSync(articleFixturePath, 'utf8');
+    await extensionContext.route('https://phil.local/article**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: html,
+      });
+    });
+    const page = await extensionContext.newPage();
+    await page.goto('https://phil.local/article', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /Zeldora migration runbook/i })).toBeVisible();
+    await use(page);
+  },
+
   readySidebar: [
     async ({ extensionContext, extensionId }, use) => {
       const page = await extensionContext.newPage();
@@ -389,7 +444,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(page);
   },
 
-  agentPage: async ({ extensionPage, gmailPage }, use) => {
+  agentPage: async ({ extensionPage, gmailPage }, use, testInfo) => {
+    if ((extensionPage as Page & { __philWebGpuMissing?: boolean }).__philWebGpuMissing) {
+      testInfo.skip(true, 'WebGPU unavailable — CORE model paths deferred (docs/launch-gate.md)');
+    }
+
     // Ensure session-mode Gmail tab exists before the model calls gmail_*.
     await gmailPage.bringToFront();
     await expect(gmailPage.locator('tr.zA')).toHaveCount(5);
@@ -470,5 +529,36 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     });
   },
 });
+
+/** Queue a selection action via chrome.storage.session (context-menu equivalent). */
+export async function queueSelectionAction(
+  worker: Worker,
+  action: string,
+  text: string,
+  meta?: { url?: string; title?: string; canReplace?: boolean },
+): Promise<void> {
+  await worker.evaluate(
+    async (payload) => {
+      await chrome.storage.session.set({
+        pendingSelectionAction: {
+          action: payload.action,
+          text: payload.text,
+          url: payload.url,
+          title: payload.title,
+          canReplace: payload.canReplace,
+          createdAt: Date.now(),
+        },
+      });
+    },
+    {
+      action,
+      text,
+      url: meta?.url ?? 'https://phil.local/article',
+      title: meta?.title ?? 'Zeldora migration runbook',
+      canReplace:
+        meta?.canReplace ?? (action === 'rewrite' || action === 'translate' || action === 'improve'),
+    },
+  );
+}
 
 export const expect = baseExpect;

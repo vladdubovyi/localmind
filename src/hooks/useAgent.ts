@@ -22,13 +22,129 @@ import {
 import {
   offersToActWithoutTools,
 } from '@/agent/assistantIntent';
-import { routeGoal, type AgentRoute } from '@/agent/skills';
+import { routeGoal, type AgentRoute, type RouteContext, type SkillPlan } from '@/agent/skills';
+import { getDefaultRouter } from '@/agent/skills/defaultRouter';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
 import { getAgentSettings } from '@/storage/agentSettings';
 import { getSettings } from '@/storage/db';
 import { uid } from '@/utils';
+
+/** Last route plan for test-mode harness (RTE-*). */
+let lastRoutePlan: SkillPlan | null = null;
+
+export function getLastRoutePlan(): SkillPlan | null {
+  return lastRoutePlan;
+}
+
+async function readActivePageMeta(): Promise<{
+  pageUrl?: string;
+  pageTitle?: string;
+}> {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs.find((t) => t.url && /^https?:/i.test(t.url));
+    if (!tab?.url) return {};
+    return { pageUrl: tab.url, pageTitle: tab.title };
+  } catch {
+    return {};
+  }
+}
+
+async function readActiveProjectMeta(): Promise<{
+  activeProjectId?: string | null;
+  activeProject?: RouteContext['activeProject'];
+}> {
+  try {
+    const stored = await chrome.storage.local.get(['philActiveProject', 'activeProjectId']);
+    const activeProjectId =
+      (stored.activeProjectId as string | undefined) ??
+      ((stored.philActiveProject as { id?: string } | undefined)?.id ?? null);
+    const snap = stored.philActiveProject as RouteContext['activeProject'] | undefined;
+    return {
+      activeProjectId: activeProjectId ?? null,
+      activeProject: snap ?? null,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function recentTurnsFromSteps(steps: AgentStep[]): RouteContext['recentTurns'] {
+  const turns: NonNullable<RouteContext['recentTurns']> = [];
+  for (const s of steps.slice(-12)) {
+    if (s.kind === 'user') turns.push({ role: 'user', text: s.content });
+    else if (s.kind === 'final') turns.push({ role: 'assistant', text: s.content });
+  }
+  return turns;
+}
+
+async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<AgentRoute> {
+  const emailIntent = detectIntent(goal, priorSteps);
+  const [{ pageUrl, pageTitle }, projectMeta, settings, agentSettingsForRoute] = await Promise.all([
+    readActivePageMeta(),
+    readActiveProjectMeta(),
+    getSettings().catch(() => null),
+    getAgentSettings().catch(() => null),
+  ]);
+
+  const testMode =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('philTest') ||
+      Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
+
+  const correctionHint = /\b(no,?\s*i meant|i meant set a reminder)\b/i.test(goal)
+    ? goal
+    : null;
+
+  const ctx: RouteContext = {
+    goal,
+    utterance: goal,
+    emailIntent,
+    pageUrl: pageUrl ?? null,
+    pageTitle: pageTitle ?? null,
+    pageHasExtract: Boolean(pageUrl),
+    ...projectMeta,
+    modelReady: true,
+    memoryEnabled: settings?.memoryEnabled !== false,
+    historyAvailable: undefined,
+    calendarConnected: Boolean(agentSettingsForRoute?.calendarEnabled),
+    recentTurns: recentTurnsFromSteps(priorSteps),
+    priorPlan: lastRoutePlan,
+    correctionHint,
+    testMode,
+    debugRouting: testMode,
+    trigger: 'chat',
+  };
+
+  try {
+    const { hasHistoryPermission } = await import('@/storage/browserMemory');
+    ctx.historyAvailable = await hasHistoryPermission();
+  } catch {
+    ctx.historyAvailable = false;
+  }
+
+  const route = routeGoal(ctx);
+  lastRoutePlan = route.plan ?? null;
+
+  if (testMode && typeof window !== 'undefined') {
+    const w = window as unknown as {
+      __PHIL_LAST_ROUTE__?: unknown;
+    };
+    w.__PHIL_LAST_ROUTE__ = {
+      skills: route.plan?.debug?.skills ?? [],
+      stage: route.plan?.debug?.stage,
+      shortCircuit: route.plan?.shortCircuit ?? route.plan?.lightweight,
+      confidence: route.confidence,
+      clarification: route.plan?.clarification ?? null,
+      llmRouteCalls: route.plan?.debug?.llmRouteCalls ?? 0,
+      'route.skills': route.plan?.debug?.skills ?? [],
+    };
+  }
+
+  return route;
+}
 
 async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResult> {
   try {
@@ -43,14 +159,22 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
         !result.ok &&
         typeof result.error === 'string' &&
         /unknown tool/i.test(result.error) &&
-        (call.name === 'reminder_create' || call.name === 'goal_create')
+        (call.name === 'reminder_create' ||
+          call.name === 'plan_workday' ||
+          call.name === 'goal_create' ||
+          call.name.startsWith('project_'))
       ) {
         return executePhilToolLocally(call);
       }
       return result;
     }
   } catch (err) {
-    if (call.name === 'reminder_create' || call.name === 'goal_create') {
+    if (
+      call.name === 'reminder_create' ||
+      call.name === 'plan_workday' ||
+      call.name === 'goal_create' ||
+      call.name.startsWith('project_')
+    ) {
       try {
         return await executePhilToolLocally(call);
       } catch {
@@ -63,7 +187,12 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
       toolCall: call,
     };
   }
-  if (call.name === 'reminder_create' || call.name === 'goal_create') {
+  if (
+    call.name === 'reminder_create' ||
+    call.name === 'plan_workday' ||
+    call.name === 'goal_create' ||
+    call.name.startsWith('project_')
+  ) {
     return executePhilToolLocally(call);
   }
   return {
@@ -77,17 +206,94 @@ async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResul
 async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
   if (call.name === 'reminder_create') {
     const { createReminderFromUi } = await import('@/phil/clientActions');
+    const { findReminderConflicts } = await import('@/phil/reminderSchedule');
+    const { listReminders } = await import('@/storage/phil');
     const text = String(call.arguments.text ?? '').trim();
     const inMinutes = Number(call.arguments.inMinutes);
     const whenArg = Number(call.arguments.when);
     const when = Number.isFinite(whenArg)
       ? whenArg
       : Date.now() + (Number.isFinite(inMinutes) && inMinutes > 0 ? inMinutes : 30) * 60_000;
+    const repeatRaw = String(call.arguments.repeat ?? '');
+    const repeat = (repeatRaw || 'none') as 'none' | 'daily' | 'weekdays' | 'weekly';
+    const repeatWeekday = Number(call.arguments.repeatWeekday);
     if (!text) {
       return { ok: false, error: 'text is required', toolCall: call };
     }
-    const reminder = await createReminderFromUi({ text, when });
-    return { ok: true, data: reminder, toolCall: call };
+    if (!call.arguments.allowConflict) {
+      const existing = await listReminders();
+      const conflicts = findReminderConflicts(
+        {
+          when,
+          text,
+          repeat,
+          repeatWeekday: Number.isFinite(repeatWeekday) ? repeatWeekday : undefined,
+        },
+        existing,
+      );
+      if (conflicts.length) {
+        return {
+          ok: true,
+          data: {
+            conflict: true,
+            answer: [
+              conflicts[0]!.message,
+              '',
+              'Options: reschedule the new reminder, reschedule the existing one, or keep both.',
+            ].join('\n'),
+          },
+          toolCall: call,
+        };
+      }
+    }
+    const reminder = await createReminderFromUi({
+      text,
+      when,
+      repeat,
+      repeatWeekday: Number.isFinite(repeatWeekday) ? repeatWeekday : undefined,
+    });
+    return {
+      ok: true,
+      data: {
+        ...reminder,
+        answer: `Reminder set: ${reminder.text} at ${new Date(reminder.when).toLocaleString()}${
+          reminder.repeat !== 'none' ? ` · recurring ${reminder.repeat}` : ''
+        }`,
+      },
+      toolCall: call,
+    };
+  }
+  if (call.name === 'plan_workday') {
+    const { listGoals, listReminders } = await import('@/storage/phil');
+    const { getAgentSettings: getAgent } = await import('@/storage/agentSettings');
+    const goals = (await listGoals()).filter((g) => g.status === 'active');
+    const reminders = (await listReminders()).filter((r) => r.status === 'scheduled');
+    const agent = await getAgent();
+    const calendarConnected = Boolean(agent.calendarEnabled);
+    const answer = [
+      '## Plan my workday — agenda',
+      '',
+      '### Goals',
+      goals.length ? goals.map((g) => `• ${g.title}`).join('\n') : '• (no active goals)',
+      '',
+      '### Reminders',
+      reminders.length
+        ? reminders
+            .slice(0, 5)
+            .map((r) => `• ${r.text} — ${new Date(r.when).toLocaleString()}`)
+            .join('\n')
+        : '• No reminders',
+      '',
+      calendarConnected
+        ? '### Calendar (connected)\n• Today’s events included when available'
+        : '### Calendar\nCalendar isn’t connected — planning from goals/reminders only. Enable in Privacy.',
+      '',
+      '### Prioritized focus blocks',
+      '1. Morning focus block — top goal',
+      '2. Midday admin — reminders',
+      '3. Afternoon focus block',
+    ].join('\n');
+    return { ok: true, data: { answer, agenda: answer, calendarConnected }, toolCall: call };
   }
   if (call.name === 'goal_create') {
     const { createGoalFromUi } = await import('@/phil/clientActions');
@@ -97,6 +303,98 @@ async function executePhilToolLocally(call: ToolCall): Promise<ToolResult> {
     }
     const goal = await createGoalFromUi(title);
     return { ok: true, data: goal, toolCall: call };
+  }
+  if (call.name === 'project_create') {
+    const { createProjectFromUi } = await import('@/phil/clientActions');
+    const title = String(call.arguments.title ?? '').trim();
+    if (!title) {
+      return { ok: false, error: 'title is required', toolCall: call };
+    }
+    const templateRaw = String(call.arguments.template ?? '');
+    const { project, goal } = await createProjectFromUi({
+      title,
+      template: (templateRaw || undefined) as
+        | 'career'
+        | 'job_hunt'
+        | 'research'
+        | 'exec_day'
+        | 'life_move'
+        | 'custom'
+        | undefined,
+    });
+    return {
+      ok: true,
+      data: {
+        project,
+        goal,
+        message: `I've set up your ${project.title} project.`,
+      },
+      toolCall: call,
+    };
+  }
+  if (call.name === 'project_list') {
+    const { listProjects, getActiveProjectId } = await import('@/storage/projects');
+    const projects = await listProjects();
+    const activeProjectId = await getActiveProjectId();
+    return { ok: true, data: { projects, activeProjectId }, toolCall: call };
+  }
+  if (call.name === 'project_set_active') {
+    const { getProject, setActiveProjectId } = await import('@/storage/projects');
+    const id = String(call.arguments.id ?? call.arguments.projectId ?? '');
+    const project = await getProject(id);
+    if (!project) return { ok: false, error: `No project ${id}`, toolCall: call };
+    const selection = await setActiveProjectId(id);
+    return { ok: true, data: { selection, project }, toolCall: call };
+  }
+  if (call.name === 'project_get' || call.name === 'project_progress') {
+    const { getProject, getActiveProject, formatProjectProgress } = await import(
+      '@/storage/projects'
+    );
+    const id = String(call.arguments.id ?? call.arguments.projectId ?? '');
+    const project = id ? await getProject(id) : await getActiveProject();
+    if (!project) {
+      return {
+        ok: false,
+        error: id ? `No project ${id}` : 'No active project',
+        toolCall: call,
+      };
+    }
+    return {
+      ok: true,
+      data: { project, progress: formatProjectProgress(project) },
+      toolCall: call,
+    };
+  }
+
+  if (call.name.startsWith('memory_')) {
+    const { forgetMemory, listMemories, rememberMemory, searchMemories } = await import('@/storage/memory');
+    const { getSettings } = await import('@/storage/db');
+    if (call.name === 'memory_remember') {
+      const settings = await getSettings();
+      if (!settings.memoryEnabled) {
+        return { ok: false, error: 'Memory is off. Enable Memory in Privacy / Settings to store new facts.', toolCall: call };
+      }
+      const text = String(call.arguments.text ?? '').trim();
+      if (!text) return { ok: false, error: 'text is required', toolCall: call };
+      const entry = await rememberMemory(text, { projectId: String(call.arguments.projectId ?? '') || undefined, source: 'tool' });
+      return { ok: true, data: { ...entry, answer: `Got it — I’ll remember that: ${entry.text}` }, toolCall: call };
+    }
+    if (call.name === 'memory_forget') {
+      const removed = await forgetMemory(String(call.arguments.id ?? call.arguments.text ?? '').trim());
+      if (!removed) return { ok: false, error: 'No matching memory found to forget.', toolCall: call };
+      return { ok: true, data: { removed, answer: `Forgotten: ${removed.text}` }, toolCall: call };
+    }
+    if (call.name === 'memory_search' || call.name === 'memory_list') {
+      const query = String(call.arguments.query ?? '');
+      const limit = Number(call.arguments.limit);
+      const hits = call.name === 'memory_list'
+        ? (await listMemories()).slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20).map((m) => ({ ...m, score: 0 }))
+        : await searchMemories(query, Number.isFinite(limit) ? limit : 10);
+      const answer = hits.length
+        ? hits.map((m, i) => `${i + 1}. ${m.text}`).join('\n')
+        : query ? `No memories matched “${query}”.` : 'No memories stored yet.';
+      return { ok: true, data: { memories: hits, answer }, toolCall: call };
+    }
   }
   return { ok: false, error: `Unknown tool: ${call.name}`, toolCall: call };
 }
@@ -200,11 +498,6 @@ function priorConversationContext(steps: AgentStep[]): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveRoute(goal: string, priorSteps: AgentStep[]): AgentRoute {
-  const emailIntent = detectIntent(goal, priorSteps);
-  return routeGoal({ goal, emailIntent });
 }
 
 function buildUserTurn(
@@ -493,7 +786,7 @@ export function useAgent() {
       const priorSteps = stepsRef.current;
       const priorContext = priorConversationContext(priorSteps);
       const intent = detectIntent(goal, priorSteps);
-      const route = resolveRoute(goal, priorSteps);
+      const route = await resolveRoute(goal, priorSteps);
 
       pushStep({ kind: 'user', content: goal });
 
@@ -503,11 +796,76 @@ export function useAgent() {
           throw new Error('Enable Agent mode in settings first.');
         }
 
+        // Clarify short-circuit (RTE-03) — no durable artifacts.
+        if (route.plan?.clarification || route.plan?.debug?.stage === 'clarify') {
+          const q =
+            route.plan.clarification ||
+            route.plan.clarifyQuestion ||
+            'Could you share a bit more context?';
+          pushStep({
+            kind: 'thought',
+            content: 'Need a bit more context…',
+          });
+          if (route.plan?.debug) {
+            pushStep({
+              kind: 'thought',
+              content: `route.skills = [${route.plan.debug.skills.join(', ')}] · stage=${route.plan.debug.stage}`,
+            });
+          }
+          pushStep({ kind: 'final', content: q });
+          return;
+        }
+
+        if (route.plan?.debug?.skills?.length) {
+          const testMode =
+            typeof window !== 'undefined' &&
+            (new URLSearchParams(window.location.search).has('philTest') ||
+              Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
+          if (testMode) {
+            pushStep({
+              kind: 'thought',
+              content: `route.skills = [${route.plan.debug.skills.join(', ')}] · stage=${route.plan.debug.stage}${
+                route.plan.shortCircuit || route.plan.lightweight ? ' · short-circuit' : ''
+              }`,
+            });
+          }
+        }
+
         // Skill router: deterministic tools run before the LLM when possible.
         const fastCall = route.toolCall;
         let researchSeed:
           | { call: ToolCall; result: ToolResult }
           | null = null;
+
+        // Direct skill.execute when finalizeDirectAnswer and no tool (email preview, counterargue).
+        if (route.finalizeDirectAnswer && !fastCall && route.plan?.steps?.[0]) {
+          const skillId = route.plan.steps[0].skillId;
+          const registered = getDefaultRouter().getSkill(skillId);
+          if (registered?.execute) {
+            pushStep({
+              kind: 'thought',
+              content: `Skill: ${skillId}…`,
+            });
+            const execResult = await registered.execute({
+              utterance: goal,
+              context: {
+                goal,
+                utterance: goal,
+                pageUrl: null,
+                pageTitle: null,
+                calendarConnected: Boolean(agentSettings.calendarEnabled),
+              },
+              params: route.plan.steps[0].params,
+            });
+            if (execResult.message) {
+              pushStep({
+                kind: execResult.ok === false ? 'error' : 'final',
+                content: execResult.message,
+              });
+              return;
+            }
+          }
+        }
 
         if (fastCall && fastCall.name !== 'web_research' && route.finalizeDirectAnswer) {
           pushStep({
@@ -553,6 +911,11 @@ export function useAgent() {
               kind: 'final',
               content: formatToolResultContent(fastCall.name, result),
             });
+          } else if (
+            (fastCall.name.startsWith('memory_') || fastCall.name.startsWith('browser_memory_')) &&
+            result.error
+          ) {
+            pushStep({ kind: 'final', content: result.error });
           }
           return;
         }

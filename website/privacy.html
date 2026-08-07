@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Phil</title>
+    <meta
+      name="description"
+      content="Phil privacy policy: on-device chat and page data by default; model download CDN; optional Google research, Gmail, Calendar, and history."
+    />
+    <link rel="icon" type="image/png" sizes="32x32" href="../public/icons/icon32.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Sora:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="site-bg" aria-hidden="true"></div>
+    <header class="wrap">
+      <nav class="topnav" aria-label="Primary">
+        <a class="wordmark" href="index.html">Phil</a>
+        <div class="topnav-links">
+          <a href="index.html">Home</a>
+          <a href="terms.html">Terms</a>
+        </div>
+      </nav>
+    </header>
+
+    <article class="wrap legal" data-testid="privacy-policy">
+      <h1>Privacy Policy</h1>
+      <p class="meta">Effective date: August 7, 2026 · Product: Phil (Chrome extension)</p>
+
+      <p>
+        Phil is a <strong>private on-device browser AI chief of staff</strong>.
+        This policy explains what stays on your device, what may leave your
+        device when you opt in, and how we handle optional telemetry.
+      </p>
+
+      <h2>Summary</h2>
+      <ul>
+        <li>
+          <strong>By default, chat, page text, prompts, goals, focus data,
+          reminders, Persistent Project knowledge, and memories stay on your
+          device.</strong>
+          Phil does not send them to Phil servers for inference.
+        </li>
+        <li>
+          <strong>Analytics and crash reporting are off by default</strong> and
+          only run if you explicitly opt in from Privacy / Settings.
+        </li>
+        <li>
+          Optional features (Google web research, Gmail, Calendar, browser
+          history) may send data to third parties you already use — only when
+          enabled.
+        </li>
+      </ul>
+
+      <h2>What stays on your device</h2>
+      <p>Unless you enable an optional egress feature, the following remain local:</p>
+      <ul>
+        <li>Agent and chat prompts, replies, and conversation history</li>
+        <li>Current-page extracts and selection text used for summarize / explain</li>
+        <li>Goals, reminders, focus / dwell summaries, and Persistent Projects</li>
+        <li>Memories and conversation search indexes stored in IndexedDB / Chrome storage</li>
+        <li>
+          Calendar event summaries <em>after</em> sync, when Calendar is enabled
+          (stored locally for planning)
+        </li>
+        <li>Downloaded AI model weights cached for offline reuse (Cache API)</li>
+      </ul>
+
+      <h2>What may leave your device</h2>
+
+      <h3>Model download (CDN)</h3>
+      <p>
+        The first time you download an AI model (and when updating model
+        artifacts), Phil fetches weights and runtime assets from model hosting
+        CDNs such as Hugging Face / related mirrors listed in the extension
+        host permissions. After download, inference runs <strong>on-device</strong>
+        via WebGPU / WebLLM. No Phil cloud inference endpoint is used.
+      </p>
+
+      <h3>Google web research (optional / when used)</h3>
+      <p>
+        When you ask Phil to research the web, Phil uses <strong>Google</strong>
+        as the default search engine (SERP via browser tabs). Search queries and
+        page loads go to Google under Google’s terms. Phil does not operate a
+        separate research proxy.
+      </p>
+
+      <h3>Gmail (optional)</h3>
+      <p>
+        If you connect Gmail (OAuth API mode or session mode while signed into
+        mail.google.com), Phil may read message metadata/bodies needed for
+        list/read/draft flows and may send mail <strong>only after you
+        confirm</strong>. OAuth tokens stay on-device; Phil does not operate a
+        mail server.
+      </p>
+
+      <h3>Google Calendar (optional)</h3>
+      <p>
+        Calendar is a first-class, skippable onboarding step. When connected,
+        Phil may sync today’s events (and related calendar reads for planning)
+        through Google Calendar / Google APIs. Event data used for planning is
+        cached locally. When skipped, Phil plans without calendar events and can
+        prompt you to enable Calendar later in Privacy.
+      </p>
+
+      <h3>Browser history (when enabled)</h3>
+      <p>
+        If you grant the optional History permission for browser memory, Phil
+        may index visit titles/URLs locally so you can ask things like “find that
+        article from last week.” History data is not uploaded to Phil servers.
+        Clearing or disabling browser memory removes indexed hits.
+      </p>
+
+      <h2>Permissions inventory</h2>
+      <p>
+        Required and optional Chrome permissions are documented in
+        <code>PERMISSIONS.md</code> in the product repository and mirrored in the
+        in-extension Privacy dashboard (local vs leaves-device sections). That
+        dashboard is the live inventory of what is granted on your profile.
+      </p>
+
+      <h2>Analytics and crash reporting</h2>
+      <p>
+        <strong>Analytics default OFF.</strong>
+        <strong>Crash reporting default OFF.</strong>
+        Fresh installs do not emit analytics or crash reports. If you later opt
+        in from Privacy / Settings, the UI will state at a high level what is
+        collected. You can turn these off again at any time.
+      </p>
+
+      <h2>Data you can clear</h2>
+      <p>
+        From Privacy controls you can clear chats, memories, focus history, and
+        (when applicable) browser memory indexes. Revoking optional permissions
+        (Gmail, Calendar, history) updates the dashboard and disables the
+        related features until re-enabled.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Phil is not directed at children under 13, and we do not knowingly
+        collect personal information from children.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        We may update this policy as the product evolves. Material changes will
+        be reflected on this page with an updated effective date. Continued use
+        after changes constitutes acceptance of the updated policy.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Privacy questions:
+        <a href="mailto:privacy@phil.local">privacy@phil.local</a>
+        (placeholder until a production contact is published).
+      </p>
+
+      <p style="margin-top: 2.5rem">
+        <a href="index.html">← Back to Phil</a> ·
+        <a href="terms.html">Terms of Service</a>
+      </p>
+    </article>
+
+    <footer class="wrap site-footer">
+      <p>Phil Privacy Policy</p>
+      <nav aria-label="Legal">
+        <a href="index.html">Home</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+    </footer>
+  </body>
+</html>

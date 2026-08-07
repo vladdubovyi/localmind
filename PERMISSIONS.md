@@ -14,11 +14,12 @@
 | `notifications` | Reminder / nudge / briefing alerts |
 | `idle` | Pause focus dwell when the machine is idle |
 
-## Optional (requested when Agent / Gmail is enabled)
+## Optional (requested when Agent / Gmail / browser memory is enabled)
 
 | Permission / host | Why |
 |---|---|
 | `identity` | Gmail OAuth API mode |
+| `history` | Browser memory — index recent visits for “find that article I read” |
 | `http://*/*`, `https://*/*` | Agent page control + web research |
 | Gmail / Google API hosts | Session DOM + OAuth token endpoints |
 

@@ -175,10 +175,21 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
       .join('\n');
   }
   if (name === 'reminder_create') {
-    const d = result.data as { text?: string; when?: number; id?: string } | undefined;
+    const d = result.data as
+      | {
+          text?: string;
+          when?: number;
+          id?: string;
+          conflict?: boolean;
+          answer?: string;
+          repeat?: string;
+        }
+      | undefined;
+    if (d?.conflict && d.answer) return d.answer;
+    if (d?.answer) return d.answer;
     return `Reminder set${d?.text ? `: ${d.text}` : ''}${
       d?.when ? ` at ${new Date(d.when).toLocaleString()}` : ''
-    }${d?.id ? ` (${d.id})` : ''}`;
+    }${d?.repeat && d.repeat !== 'none' ? ` · ${d.repeat}` : ''}${d?.id ? ` (${d.id})` : ''}`;
   }
   if (name === 'reminder_list') {
     const list = Array.isArray(result.data) ? result.data : [];
@@ -211,6 +222,10 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
   if (name === 'briefing_today') {
     const d = result.data as { content?: string } | undefined;
     return d?.content ?? 'Briefing ready.';
+  }
+  if (name === 'plan_workday') {
+    const d = result.data as { answer?: string; agenda?: string } | undefined;
+    return d?.answer ?? d?.agenda ?? 'Workday plan ready.';
   }
   if (name === 'web_research') {
     const d = result.data as
@@ -254,6 +269,32 @@ export function formatToolResultContent(name: string, result: ToolResult): strin
       })
       .join('\n');
   }
+
+  if (name === 'memory_remember' || name === 'memory_forget' || name === 'memory_search' || name === 'memory_list') {
+    const d = result.data as { answer?: string; text?: string; memories?: Array<{ text?: string }>; removed?: { text?: string } } | undefined;
+    if (d?.answer?.trim()) return d.answer.trim();
+    if (name === 'memory_remember' && d?.text) return `Got it — I’ll remember that: ${d.text}`;
+    if (name === 'memory_forget' && d?.removed?.text) return `Forgotten: ${d.removed.text}`;
+    const list = d?.memories;
+    if (Array.isArray(list)) {
+      if (!list.length) return 'No memories stored yet.';
+      return list.map((m, i) => `${i + 1}. ${m.text ?? ''}`).join('\n');
+    }
+    return 'Memory updated.';
+  }
+  if (name === 'browser_memory_search' || name === 'browser_memory_clear') {
+    const d = result.data as {
+      answer?: string;
+      hits?: Array<{ title?: string; url?: string }>;
+    } | undefined;
+    if (d?.answer?.trim()) return d.answer.trim();
+    if (Array.isArray(d?.hits) && d.hits.length) {
+      return d.hits
+        .map((h, i) => `${i + 1}. ${h.title ?? 'Untitled'}\n${h.url ?? ''}`)
+        .join('\n');
+    }
+    return 'Browser memory updated.';
+  }
   try {
     return JSON.stringify(result.data ?? { ok: true }, null, 2).slice(0, 1200);
   } catch {
@@ -291,8 +332,11 @@ export function toolCallLabel(name: string, args: Record<string, unknown>): stri
     goal_create: 'Creating goal…',
     goal_list: 'Listing goals…',
     goal_complete: 'Completing goal…',
+    plan_workday: 'Planning your workday…',
     briefing_today: 'Composing briefing…',
     web_research: 'Researching the web…',
+    browser_memory_search: 'Searching browser memory…',
+    browser_memory_clear: 'Clearing browser memory…',
     phil_settings_get: 'Reading Phil settings…',
     phil_settings_update: 'Updating Phil settings…',
   };

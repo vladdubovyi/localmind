@@ -2,6 +2,7 @@ import type {
   Goal,
   MorningBriefing,
   PhilAssistantSettings,
+  ProactiveSuggestion,
   Reminder,
   TabActivitySession,
 } from '@/phil/types';
@@ -19,6 +20,8 @@ const KEYS = {
   goals: 'philGoals',
   activity: 'philTabActivity',
   briefings: 'philBriefings',
+  suggestions: 'philSuggestions',
+  deliveryLog: 'philNotificationDeliveries',
 } as const;
 
 async function getLocal<T>(key: string, fallback: T): Promise<T> {
@@ -119,11 +122,67 @@ export async function putBriefing(briefing: MorningBriefing): Promise<void> {
   await setLocal(KEYS.briefings, trimmed);
 }
 
-export async function getBriefingByDate(dateKey: string): Promise<MorningBriefing | undefined> {
+export async function getBriefingByDate(
+  dateKey: string,
+  kind?: MorningBriefing['kind'],
+): Promise<MorningBriefing | undefined> {
   const all = await getLocal<MorningBriefing[]>(KEYS.briefings, []);
   return all
-    .filter((b) => b.dateKey === dateKey)
+    .filter((b) => b.dateKey === dateKey && (kind ? (b.kind ?? 'morning') === kind : true))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+export async function listSuggestions(): Promise<ProactiveSuggestion[]> {
+  const all = await getLocal<ProactiveSuggestion[]>(KEYS.suggestions, []);
+  return [...all].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function putSuggestion(suggestion: ProactiveSuggestion): Promise<void> {
+  const all = await listSuggestions();
+  const idx = all.findIndex((s) => s.id === suggestion.id);
+  if (idx >= 0) all[idx] = suggestion;
+  else all.push(suggestion);
+  const trimmed = all.length > 80 ? all.slice(0, 80) : all;
+  await setLocal(KEYS.suggestions, trimmed);
+}
+
+export async function getSuggestion(id: string): Promise<ProactiveSuggestion | undefined> {
+  return (await listSuggestions()).find((s) => s.id === id);
+}
+
+export async function listVisibleSuggestions(now = Date.now()): Promise<ProactiveSuggestion[]> {
+  const all = await listSuggestions();
+  const visible: ProactiveSuggestion[] = [];
+  for (const s of all) {
+    if (s.status === 'dismissed' || s.status === 'accepted') continue;
+    if (s.status === 'snoozed') {
+      if (s.snoozeUntil != null && s.snoozeUntil <= now) {
+        const reactivated: ProactiveSuggestion = {
+          ...s,
+          status: 'active',
+          snoozeUntil: undefined,
+          updatedAt: now,
+        };
+        await putSuggestion(reactivated);
+        visible.push(reactivated);
+      }
+      continue;
+    }
+    if (s.status === 'active') visible.push(s);
+  }
+  return visible;
+}
+
+export async function recordNotificationDelivery(atMs = Date.now()): Promise<void> {
+  const all = await getLocal<number[]>(KEYS.deliveryLog, []);
+  all.push(atMs);
+  const cutoff = atMs - 60 * 60_000;
+  await setLocal(KEYS.deliveryLog, all.filter((t) => t >= cutoff));
+}
+
+export async function countDeliveriesInWindow(windowMs = 60 * 60_000, now = Date.now()): Promise<number> {
+  const all = await getLocal<number[]>(KEYS.deliveryLog, []);
+  return all.filter((t) => t >= now - windowMs).length;
 }
 
 export function localDateKey(d = new Date()): string {

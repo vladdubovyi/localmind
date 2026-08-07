@@ -50,7 +50,7 @@ export default defineManifest({
   ],
   // Granted at runtime when Agent / Gmail is enabled.
   // Note: chrome.debugger cannot be optional in MV3 — do not list it here.
-  optional_permissions: ['identity'],
+  optional_permissions: ['identity', 'history'],
   optional_host_permissions: [
     'http://*/*',
     'https://*/*',
@@ -72,5 +72,25 @@ export default defineManifest({
   content_security_policy: {
     extension_pages:
       "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'",
+  },
+  commands: {
+    'open-phil': {
+      suggested_key: {
+        default: 'Alt+Shift+P',
+      },
+      description: 'Open Phil side panel',
+    },
+    'focus-agent': {
+      suggested_key: {
+        default: 'Alt+Shift+A',
+      },
+      description: 'Focus Agent tab',
+    },
+    'summarize-page': {
+      suggested_key: {
+        default: 'Alt+Shift+S',
+      },
+      description: 'Summarize current page',
+    },
   },
 });

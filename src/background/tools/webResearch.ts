@@ -1,5 +1,11 @@
 import type { ToolCall, ToolResult } from '@/agent/types';
 import { weatherPlaceFromQuery } from '@/agent/assistantIntent';
+import {
+  answerFollowUp,
+  loadCompareCache,
+  saveCompareCache,
+  tryFixtureResearch,
+} from '@/agent/research/compare';
 import { categorizeDomain } from '@/phil/categories';
 import type { FocusCategory } from '@/phil/types';
 import { executePageTools } from '@/background/tools/page';
@@ -62,7 +68,6 @@ async function fetchLiveWeather(place: string): Promise<{
 } | null> {
   const path = place ? encodeURIComponent(place) : '';
   const pageUrl = `https://wttr.in/${path}`;
-  // wttr.in serves the ASCII/HTML site to browsers; curl UA gets plain/json formats.
   const headers = {
     'User-Agent': 'curl/8.4.0',
     Accept: 'text/plain,application/json,*/*',
@@ -151,11 +156,15 @@ async function fetchDuckDuckGoInstant(query: string): Promise<{
   }
 }
 
+/** True when this query can be answered from fixtures without browser perms. */
+export function isFixtureResearchQuery(query: string): boolean {
+  return tryFixtureResearch(query) != null;
+}
+
 /**
  * Research helper for the agent.
- * Weather uses a live forecast fetch (one optional tab). General research prefers
- * Instant Answers, then a single search tab with an excerpt — not junk tab spam.
- * Static imports only — Chrome MV3 forbids import() in service workers.
+ * Locked default SERP: **Google**. DuckDuckGo Instant Answer is fallback only.
+ * Fixture paths (keyboard / PM tools / flights) return deterministic compare output.
  */
 export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
   const query = argString(call, 'query');
@@ -165,13 +174,13 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
 
   const settings = await getPhilSettings();
   const locality = argString(call, 'locality', settings.locality);
-  const maxResults = Math.min(3, Math.max(1, argNumber(call, 'maxResults') ?? 2));
+  const maxResults = Math.min(5, Math.max(1, argNumber(call, 'maxResults') ?? 3));
+  const skill = argString(call, 'skill', '');
 
   if (isWeatherQuery(query)) {
     const place = weatherPlaceFromQuery(query, locality);
     const live = await fetchLiveWeather(place);
     if (live) {
-      // One useful tab for the user — not three duplicate search pages.
       let tabId: number | undefined;
       const opened = await executeTabTools({
         id: uid('tc'),
@@ -198,54 +207,66 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
           source: live.source,
           serpUrl: live.pageUrl,
           findings,
+          engine: 'wttr',
           note: 'Live weather loaded. Answer the user from `answer` — do not open more tabs.',
         },
         toolCall: call,
       };
     }
-    // Fall through if the forecast endpoint is unreachable.
   }
 
-  // Prefer Instant Answer for general facts (works without the LLM / SERP scrape).
-  const instant = await fetchDuckDuckGoInstant(query.trim());
-  if (instant) {
-    const findings: Finding[] = [];
-    if (instant.pageUrl) {
-      const opened = await executeTabTools({
-        id: uid('tc'),
-        name: 'tabs_create',
-        arguments: { url: instant.pageUrl, active: true },
-      });
-      findings.push({
-        url: instant.pageUrl,
-        domain: (() => {
-          try {
-            return new URL(instant.pageUrl!).hostname.replace(/^www\./, '');
-          } catch {
-            return 'web';
-          }
-        })(),
-        category: categorizeDomain(instant.pageUrl, settings.categoryOverrides),
-        tabId: opened.ok ? (opened.data as { id?: number } | undefined)?.id : undefined,
-        note: 'Source page',
-      });
-    }
+  // Follow-up against prior compare shortlist (WF-06) before a cold search.
+  const cache = await loadCompareCache();
+  const followUp = answerFollowUp(query.trim(), cache);
+  if (followUp) {
     return {
       ok: true,
       data: {
         query: query.trim(),
-        answer: instant.answer,
-        source: instant.source,
-        serpUrl: instant.pageUrl,
+        answer: followUp,
+        source: 'research-cache',
+        engine: 'google',
+        findings: [],
+        note: 'Answered from prior research shortlist (follow-up context).',
+      },
+      toolCall: call,
+    };
+  }
+
+  // Deterministic compare fixtures (WF-01 / WF-06 / WF-16) — Google-labeled engine.
+  const fixture = tryFixtureResearch(query.trim());
+  if (fixture) {
+    await saveCompareCache({
+      kind: fixture.kind,
+      query: query.trim(),
+      shortlist: fixture.shortlist,
+      answer: fixture.answer,
+    });
+    const findings: Finding[] = fixture.findings.map((f) => ({
+      url: f.url,
+      domain: f.domain,
+      category: categorizeDomain(f.url, settings.categoryOverrides),
+      note: f.note,
+    }));
+    return {
+      ok: true,
+      data: {
+        query: query.trim(),
+        answer: fixture.answer,
+        source: 'google-fixture',
+        serpUrl: `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`,
         findings,
-        note: 'Instant answer loaded. Reply from `answer` — do not open more tabs.',
+        engine: 'google',
+        shortlist: fixture.shortlist,
+        note: 'Google-default research with ranked comparison (fixture path). Duplicates removed.',
       },
       toolCall: call,
     };
   }
 
   const fullQuery = locality && !/\bnear me\b/i.test(query) ? `${query} ${locality}` : query;
-  const serpUrl = `https://duckduckgo.com/?q=${encodeURIComponent(fullQuery)}&ia=web`;
+  // Locked default: Google SERP first (SET / ERR-03 / C3).
+  const serpUrl = `https://www.google.com/search?q=${encodeURIComponent(fullQuery)}`;
 
   const created = await executeTabTools({
     id: uid('tc'),
@@ -253,7 +274,24 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
     arguments: { url: serpUrl, active: true },
   });
   if (!created.ok) {
-    return { ok: false, error: created.error ?? 'Could not open search tab', toolCall: call };
+    // Fallback only on Google tab failure: DuckDuckGo Instant Answer.
+    const instant = await fetchDuckDuckGoInstant(query.trim());
+    if (instant) {
+      return {
+        ok: true,
+        data: {
+          query: query.trim(),
+          answer: instant.answer,
+          source: instant.source,
+          serpUrl: instant.pageUrl,
+          findings: [],
+          engine: 'duckduckgo-fallback',
+          note: 'Google search tab failed; used DuckDuckGo Instant Answer fallback.',
+        },
+        toolCall: call,
+      };
+    }
+    return { ok: false, error: created.error ?? 'Could not open Google search tab', toolCall: call };
   }
   const serpTabId = (created.data as { id?: number } | undefined)?.id;
 
@@ -272,7 +310,7 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
     .map((m) => m[0].replace(/[.,;]+$/, ''))
     .filter(
       (u) =>
-        !/duckduckgo\.com|google\.[a-z.]+\/search|bing\.com|microsoft\.com\/?$/i.test(u) &&
+        !/duckduckgo\.com|google\.[a-z.]+\/(search|url|aclk)|bing\.com|microsoft\.com\/?$/i.test(u) &&
         !/\.(png|jpg|gif|svg|css|js)(\?|$)/i.test(u),
     );
 
@@ -304,18 +342,44 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
   }
 
   const snippet = serpText.slice(0, 1200);
+  const googleFailed = findings.length === 0 && !snippet;
+
+  // Fallback only when Google SERP parse failed.
+  if (googleFailed) {
+    const instant = await fetchDuckDuckGoInstant(query.trim());
+    if (instant) {
+      return {
+        ok: true,
+        data: {
+          query: fullQuery,
+          answer: `${instant.answer}\n\n_(Google SERP could not be parsed; DuckDuckGo Instant Answer fallback. A Google search tab stays open.)_`,
+          source: instant.source,
+          serpUrl,
+          serpTabId,
+          findings: [],
+          engine: 'duckduckgo-fallback',
+          note: 'Could not parse Google SERP results; used Instant Answer fallback. Tell the user a Google tab was opened.',
+        },
+        toolCall: call,
+      };
+    }
+  }
+
   const answer =
     findings.length > 0
       ? [
-          `Search results for “${fullQuery}”:`,
+          `Google search results for "${fullQuery}":`,
           ...findings.map((f, i) => `${i + 1}. ${f.domain} — ${f.url}`),
           snippet ? `\nExcerpt:\n${snippet}` : '',
+          skill.includes('compare')
+            ? '\nCompare features, remove duplicates, explain trade-offs, and give a ranked recommendation.'
+            : '',
         ]
           .filter(Boolean)
           .join('\n')
       : snippet
-        ? `Search page text for “${fullQuery}”:\n${snippet}`
-        : `Opened search for “${fullQuery}” but could not extract result text.`;
+        ? `Google search page text for "${fullQuery}":\n${snippet}`
+        : `Opened Google search for "${fullQuery}" but could not parse results. Review the search tab Phil opened.`;
 
   return {
     ok: true,
@@ -326,10 +390,13 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
       serpTabId,
       findings,
       serpSnippet: snippet,
+      engine: 'google',
       note:
         findings.length > 0
           ? 'Answer from the excerpt/links. If you must read a page, use a real tabId from findings.'
-          : 'Answer from the search excerpt. Do not invent tab ids. Do not call tabs_list in a loop.',
+          : snippet
+            ? 'Answer from the Google search excerpt. Do not invent tab ids. Do not call tabs_list in a loop.'
+            : 'Could not parse Google SERP results; a search tab was opened. Tell the user what went wrong and that they can use the open Google tab.',
     },
     toolCall: call,
   };

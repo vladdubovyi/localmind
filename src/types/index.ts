@@ -62,6 +62,15 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   memoryEnabled: boolean;
   autoSummarize: boolean;
+  /** Opt-in diagnostics — default off (PRIV). */
+  analyticsEnabled?: boolean;
+  /** Opt-in crash reporting — default off (PRIV). */
+  crashReportingEnabled?: boolean;
+  /**
+   * When true, goal-aware browse may silently associate visits with the active
+   * Persistent Project knowledge base (PRIV — default on).
+   */
+  projectBrowseCaptureEnabled?: boolean;
   generation: GenerationSettings;
 }
 

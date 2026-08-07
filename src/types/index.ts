@@ -62,6 +62,8 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   memoryEnabled: boolean;
   autoSummarize: boolean;
+  analyticsEnabled?: boolean;
+  crashReportingEnabled?: boolean;
   generation: GenerationSettings;
 }
 

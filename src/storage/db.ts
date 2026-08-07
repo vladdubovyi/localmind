@@ -53,6 +53,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   memoryEnabled: false,
   autoSummarize: false,
+  analyticsEnabled: false,
+  crashReportingEnabled: false,
   generation: {
     temperature: 0.7,
     topP: 0.95,
@@ -91,6 +93,33 @@ export async function saveConversation(conversation: Conversation): Promise<void
 export async function deleteConversation(id: string): Promise<void> {
   const db = await getDb();
   await db.delete('conversations', id);
+}
+
+export async function clearConversations(): Promise<void> {
+  const db = await getDb();
+  await db.clear('conversations');
+}
+
+export async function searchConversations(query: string, limit = 20): Promise<Conversation[]> {
+  const all = await listConversations();
+  const q = query.trim().toLowerCase();
+  if (!q) return all.slice(0, limit);
+  const tokens = q.split(/\s+/).filter((t) => t.length > 1);
+  const scored = all
+    .map((c) => {
+      const hay = [c.title, c.pageTitle ?? '', c.pageUrl ?? '', ...c.messages.map((m) => m.content)]
+        .join('\n')
+        .toLowerCase();
+      let score = 0;
+      if (hay.includes(q)) score += 100;
+      for (const t of tokens) {
+        if (hay.includes(t)) score += 10;
+      }
+      return { c, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || b.c.updatedAt - a.c.updatedAt);
+  return scored.slice(0, limit).map((x) => x.c);
 }
 
 export async function getModelMeta(modelId: string) {

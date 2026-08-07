@@ -19,3 +19,8 @@ export const AGENT_SKILLS: AgentSkill[] = buildCoreSkills()
     hints: s.hints,
     confirmationLevel: s.confirmationLevel,
   }));
+
+export function getSkill(id: string): AgentSkill | undefined {
+  return AGENT_SKILLS.find((s) => s.id === id);
+}
+

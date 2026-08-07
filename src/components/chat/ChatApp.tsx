@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Bot, PanelRightOpen, Settings2 } from 'lucide-react';
-import { AgentPanel } from '@/components/agent/AgentPanel';
+import { AgentPanel, type AgentSeedGoal } from '@/components/agent/AgentPanel';
 import { BrandMark } from '@/components/common/BrandMark';
 import {
   FocusPanel,
@@ -18,6 +18,7 @@ import {
 import { useChat } from '@/hooks/useChat';
 import { usePendingSelection } from '@/hooks/usePendingSelection';
 import { usePhilQuickIntent } from '@/hooks/usePhilQuickIntent';
+import { getSelectionAction } from '@/prompts/selection';
 import { getOnboardingState } from '@/storage/onboarding';
 import type { PhilQuickIntent } from '@/phil/types';
 import type { PendingSelectionAction } from '@/types';
@@ -40,12 +41,12 @@ export function ChatApp({ variant }: ChatAppProps) {
     loadingFromCache,
     downloadAndLoad,
     updateSettings,
-    setError,
   } = useChat({ surface: variant });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiTab, setUiTab] = useState<UiTab>('agent');
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
+  const [agentSeed, setAgentSeed] = useState<AgentSeedGoal | null>(null);
   const queuedSelection = useRef<PendingSelectionAction | null>(null);
 
   useEffect(() => {
@@ -56,15 +57,19 @@ export function ChatApp({ variant }: ChatAppProps) {
     })();
   }, [phase]);
 
-  const handlePendingSelection = useCallback(
-    async (_pending: PendingSelectionAction) => {
-      setUiTab('agent');
-      setError(
-        'Selection actions open Agent. Ask Phil what to do with the selection, or enable Agent tools for the page.',
-      );
-    },
-    [setError],
-  );
+  const handlePendingSelection = useCallback(async (pending: PendingSelectionAction) => {
+    setUiTab('agent');
+    const def = getSelectionAction(pending.action);
+    const clipped = pending.text.slice(0, 8000);
+    const label = def?.label ?? pending.action;
+    const prompt =
+      def?.buildPrompt(clipped) ??
+      `${label} the following selection:\n\n--- SELECTED TEXT ---\n${clipped}\n--- END ---`;
+    setAgentSeed({
+      goal: prompt,
+      autoRun: true,
+    });
+  }, []);
 
   usePendingSelection(variant === 'sidebar' || variant === 'popup', handlePendingSelection);
 
@@ -195,7 +200,11 @@ export function ChatApp({ variant }: ChatAppProps) {
 
       {uiTab === 'agent' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentPanel modelReady={modelReady} />
+          <AgentPanel
+            modelReady={modelReady}
+            seedGoal={agentSeed}
+            onSeedConsumed={() => setAgentSeed(null)}
+          />
         </div>
       ) : uiTab === 'today' ? (
         <div className="min-h-0 flex-1 overflow-hidden">

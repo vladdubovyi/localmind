@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Zeldora migration runbook</title>
+    <style>
+      body {
+        font-family: Georgia, 'Times New Roman', serif;
+        max-width: 42rem;
+        margin: 2rem auto;
+        padding: 0 1.25rem 4rem;
+        line-height: 1.55;
+        color: #1a1a1a;
+      }
+      h1 { font-size: 1.75rem; }
+      .nav-ads {
+        background: #f0f0f0;
+        padding: 0.5rem;
+        font-size: 0.75rem;
+        color: #666;
+      }
+      .claim { font-weight: 600; }
+      textarea { width: 100%; min-height: 4rem; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <div class="nav-ads" data-testid="ads-chrome">Buy ads · Subscribe · Unrelated promo</div>
+    <article>
+      <h1>Zeldora migration runbook</h1>
+      <p>
+        This runbook covers the production cutover for the
+        <strong>Zeldora migration runbook</strong> initiative. Keep this phrase unique for e2e grounding.
+      </p>
+      <h2>Rollback step</h2>
+      <p id="rollback">
+        The rollback step is: <span class="claim">revert traffic to blue cluster via
+        <code>zeldora-rollback.sh --cluster=blue</code></span>
+        and confirm health checks on port 8443.
+      </p>
+      <h2>Core claim</h2>
+      <p id="photosynthesis-line">
+        Photosynthesis converts light into chemical energy.
+      </p>
+      <p id="long-paragraph">
+        Zeldora operators must drain sticky sessions before flipping the load balancer.
+        The migration window is ninety minutes. Database replicas stay on the old schema
+        until the dual-write verifier reports zero drift for fifteen consecutive minutes.
+        Only then may the cutover lead mark the change as complete in the incident channel.
+      </p>
+      <h2>Editable notes</h2>
+      <textarea id="editable-notes">Draft note: Zeldora cutover checklist incomplete.</textarea>
+    </article>
+  </body>
+</html>

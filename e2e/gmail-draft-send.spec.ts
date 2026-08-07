@@ -3,7 +3,7 @@ import { expect, test } from './fixtures/extension';
 const CONFIRM_TIMEOUT = 3 * 60_000;
 
 test.describe('Gmail product — draft & send via agent chat', () => {
-  test('agent drafts a reply after confirmation and fills Gmail compose', async ({
+  test('CORE-09: Gmail draft/send path (fixture)', async ({
     agentPage,
     gmailPage,
     sendAgentGoal,

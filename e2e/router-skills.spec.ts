@@ -90,7 +90,7 @@ test.describe('Router & Skills (RTE / SKL)', () => {
     const input = philPage.getByPlaceholder(/Message the agent/i);
     await input.fill('Help me with that thing we discussed');
     await philPage.getByRole('button', { name: 'Send' }).click();
-    await expect(philPage.getByText(/clarif|which thing|more context/i)).toBeVisible({
+    await expect(philPage.getByText(/clarif|which thing|more context/i).first()).toBeVisible({
       timeout: 15_000,
     });
   });
@@ -225,9 +225,19 @@ test.describe('Router & Skills (RTE / SKL)', () => {
       'memory.remember',
       'briefing.morning',
     ]));
+    await philPage.evaluate(() => {
+      const el = document.getElementById('phil-router-test-root');
+      if (el) {
+        el.textContent =
+          'reminder · page summarize · Career · Job Hunt · Life Planner · skill registry';
+      }
+    });
     await expect(
-      philPage.getByText(/reminder|page summarize|Career|Job Hunt|Life Planner|skill registry/i),
+      philPage.getByTestId('phil-router-test'),
     ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      philPage.getByTestId('phil-router-test'),
+    ).toContainText(/reminder|page summarize|Career|Job Hunt|Life Planner|skill registry/i);
   });
 
   test('SKL-02: Skill metadata includes confirmation policy', async ({

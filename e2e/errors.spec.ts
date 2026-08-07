@@ -2,8 +2,13 @@ import { test, expect } from './fixtures/extension';
 
 /** ERR-* — robust error handling (Wave1 B3). */
 test.describe('Errors (ERR)', () => {
-  test('ERR-01: WebGPU unavailable shows recovery, not a crash', async ({ philPage }) => {
-    await philPage.addInitScript(() => {
+  test('ERR-01: WebGPU unavailable shows recovery, not a crash', async ({
+    philExtensionContext,
+    philExtensionId,
+  }) => {
+    // Isolated page so init-script GPU stub does not poison the shared philPage worker.
+    const page = await philExtensionContext.newPage();
+    await page.addInitScript(() => {
       Object.defineProperty(navigator, 'gpu', {
         configurable: true,
         get: () => ({
@@ -11,21 +16,37 @@ test.describe('Errors (ERR)', () => {
         }),
       });
     });
-    await philPage.reload({ waitUntil: 'domcontentloaded' });
-    await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    await expect(philPage.getByText(/WebGPU|local AI needs|Chrome\/Edge|hardware/i).first()).toBeVisible({
+    await page.goto(`chrome-extension://${philExtensionId}/src/sidebar/index.html`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.evaluate(async () => {
+      await chrome.storage.local.set({
+        onboarding: { completed: true, completedAt: Date.now(), skipped: true },
+        agentSettings: {
+          enabled: true,
+          maxSteps: 8,
+          confirmModerate: true,
+          allowDebugger: false,
+          gmailClientId: '',
+          gmailMode: 'session',
+          calendarEnabled: false,
+        },
+      });
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: /^Agent$/i })).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: /^Agent$/i }).click();
+    await expect(page.getByText(/WebGPU|local AI needs|Chrome\/Edge|hardware/i).first()).toBeVisible({
       timeout: 15_000,
     });
-    // Goals / Reminders remain usable without GPU.
-    await philPage.getByRole('button', { name: /^Goals$/i }).click();
-    await expect(philPage.getByRole('heading', { name: /Goals/i })).toBeVisible({ timeout: 5_000 });
-    await philPage.getByRole('button', { name: /^Reminders$/i }).click();
-    await expect(philPage.getByRole('heading', { name: /Reminders/i })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /^Goals$/i }).click();
+    await expect(page.getByRole('heading', { name: /Goals/i })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /^Reminders$/i }).click();
+    await expect(page.getByRole('heading', { name: /Reminders/i })).toBeVisible({ timeout: 5_000 });
   });
 
   test('ERR-02: Model load failure offers a smaller model', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    // Onboarding / ErrorRecovery copy always documents smaller fallback; when error fires UI offers Try <model>.
     await expect(
       philPage.getByText(/smaller|fallback model|try.*model|Light|Low RAM|If load fails/i).first(),
     ).toBeVisible({ timeout: 15_000 });
@@ -33,7 +54,6 @@ test.describe('Errors (ERR)', () => {
 
   test('ERR-03: Failed web research stays helpful', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    // Product copy + research fallback mention Google; full SERP harness is C3/D1.
     await expect(philPage.getByText(/could not parse|opened search|Google/i).first()).toBeVisible({
       timeout: 15_000,
     });

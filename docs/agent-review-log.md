@@ -159,3 +159,11 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Detail:** ChatApp probes via `probeWebGPU()` on mount. Reload after init script should re-probe; if flaky, recommend extension launch arg / CDP override in fixtures.
 - **Suggested owner:** B3 follow-up / D1 fixtures
 
+### 2026-08-07 — Agent B3 (Onboarding + Errors) — e2e evidence
+- **Test IDs:** ONB-01…08, ERR-01…04
+- **Severity:** FYI
+- **Type:** skipped-test | deferred
+- **Summary:** Local Playwright: ONB-01/02/03/07 + ERR-01 green; remaining IDs depend on WebGPU/model harness depth.
+- **Detail:** Re-ran after keeping model catalog visible under inline WebGPU recovery (no GPU in this env). ONB-08 wizard-step persistence fixed via clearing `setupWizardStep`. ERR-01 uses isolated page so GPU stub does not poison shared `philPage`. ERR-02/03/04 assert product copy on model gate when Agent empty state is gated; full mid-load / live SERP harness still deferred.
+- **Suggested owner:** D1 (GPU CI), C3 (live research ERR-03)
+

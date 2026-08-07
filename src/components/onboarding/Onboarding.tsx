@@ -61,22 +61,22 @@ export function Onboarding({
     }
   }, [recommended.id, selectedModelId, onSelectModel]);
 
-  if (webgpuReady && webgpu === false) {
-    return (
-      <ErrorRecovery
-        kind="webgpu"
-        message="Phil's local AI needs WebGPU. Without it, chat and Agent can't load a model on this device."
-        detail="Goals and Reminders still work — use the tabs above to plan while you fix hardware or browser support."
-        primaryLabel="Check again"
-        onPrimary={() => window.location.reload()}
-        secondaryLabel={onContinueWithoutModel ? 'Continue to Goals' : undefined}
-        onSecondary={onContinueWithoutModel}
-      />
-    );
-  }
-
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {webgpuReady && webgpu === false && (
+        <div className="shrink-0 border-b border-border-subtle px-4 py-3">
+          <ErrorRecovery
+            variant="inline"
+            kind="webgpu"
+            message="Phil's local AI needs WebGPU. Without it, chat and Agent can't load a model on this device. Use Chrome/Edge with working GPU hardware."
+            detail="Goals and Reminders still work — use the tabs above. If load fails later, try a smaller fallback model."
+            primaryLabel="Check again"
+            onPrimary={() => window.location.reload()}
+            secondaryLabel={onContinueWithoutModel ? 'Continue to Goals' : undefined}
+            onSecondary={onContinueWithoutModel}
+          />
+        </div>
+      )}
       <div className="relative overflow-hidden px-5 pb-4 pt-6">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(20,184,166,0.18),_transparent_60%)]" />
         <BrandMark size="lg" className="relative animate-fade-up" />

@@ -111,10 +111,50 @@ type Finding = {
   note?: string;
 };
 
+async function fetchDuckDuckGoInstant(query: string): Promise<{
+  answer: string;
+  pageUrl?: string;
+  source: string;
+} | null> {
+  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PhilAssistant/1.0' },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      AbstractText?: string;
+      AbstractURL?: string;
+      AbstractSource?: string;
+      Answer?: string;
+      Heading?: string;
+      Definition?: string;
+      DefinitionURL?: string;
+      RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
+    };
+    const abstract = String(data.AbstractText ?? '').trim();
+    const instant = String(data.Answer ?? '').trim();
+    const definition = String(data.Definition ?? '').trim();
+    const related = data.RelatedTopics?.find((t) => t.Text)?.Text?.trim();
+    const body = abstract || instant || definition || related || '';
+    if (!body || body.length < 8) return null;
+    const heading = String(data.Heading ?? '').trim();
+    const pageUrl = data.AbstractURL || data.DefinitionURL || undefined;
+    const answer = heading ? `**${heading}**\n\n${body}` : body;
+    return {
+      answer,
+      pageUrl,
+      source: data.AbstractSource || 'DuckDuckGo',
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Research helper for the agent.
- * Weather uses a live forecast fetch (one optional tab). General research opens
- * at most a couple of finding tabs and always returns readable text when possible.
+ * Weather uses a live forecast fetch (one optional tab). General research prefers
+ * Instant Answers, then a single search tab with an excerpt — not junk tab spam.
  * Static imports only — Chrome MV3 forbids import() in service workers.
  */
 export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
@@ -163,7 +203,45 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
         toolCall: call,
       };
     }
-    // Fall through to a single search tab if the forecast endpoint is unreachable.
+    // Fall through if the forecast endpoint is unreachable.
+  }
+
+  // Prefer Instant Answer for general facts (works without the LLM / SERP scrape).
+  const instant = await fetchDuckDuckGoInstant(query.trim());
+  if (instant) {
+    const findings: Finding[] = [];
+    if (instant.pageUrl) {
+      const opened = await executeTabTools({
+        id: uid('tc'),
+        name: 'tabs_create',
+        arguments: { url: instant.pageUrl, active: true },
+      });
+      findings.push({
+        url: instant.pageUrl,
+        domain: (() => {
+          try {
+            return new URL(instant.pageUrl!).hostname.replace(/^www\./, '');
+          } catch {
+            return 'web';
+          }
+        })(),
+        category: categorizeDomain(instant.pageUrl, settings.categoryOverrides),
+        tabId: opened.ok ? (opened.data as { id?: number } | undefined)?.id : undefined,
+        note: 'Source page',
+      });
+    }
+    return {
+      ok: true,
+      data: {
+        query: query.trim(),
+        answer: instant.answer,
+        source: instant.source,
+        serpUrl: instant.pageUrl,
+        findings,
+        note: 'Instant answer loaded. Reply from `answer` — do not open more tabs.',
+      },
+      toolCall: call,
+    };
   }
 
   const fullQuery = locality && !/\bnear me\b/i.test(query) ? `${query} ${locality}` : query;

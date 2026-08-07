@@ -14,6 +14,7 @@ assert.equal(route('weather in Paris').skill.id, 'live_weather');
 assert.ok(route('What is the weather today?').toolCall?.name === 'web_research');
 assert.equal(route('Who won the election yesterday?').skill.id, 'web_lookup');
 assert.equal(route('What is the capital of France?').skill.id, 'web_lookup');
+assert.ok(route('What is the capital of France?').toolCall?.arguments?.skill === 'web_lookup');
 assert.equal(route('Research noise-cancelling headphones under $100').skill.id, 'web_lookup');
 assert.equal(route('List my last 5 emails', 'email_list').skill.id, 'gmail');
 assert.equal(route('Open https://example.com in a new tab').skill.id, 'open_link');

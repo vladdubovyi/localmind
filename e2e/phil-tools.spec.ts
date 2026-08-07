@@ -205,4 +205,43 @@ test.describe('Phil data layer + manifest', () => {
     expect(weatherTabs.length).toBeGreaterThan(0);
     expect(junkSearchTabs.length).toBe(0);
   });
+
+  test('web_research factual lookup returns an instant answer', async ({ philServiceWorker }) => {
+    await philServiceWorker.evaluate(async () => {
+      await chrome.storage.local.set({
+        agentSettings: {
+          enabled: true,
+          maxSteps: 8,
+          confirmModerate: false,
+          allowDebugger: false,
+          gmailClientId: '',
+          gmailMode: 'session',
+        },
+      });
+    });
+
+    const result = await philServiceWorker.evaluate(async () => {
+      const run = (
+        globalThis as {
+          __routeAgentTool?: (
+            call: { id: string; name: string; arguments: Record<string, unknown> },
+            confirmed?: boolean,
+          ) => Promise<{ ok: boolean; error?: string; data?: { answer?: string; source?: string } }>;
+        }
+      ).__routeAgentTool;
+      if (!run) return { ok: false, error: 'route hook missing' };
+      return run(
+        {
+          id: 't_fact',
+          name: 'web_research',
+          arguments: { query: 'What is the capital of France?', maxResults: 1, skill: 'web_lookup' },
+        },
+        true,
+      );
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.error ?? '').not.toMatch(/import\(\)|ServiceWorkerGlobalScope/i);
+    expect(result.data?.answer ?? '').toMatch(/Paris/i);
+  });
 });

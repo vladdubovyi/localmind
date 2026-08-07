@@ -16,10 +16,12 @@ import {
   replaceSavedSelection,
 } from '@/content/selectionMenu';
 import { mountPhilFab } from '@/content/philFab';
+import { mountFocusHeartbeat } from '@/content/focusHeartbeat';
 import type { AgentRuntimeMessage } from '@/agent/types';
 import type { PageContext, RuntimeMessage } from '@/types';
 
 mountPhilFab();
+mountFocusHeartbeat();
 
 mountSelectionMenu((action, text) => {
   void chrome.runtime.sendMessage({

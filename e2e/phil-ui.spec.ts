@@ -122,13 +122,13 @@ test.describe('Phil personal assistant UI', () => {
       const hooks = (
         globalThis as {
           __philFocus?: {
-            checkpointFocus: () => Promise<void>;
+            checkpointFocus: (opts?: { force?: boolean }) => Promise<void>;
             focusSnapshot: () => Promise<{ totalMs?: number }>;
           };
         }
       ).__philFocus;
       if (!hooks) return { ok: false };
-      await hooks.checkpointFocus();
+      await hooks.checkpointFocus({ force: true });
       return { ok: true, snapshot: await hooks.focusSnapshot() };
     });
     expect(checkpointed.ok).toBe(true);
@@ -157,6 +157,77 @@ test.describe('Phil personal assistant UI', () => {
       timeout: 10_000,
     });
     await expect(philPage.getByText(/\d+s|\d+m/i).first()).toBeVisible();
+  });
+
+  test('Focus heartbeat tracks website time without SW test hooks', async ({
+    philExtensionContext,
+    philServiceWorker,
+    philPage,
+  }) => {
+    await philServiceWorker.evaluate(async () => {
+      await chrome.storage.local.set({
+        philSettings: {
+          fabEnabled: true,
+          trackingEnabled: true,
+          nudgesEnabled: false,
+          briefingEnabled: true,
+          briefingHour: 8,
+          briefingMinute: 0,
+          nudgeThresholdMs: 120_000,
+          locality: 'Austin TX',
+          categoryOverrides: {},
+        },
+        philTabActivity: [],
+      });
+      await chrome.storage.session.remove('philFocusLive');
+    });
+
+    const site = await philExtensionContext.newPage();
+    await site.goto('https://example.com/', { waitUntil: 'domcontentloaded' });
+    await site.bringToFront();
+    // Content-script heartbeat mounts at document_idle and pings immediately.
+    await expect(site.locator('#phil-fab-root')).toBeVisible({ timeout: 15_000 });
+
+    await expect
+      .poll(
+        async () => {
+          return philServiceWorker.evaluate(async () => {
+            const live = await chrome.storage.session.get('philFocusLive');
+            const row = live.philFocusLive as { domain?: string } | undefined;
+            return row?.domain ?? '';
+          });
+        },
+        { timeout: 20_000 },
+      )
+      .toMatch(/example\.com/i);
+
+    // Stay on the page long enough for at least one interval heartbeat + flush path.
+    await site.waitForTimeout(12_000);
+    await site.goto('https://example.org/', { waitUntil: 'domcontentloaded' });
+    await site.bringToFront();
+    await site.waitForTimeout(2_000);
+
+    const activity = await philServiceWorker.evaluate(async () => {
+      const stored = await chrome.storage.local.get('philTabActivity');
+      const rows = (stored.philTabActivity as Array<{ domain: string; ms: number }> | undefined) ?? [];
+      const live = await chrome.storage.session.get('philFocusLive');
+      return {
+        rows,
+        liveDomain: (live.philFocusLive as { domain?: string } | undefined)?.domain ?? null,
+        exampleComMs: rows
+          .filter((r) => r.domain.includes('example.com'))
+          .reduce((sum, r) => sum + (r.ms || 0), 0),
+      };
+    });
+
+    expect(activity.exampleComMs).toBeGreaterThan(250);
+    expect(activity.liveDomain ?? '').toMatch(/example\.org/i);
+
+    await philPage.bringToFront();
+    await philPage.getByRole('button', { name: /^Focus$/i }).click();
+    await expect(philPage.getByText(/example\.com/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('Phil settings tab toggles FAB', async ({ philPage }) => {

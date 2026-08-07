@@ -28,11 +28,17 @@ export type FocusLiveState = {
 };
 
 const LIVE_KEY = 'philFocusLive';
+/** Alarm that wakes the SW so long single-tab dwells still flush to storage. */
+export const FOCUS_CHECKPOINT_ALARM = 'phil-focus-checkpoint';
+const CHECKPOINT_PERIOD_MINUTES = 1;
+/** Flush a continuing dwell at least this often so SW death cannot erase minutes. */
+const CHECKPOINT_MIN_MS = 15_000;
 
 let active: ActiveDwell | null = null;
 let lastNudgeAt = 0;
 let leisureStreakMs = 0;
 let leisureStreakGoalId: string | null = null;
+let trackerRegistered = false;
 
 async function publishLive(next: ActiveDwell | null): Promise<void> {
   try {
@@ -62,7 +68,41 @@ export async function readFocusLive(): Promise<FocusLiveState | null> {
   }
 }
 
+/**
+ * Restore in-memory dwell from session storage after SW sleep.
+ * Without this, tabs.onActivated flushes nothing and overwrites live state,
+ * discarding time the Focus UI was already showing.
+ */
+async function hydrateActiveFromLive(): Promise<void> {
+  if (active) return;
+  const live = await readFocusLive();
+  if (!live) return;
+  active = {
+    tabId: live.tabId,
+    url: live.url,
+    domain: live.domain,
+    startedAt: live.startedAt,
+    category: live.category,
+  };
+}
+
+function isTrackableUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  if (!/^https?:/i.test(url)) return false;
+  if (
+    url.startsWith('chrome') ||
+    url.startsWith('devtools') ||
+    url.startsWith('chrome-extension') ||
+    url.startsWith('edge') ||
+    url.startsWith('about:')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 async function flushActive(now = Date.now()): Promise<void> {
+  await hydrateActiveFromLive();
   if (!active) return;
   const settings = await getPhilSettings();
   if (!settings.trackingEnabled) {
@@ -152,29 +192,38 @@ async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promis
   }
 }
 
-async function startDwell(tabId: number): Promise<void> {
+async function startDwell(
+  tabId: number,
+  hint?: { url?: string; title?: string },
+): Promise<void> {
   const settings = await getPhilSettings();
   if (!settings.trackingEnabled) return;
   try {
     const tab = await chrome.tabs.get(tabId);
-    if (
-      !tab.url ||
-      tab.url.startsWith('chrome') ||
-      tab.url.startsWith('devtools') ||
-      tab.url.startsWith('chrome-extension') ||
-      tab.url.startsWith('edge') ||
-      tab.url.startsWith('about:')
-    ) {
+    const url = hint?.url || tab.url;
+    if (!isTrackableUrl(url)) {
       return;
     }
-    const domain = domainFromUrl(tab.url);
+    const domain = domainFromUrl(url!);
+    // Same tab+domain already counting — keep original startedAt.
+    if (
+      active &&
+      active.tabId === tabId &&
+      active.domain === domain &&
+      Math.abs(Date.now() - active.startedAt) < 24 * 60 * 60_000
+    ) {
+      active.url = url!;
+      if (hint?.title || tab.title) active.title = hint?.title || tab.title;
+      await publishLive(active);
+      return;
+    }
     active = {
       tabId,
-      url: tab.url,
-      title: tab.title,
+      url: url!,
+      title: hint?.title || tab.title,
       domain,
       startedAt: Date.now(),
-      category: categorizeDomain(tab.url, settings.categoryOverrides),
+      category: categorizeDomain(url!, settings.categoryOverrides),
     };
     await publishLive(active);
   } catch {
@@ -183,42 +232,143 @@ async function startDwell(tabId: number): Promise<void> {
 }
 
 /** Persist the current dwell and keep counting (survives SW sleeps better). */
-export async function checkpointFocus(): Promise<void> {
+export async function checkpointFocus(opts?: { force?: boolean }): Promise<void> {
+  await hydrateActiveFromLive();
   if (!active) return;
+  const elapsed = Date.now() - active.startedAt;
+  // Avoid churning storage on every tick; still flush often enough for SW death.
+  if (!opts?.force && elapsed < CHECKPOINT_MIN_MS) return;
+  if (elapsed < 250) return;
   const tabId = active.tabId;
+  const url = active.url;
+  const title = active.title;
   await flushActive();
-  await startDwell(tabId);
+  await startDwell(tabId, { url, title });
+}
+
+async function ensureCheckpointAlarm(): Promise<void> {
+  try {
+    await chrome.alarms.create(FOCUS_CHECKPOINT_ALARM, {
+      periodInMinutes: CHECKPOINT_PERIOD_MINUTES,
+    });
+  } catch {
+    // alarms may be unavailable in some test environments
+  }
 }
 
 /** Begin tracking the currently focused http(s) tab (call on SW boot). */
 export async function resumeFocusTracking(): Promise<void> {
+  await hydrateActiveFromLive();
   try {
     const activeTabs = await chrome.tabs.query({ active: true });
     const httpTab = activeTabs.find(
       (t) => t.id != null && typeof t.url === 'string' && /^https?:/i.test(t.url),
     );
-    if (httpTab?.id != null) {
-      await startDwell(httpTab.id);
+    const focused =
+      httpTab ??
+      (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+
+    if (focused?.id == null) {
+      if (active) await flushActive();
       return;
     }
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id != null) await startDwell(tab.id);
+
+    // Still on the same live tab — keep counting from the stored startedAt.
+    if (
+      active &&
+      active.tabId === focused.id &&
+      focused.url &&
+      domainFromUrl(focused.url) === active.domain
+    ) {
+      active.url = focused.url;
+      active.title = focused.title ?? active.title;
+      await publishLive(active);
+      await ensureCheckpointAlarm();
+      return;
+    }
+
+    // Focus moved while we were asleep — credit the orphaned dwell first.
+    if (active) await flushActive();
+    await startDwell(focused.id);
+    await ensureCheckpointAlarm();
   } catch {
     // no focused window / tabs permission race
   }
 }
 
+/**
+ * Content-script heartbeat: wakes the SW while a visible page stays open,
+ * which is what MV3 needs for continuous single-tab dwell tracking.
+ */
+export async function handleFocusHeartbeat(input: {
+  tabId?: number;
+  url?: string;
+  title?: string;
+  visible?: boolean;
+}): Promise<void> {
+  const settings = await getPhilSettings();
+  if (!settings.trackingEnabled) return;
+
+  await hydrateActiveFromLive();
+
+  if (input.visible === false) {
+    if (input.tabId != null && active?.tabId === input.tabId) {
+      await flushActive();
+    }
+    return;
+  }
+
+  const tabId = input.tabId;
+  if (tabId == null || !isTrackableUrl(input.url)) return;
+
+  // Only count the focused tab in its window (content scripts also run in background tabs).
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active) return;
+  } catch {
+    return;
+  }
+
+  if (active && active.tabId !== tabId) {
+    await flushActive();
+  }
+
+  if (
+    active &&
+    active.tabId === tabId &&
+    input.url &&
+    domainFromUrl(input.url) === active.domain
+  ) {
+    active.url = input.url;
+    if (input.title) active.title = input.title;
+    await publishLive(active);
+    await checkpointFocus();
+    await ensureCheckpointAlarm();
+    return;
+  }
+
+  if (active) await flushActive();
+  await startDwell(tabId, { url: input.url, title: input.title });
+  await ensureCheckpointAlarm();
+}
+
 export function registerFocusTracker(): void {
+  if (trackerRegistered) return;
+  trackerRegistered = true;
+
   chrome.tabs.onActivated.addListener((info) => {
     void (async () => {
+      await hydrateActiveFromLive();
       await flushActive();
       await startDwell(info.tabId);
+      await ensureCheckpointAlarm();
     })();
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status !== 'complete' && !changeInfo.url) return;
     void (async () => {
+      await hydrateActiveFromLive();
       if (active?.tabId === tabId) {
         await flushActive();
       }
@@ -228,27 +378,41 @@ export function registerFocusTracker(): void {
       } else if (tab.active) {
         await startDwell(tabId);
       }
+      await ensureCheckpointAlarm();
     })();
   });
 
   chrome.windows.onFocusChanged.addListener((windowId) => {
     void (async () => {
+      await hydrateActiveFromLive();
       await flushActive();
       if (windowId === chrome.windows.WINDOW_ID_NONE) return;
       const [tab] = await chrome.tabs.query({ active: true, windowId });
       if (tab?.id != null) await startDwell(tab.id);
+      await ensureCheckpointAlarm();
     })();
   });
 
   if (chrome.idle?.onStateChanged) {
     chrome.idle.onStateChanged.addListener((state) => {
       if (state !== 'active') {
-        void flushActive();
+        void (async () => {
+          await hydrateActiveFromLive();
+          await flushActive();
+        })();
       }
     });
   }
 
-  // Soft heartbeat while the SW stays awake (Focus UI polling also checkpoints).
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== FOCUS_CHECKPOINT_ALARM) return;
+    void (async () => {
+      await resumeFocusTracking();
+      await checkpointFocus();
+    })();
+  });
+
+  // Soft heartbeat while the SW stays awake (content script + alarms cover sleep).
   try {
     setInterval(() => {
       void checkpointFocus().catch(() => undefined);
@@ -256,6 +420,8 @@ export function registerFocusTracker(): void {
   } catch {
     // ignore
   }
+
+  void ensureCheckpointAlarm();
 }
 
 export type FocusSummary = {
@@ -332,9 +498,13 @@ export async function focusSnapshotFromStorage(): Promise<FocusSnapshot> {
 /**
  * Storage summary + in-SW live dwell. Prefer focusSnapshotFromStorage in UI.
  */
-export async function focusSnapshot(opts?: { checkpoint?: boolean }): Promise<FocusSnapshot> {
+export async function focusSnapshot(opts?: {
+  checkpoint?: boolean;
+  forceCheckpoint?: boolean;
+}): Promise<FocusSnapshot> {
+  await hydrateActiveFromLive();
   if (opts?.checkpoint) {
-    await checkpointFocus();
+    await checkpointFocus({ force: opts.forceCheckpoint !== false });
   }
   // Keep session mirror in sync for UI readers.
   await publishLive(active);

@@ -256,5 +256,6 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **DAY:** morning compose adds priorities + goals completed + toward-goals focus; evening recap alarm (`eveningRecapHour`) + Today section; DAY-06 goal-relative Focus insights.
   - **PRJ-EA / WF:** exec_day morning plan slice, day nudges, evening auto-recap; WF-07/19/20 harnessed on Today/Focus. WF-10 skipped (C1/C3).
   - **E2E:** harness seeds via `__philProactive` / session flags.
+  - **E2E evidence (local):** `playwright test e2e/daily-review.spec.ts e2e/proactive.spec.ts e2e/projects-exec-assistant.spec.ts e2e/workflows-focus-coaching.spec.ts` → **19 passed, 1 skipped** (WF-10 owned by C1/C3). Green: DAY-01…06, PRO-01…07, PRJ-EA-01…03, WF-07, WF-19, WF-20.
 - **Suggested owner:** D1 for CI e2e evidence; C1 for Career/Job Hunt; C3 for WF-10 Japan playbook
 

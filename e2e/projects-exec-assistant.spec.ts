@@ -59,16 +59,16 @@ test.describe('Projects Exec Assistant (PRJ-EA)', () => {
     await seedExecDay(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
     await philPage.getByRole('button', { name: /^Refresh$/i }).click();
-    await expect(philPage.getByText(/today.?s plan|agenda|stay productive today/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/today.?s plan|agenda|stay productive today/i).first()).toBeVisible({ timeout: 10_000 });
   });
   test('PRJ-EA-02: During the day continuous assistance', async ({ philPage, philServiceWorker }) => {
     await seedExecDay(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
-    await expect(philPage.getByText(/context switching|focus session|suggest.*break/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/context switching|focus session|suggest.*break/i).first()).toBeVisible({ timeout: 10_000 });
   });
   test('PRJ-EA-03: Evening auto-recap without prompting', async ({ philPage, philServiceWorker }) => {
     await seedExecDay(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
-    await expect(philPage.getByText(/evening|work completed|biggest distractions/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/evening|work completed|biggest distractions/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });

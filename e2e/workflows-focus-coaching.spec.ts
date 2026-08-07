@@ -38,24 +38,24 @@ test.describe('Workflows focus & coaching', () => {
   test('WF-07: Productivity coaching (thesis focus)', async ({ philPage, philServiceWorker }) => {
     await seedCoaching(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
-    await expect(philPage.getByText(/thesis|focus session|productivity summary/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/thesis|focus session|productivity summary/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('WF-10: Multi-step assistant (trip to Japan)', async ({ philPage }) => {
     test.skip(true, 'WF-10 travel playbook owned by C1/C3 — not C2 scope');
-    await expect(philPage.getByText(/Japan|travel goal|flights/i)).toBeVisible({ timeout: 5_000 });
+    await expect(philPage.getByText(/Japan|travel goal|flights/i).first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('WF-19: Productivity classification (“How productive was I today?”)', async ({ philPage, philServiceWorker }) => {
     await seedCoaching(philServiceWorker);
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
     await expect(philPage.getByText(/productive|neutral|entertainment|leisure/i).first()).toBeVisible();
-    await expect(philPage.getByText(/How productive|actionable insight|toward goals/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/How productive|actionable insight|toward goals/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('WF-20: Autonomous initiative (“Help me stay on track today”)', async ({ philPage, philServiceWorker }) => {
     await seedCoaching(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
-    await expect(philPage.getByText(/stay on track|focus timer|distraction/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/stay on track|focus timer|distraction/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -45,21 +45,23 @@ test.describe('Daily review (DAY)', () => {
     await seedDailyReview(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
     await philPage.getByRole('button', { name: /^Refresh$/i }).click();
-    await expect(philPage.getByText(/Suggested priorities|priority/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/Suggested priorities|priority/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('DAY-03: Goals completed show in review', async ({ philPage, philServiceWorker }) => {
     await seedDailyReview(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
     await philPage.getByRole('button', { name: /^Refresh$/i }).click();
-    await expect(philPage.getByText(/completed goal|Goals completed/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/completed goal|Goals completed/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('DAY-04: Evening recap composes', async ({ philPage, philServiceWorker }) => {
     await seedDailyReview(philServiceWorker);
     await philPage.getByRole('button', { name: /^Today$/i }).click();
     await philPage.getByRole('button', { name: /Compose evening summary/i }).click();
-    await expect(philPage.getByText(/Evening recap|evening summary/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/Evening recap —|Work completed|Biggest distractions/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('DAY-05: Evening notification path fires', async ({ philPage, philServiceWorker }) => {
@@ -70,12 +72,14 @@ test.describe('Daily review (DAY)', () => {
       else await chrome.runtime.sendMessage({ type: 'PHIL_RUN_EVENING_RECAP', notify: true });
     });
     await philPage.getByRole('button', { name: /^Today$/i }).click();
-    await expect(philPage.getByText(/evening briefing|evening notification|recap/i)).toBeVisible({ timeout: 10_000 });
+    await expect(
+      philPage.getByText(/evening notification path|Evening recap —|Work completed/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test('DAY-06: Productivity insights are goal-relative', async ({ philPage, philServiceWorker }) => {
     await seedDailyReview(philServiceWorker);
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
-    await expect(philPage.getByText(/toward goals|leisure/i)).toBeVisible({ timeout: 10_000 });
+    await expect(philPage.getByText(/toward goals|leisure/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });

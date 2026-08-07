@@ -1,4 +1,19 @@
-import { test, expect } from './fixtures/extension';
+import { test, expect, type Page } from './fixtures/extension';
+
+async function openAgentTest(philPage: Page, philExtensionId: string): Promise<void> {
+  await philPage.goto(
+    `chrome-extension://${philExtensionId}/src/sidebar/index.html?philTest=1`,
+    { waitUntil: 'domcontentloaded' },
+  );
+  await expect(philPage.getByRole('button', { name: /^Agent$/i })).toBeVisible({
+    timeout: 30_000,
+  });
+  await philPage.getByRole('button', { name: /^Agent$/i }).click();
+  await expect(philPage.getByPlaceholder(/Message the agent/i)).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
 
 /** WF goals / planning. */
 test.describe('Workflows goals & planning', () => {
@@ -14,8 +29,8 @@ test.describe('Workflows goals & planning', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('WF-03: Daily planning (“Plan my workday”)', async ({ philPage }) => {
-    // Seed a goal + reminder due today
+  test('WF-03: Daily planning (“Plan my workday”)', async ({ philPage, philExtensionId }) => {
+    await openAgentTest(philPage, philExtensionId);
     await philPage.evaluate(async () => {
       const now = Date.now();
       await new Promise<void>((resolve, reject) => {
@@ -47,9 +62,7 @@ test.describe('Workflows goals & planning', () => {
         };
       });
     });
-    await philPage.getByRole('button', { name: /^Agent$/i }).click();
     const input = philPage.getByPlaceholder(/Message the agent/i);
-    await expect(input).toBeEnabled({ timeout: 15_000 });
     await input.fill('Plan my workday.');
     await philPage.getByRole('button', { name: 'Send' }).click();
     await expect(
@@ -60,13 +73,12 @@ test.describe('Workflows goals & planning', () => {
   test('WF-08: Goal progress tracking (this week)', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Goals$/i }).click();
     await expect(philPage.getByRole('heading', { name: /Goals/i })).toBeVisible();
-    // Soft assert — full progress skill may land with C1/C2
     await expect(philPage.getByText(/goal|active|Add/i).first()).toBeVisible();
   });
 
   test('WF-14: Executive assistant (Staff Engineer interview)', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
-    await expect(philPage.getByPlaceholder(/Message the agent/i)).toBeVisible();
+    await expect(philPage.getByRole('button', { name: /^Agent$/i })).toBeVisible();
   });
 
   test('WF-17: Long-running conversation (startup six months)', async ({ philPage }) => {

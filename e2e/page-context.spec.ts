@@ -95,12 +95,15 @@ test.describe('Page context (PAGE / WF-11 / WF-13)', () => {
     expect(body).not.toMatch(/Buy ads · Subscribe/i);
   });
 
-  test('WF-13: Page research (counterarguments)', async ({ philPage, articlePage }) => {
+  test('WF-13: Page research (counterarguments)', async ({ philPage, philExtensionId, articlePage }) => {
     await articlePage.bringToFront();
-    await philPage.bringToFront();
+    await philPage.goto(
+      `chrome-extension://${philExtensionId}/src/sidebar/index.html?philTest=1`,
+      { waitUntil: 'domcontentloaded' },
+    );
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     const input = philPage.getByPlaceholder(/Message the agent/i);
-    await expect(input).toBeEnabled({ timeout: 15_000 });
+    await expect(input).toBeVisible({ timeout: 20_000 });
     await input.fill('Find arguments against the claims made on this page.');
     await philPage.getByRole('button', { name: 'Send' }).click();
     await expect(

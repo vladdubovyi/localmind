@@ -167,8 +167,15 @@ export function ChatApp({ variant }: ChatAppProps) {
   const showFullOnboarding = shouldShowFullOnboarding(phase, loadingFromCache);
   const showRestoring = isRestoringEngine(phase, loadingFromCache);
   const webgpuBlocked = webgpuReady && webgpu === false;
+  // Wave2 C3: workflow e2e (?philTest=1) exercises finalizeDirectAnswer skills without WebGPU/model.
+  const philTestMode =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('philTest') ||
+      Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
   const showModelGate =
-    uiTab === 'agent' && (webgpuBlocked || showFullOnboarding || showRestoring);
+    uiTab === 'agent' &&
+    !philTestMode &&
+    (webgpuBlocked || showFullOnboarding || showRestoring);
 
   return (
     <div

@@ -2,7 +2,6 @@ import {
   test,
   expect,
   ARTICLE_SELECTION_TEXT,
-  AGENT_TURN_TIMEOUT_MS,
   queueSelectionAction,
 } from './fixtures/extension';
 

@@ -24,6 +24,7 @@ import {
   isFocusStatusGoal,
   isGoalSetupGoal,
   isReminderGoal,
+  isWeatherGoal,
   isWebResearchGoal,
   offersToActWithoutTools,
   parseGoalTitle,
@@ -162,6 +163,34 @@ function narratesToolUse(text: string): boolean {
 function shouldAutoConfirmTool(goal: string, name: string): boolean {
   if (!isWebResearchGoal(goal)) return false;
   return name === 'web_research' || name === 'tabs_create' || name === 'tabs_navigate';
+}
+
+function researchAnswerFromResult(result: ToolResult | undefined): string | null {
+  if (!result?.ok || !result.data || typeof result.data !== 'object') return null;
+  const answer = (result.data as { answer?: unknown }).answer;
+  return typeof answer === 'string' && answer.trim() ? answer.trim() : null;
+}
+
+function latestResearchAnswer(steps: AgentStep[]): string | null {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const s = steps[i];
+    if (s.kind === 'tool_result' && s.toolCall?.name === 'web_research') {
+      return researchAnswerFromResult(s.toolResult);
+    }
+  }
+  return null;
+}
+
+/** Same tool spammed after research — stop instead of blowing the context window. */
+function isStuckToolLoop(steps: AgentStep[], name: string): boolean {
+  let streak = 0;
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const s = steps[i];
+    if (s.kind !== 'tool_call' && s.kind !== 'tool_result' && s.kind !== 'error') break;
+    if (s.toolCall?.name === name) streak += 1;
+    else if (s.kind === 'tool_call' || s.kind === 'tool_result') break;
+  }
+  return streak >= 2;
 }
 
 /** Compact prior transcript so follow-up goals keep context. */
@@ -445,11 +474,20 @@ function continueAfterToolPrompt(
       );
     }
   } else if (call.name === 'web_research') {
-    lines.push(
-      'Answer the user now from these research findings (plain language, cite domains/URLs).',
-      'If the SERP text is too thin, call page_read on one of the opened finding tabs, then answer.',
-      'Do not ask whether to open a website — tools already ran.',
-    );
+    const answer = researchAnswerFromResult(result);
+    if (answer) {
+      lines.push(
+        'You already have the answer text above. Output the FINAL markdown answer now.',
+        'Do NOT call tabs_list, page_read, tabs_create, or web_research again.',
+        'Do NOT invent tab ids. Do NOT say you lack weather access.',
+      );
+    } else {
+      lines.push(
+        'Answer the user now from these research findings (plain language).',
+        'Only if a finding includes a real tabId, you may page_read that id once — never invent tabId 1.',
+        'Never call tabs_list in a loop.',
+      );
+    }
   } else {
     lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
   }
@@ -620,6 +658,13 @@ export function useAgent() {
               kind: 'error',
               content: result.error || 'Web research failed.',
             });
+            return;
+          }
+          const directAnswer = researchAnswerFromResult(result);
+          // Weather (and other live facts with a concrete answer) — don't let the
+          // small model thrash tabs_list / invent tab ids.
+          if (directAnswer && (isWeatherGoal(goal) || isWebResearchGoal(goal))) {
+            pushStep({ kind: 'final', content: directAnswer });
             return;
           }
           researchSeed = { call: fastCall, result };
@@ -887,6 +932,30 @@ export function useAgent() {
               kind: 'thought',
               content: `Corrected ${rawCall.name} → ${call.name} for this goal.`,
             });
+          }
+
+          const knownAnswer = latestResearchAnswer(stepsRef.current);
+          const junkAfterResearch =
+            Boolean(knownAnswer) &&
+            (call.arguments.__philSkipAfterResearch === true ||
+              call.name === 'tabs_list' ||
+              call.name === 'tabs_create' ||
+              call.name === 'tabs_navigate' ||
+              call.name === 'web_research' ||
+              call.name === 'page_read');
+          if (
+            junkAfterResearch ||
+            (call.name === 'tabs_list' && isStuckToolLoop(stepsRef.current, 'tabs_list'))
+          ) {
+            pushStep({
+              kind: 'thought',
+              content: 'Stopping extra tab tools — answering from research results.',
+            });
+            pushStep({
+              kind: 'final',
+              content: knownAnswer || humanizeFinal(visible || 'I looked it up but could not summarize further.'),
+            });
+            break;
           }
 
           pushStep({

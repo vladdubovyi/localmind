@@ -79,7 +79,11 @@ export async function routeAgentTool(
 
   if (needsBrowserAgentPerms(call.name)) {
     const perms = await getAgentPermissionState();
-    if (!perms.tabs || !perms.allUrls) {
+    const weatherOnly =
+      call.name === 'web_research' &&
+      /\b(weather|forecast|temperature)\b/i.test(String(call.arguments.query ?? ''));
+    // Weather uses required host permission https://wttr.in/* — full <all_urls> not needed.
+    if (!perms.tabs || (!perms.allUrls && !weatherOnly)) {
       return {
         ok: false,
         error:

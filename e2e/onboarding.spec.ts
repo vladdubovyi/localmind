@@ -26,6 +26,18 @@ async function skipToCalendar(page: Page): Promise<void> {
   await expect(page.getByText(/Calendar/i).first()).toBeVisible({ timeout: 8_000 });
 }
 
+/** Restore seeded completed onboarding after wizard tests share philPage. */
+async function ensureSetupComplete(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await chrome.storage.local.remove('setupWizardStep');
+    await chrome.storage.local.set({
+      onboarding: { completed: true, completedAt: Date.now(), skipped: true },
+    });
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('button', { name: /^Today$/i })).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe('Onboarding (ONB)', () => {
   test('ONB-01: First-run welcome appears on fresh profile', async ({ philExtensionContext, philExtensionId }) => {
     const page = await philExtensionContext.newPage();
@@ -79,6 +91,7 @@ test.describe('Onboarding (ONB)', () => {
   });
 
   test('ONB-04: Recommended model is selected automatically', async ({ philPage }) => {
+    await ensureSetupComplete(philPage);
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     await expect(philPage.getByText(/Recommended|recommended model/i).first()).toBeVisible({
       timeout: 15_000,
@@ -86,6 +99,7 @@ test.describe('Onboarding (ONB)', () => {
   });
 
   test('ONB-05: Model download shows progress', async ({ philPage }) => {
+    await ensureSetupComplete(philPage);
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     await expect(philPage.getByText(/Downloading|%|Loading|progress|Download AI/i).first()).toBeVisible({
       timeout: 15_000,
@@ -93,6 +107,7 @@ test.describe('Onboarding (ONB)', () => {
   });
 
   test('ONB-06: Download interrupt can be resumed', async ({ philPage }) => {
+    await ensureSetupComplete(philPage);
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     const retry = philPage.getByRole('button', { name: /Retry|Resume|Check again/i });
     const download = philPage.getByRole('button', { name: /Download AI|Load Phil|Downloading/i });
@@ -103,6 +118,7 @@ test.describe('Onboarding (ONB)', () => {
   });
 
   test('ONB-07: Successful onboarding lands on Agent ready to chat', async ({ philPage }) => {
+    await ensureSetupComplete(philPage);
     await expect(philPage.getByRole('button', { name: /^Agent$/i })).toBeVisible();
     await expect(philPage.getByRole('button', { name: /^Today$/i })).toBeVisible();
     await expect(philPage.getByRole('button', { name: /^Goals$/i })).toBeVisible();

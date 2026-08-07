@@ -313,7 +313,10 @@ export function ChatApp({ variant }: ChatAppProps) {
         </div>
       ) : uiTab === 'privacy' ? (
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <PrivacyPanel />
+          <PrivacyPanel
+            settings={settings}
+            onChange={(partial) => void updateSettings(partial)}
+          />
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">

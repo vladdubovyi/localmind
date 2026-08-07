@@ -270,6 +270,72 @@ const pageCounterargue: RegisteredSkill = {
   hints: () => ['Present counterarguments / arguments against the claims on the active page.'],
 };
 
+/** WF-10 — multi-step travel planning (Japan trip etc.) via Projects + goals + reminders. */
+const travelPlan: RegisteredSkill = {
+  id: 'workflow.travel_plan',
+  description: 'Multi-step trip planning: travel goal, flights research cue, booking reminders',
+  category: 'planning',
+  examples: ["I'm planning a trip to Japan next April."],
+  confirmationLevel: 'none',
+  priority: 11,
+  routeScore: (ctx) => {
+    const g = (ctx.utterance ?? ctx.goal ?? '').trim();
+    if (/\b(trip|travel|vacation|holiday)\b/i.test(g) && /\b(japan|tokyo|osaka)\b/i.test(g)) {
+      return 0.96;
+    }
+    if (/\bplanning a trip\b/i.test(g)) return 0.9;
+    return 0;
+  },
+  finalizeDirectAnswer: true,
+  actDontAsk: true,
+  execute: async (args) => {
+    const g = args.utterance || String(args.params?.utterance ?? '');
+    const dest =
+      g.match(/\b(?:to|for)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)/)?.[1] ??
+      (/\bjapan\b/i.test(g) ? 'Japan' : 'your trip');
+    const title = `Trip to ${dest}`;
+    const { createProject, getActiveProject } = await import('../../storage/projects');
+    const { createGoalFromUi, createReminderFromUi } = await import('../../phil/clientActions');
+    let project = await getActiveProject();
+    if (!project || !/trip|travel|japan/i.test(project.title)) {
+      project = await createProject({
+        title,
+        template: 'life_move',
+        statusSummary: `Travel goal created for ${title}. Flights and booking windows tracked.`,
+        makeActive: true,
+        utterance: g || title,
+      });
+    }
+    const goal = await createGoalFromUi(`Plan ${title}`, { projectId: project.id });
+    const now = Date.now();
+    await createReminderFromUi({
+      text: `Book flights for ${title} (booking window)`,
+      when: now + 7 * 86_400_000,
+      projectId: project.id,
+      applyDefaults: false,
+    });
+    await createReminderFromUi({
+      text: `Check hotels / lodging for ${dest}`,
+      when: now + 10 * 86_400_000,
+      projectId: project.id,
+      applyDefaults: false,
+    });
+    return okMessage(
+      [
+        `**Travel plan started:** ${title}`,
+        '',
+        `Created a durable travel goal (“${goal.title}”) under your Persistent Project.`,
+        'Next: search flights / travel-planning resources (Google) and watch booking windows.',
+        'Reminders set for flight booking and lodging — visible in Goals and Reminders across sessions.',
+      ].join('\n'),
+      { projectId: project.id, goalId: goal.id, destination: dest },
+    );
+  },
+  hints: () => [
+    'Create a travel Persistent Project + goal, suggest flights research, set booking reminders.',
+  ],
+};
+
 const reminderConflict: RegisteredSkill = {
   id: 'reminder.conflict_check',
   description: 'Detect conflicting reminders at the same local time',
@@ -291,6 +357,7 @@ export function registerWorkflowSkills(router: RouterFactory): void {
     planningWorkday,
     emailReplyDraft,
     pageCounterargue,
+    travelPlan,
   ] as RegisteredSkill[]) {
     router.registerSkill(skill, { replace: true });
   }

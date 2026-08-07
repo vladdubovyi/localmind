@@ -66,6 +66,11 @@ export interface AppSettings {
   analyticsEnabled?: boolean;
   /** Opt-in crash reporting — default off (PRIV). */
   crashReportingEnabled?: boolean;
+  /**
+   * When true, goal-aware browse may silently associate visits with the active
+   * Persistent Project knowledge base (PRIV — default on).
+   */
+  projectBrowseCaptureEnabled?: boolean;
   generation: GenerationSettings;
 }
 

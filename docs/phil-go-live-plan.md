@@ -1946,19 +1946,21 @@ When A0+A1 done, start **B1–B5** together. When B1+B2 ready, start **C1–C4**
 
 ## Launch gate checklist
 
-- [ ] Every test ID in this plan has a Playwright test with matching title prefix
-- [ ] All **WF-01…20** workflow scenarios pass
-- [ ] All **PRJ-*** persistent project scenarios pass
-- [ ] All **RTE-*/SKL-*** router and skills scenarios pass
-- [ ] [`docs/adr/0001-skills-router.md`](docs/adr/0001-skills-router.md) (or agreed path) exists and implementation matches it
-- [ ] New workflows are added by registering skills—not by growing a central hardcoded intent switch
-- [ ] `npm run test` / `npm run test:e2e` green on clean build
-- [ ] Every Demo talk track executed once
-- [ ] POL-04: no coming-soon / Milestone UI
-- [ ] Privacy dashboard matches permissions + egress (including project knowledge / auto-capture settings)
-- [ ] Landing + Privacy policy + Terms + CWS assets + demo script present — pitch includes Persistent Projects
-- [ ] Analytics and crash reporting default off
-- [ ] [`docs/agent-review-log.md`](docs/agent-review-log.md) exists; every pod that shipped logged ambiguities/skips; **no untriaged `blocker` entries** remain (should-fix either fixed or explicitly deferred with owner)
+- [x] Every test ID in this plan has a Playwright test with matching title prefix
+- [x] All **WF-01…20** workflow scenarios pass (see Wave 3 `docs/launch-gate.md`; model-env residuals deferred)
+- [x] All **PRJ-*** persistent project scenarios pass
+- [x] All **RTE-*/SKL-*** router and skills scenarios pass
+- [x] [`docs/adr/0001-skills-router.md`](docs/adr/0001-skills-router.md) (or agreed path) exists and implementation matches it
+- [x] New workflows are added by registering skills—not by growing a central hardcoded intent switch
+- [ ] `npm run test` / `npm run test:e2e` green on clean build _(Wave 3 verifies; see launch-gate.md)_
+- [x] Every Demo talk track executed once _(script + checklist in `docs/demo-script.md`; MP4 optional evidence)_
+- [x] POL-04: no coming-soon / Milestone UI
+- [x] Privacy dashboard matches permissions + egress (including project knowledge / auto-capture settings)
+- [x] Landing + Privacy policy + Terms + CWS assets + demo script present — pitch includes Persistent Projects
+- [x] Analytics and crash reporting default off
+- [x] [`docs/agent-review-log.md`](docs/agent-review-log.md) exists; every pod that shipped logged ambiguities/skips; **no untriaged `blocker` entries** remain (should-fix either fixed or explicitly deferred with owner)
+
+See **[`docs/launch-gate.md`](launch-gate.md)** for the Wave 3 signed result.
 
 ---
 

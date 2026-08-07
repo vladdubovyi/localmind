@@ -128,8 +128,13 @@ export async function buildResearchRecommendation(projectId: string) {
 }
 
 export async function associateBrowseVisits(projectId: string, visits: Array<{ url: string; title: string; tags?: string[] }>, opts?: { silent?: boolean }) {
+  const { getSettings } = await import('@/storage/db');
+  const settings = await getSettings();
   const project = await getProject(projectId);
   if (!project) throw new Error(`No project ${projectId}`);
+  if (settings.projectBrowseCaptureEnabled === false) {
+    return project;
+  }
   const silent = opts?.silent !== false;
   const log = [...((project.metrics.browseLog as BrowseLogEntry[] | undefined) ?? [])];
   const now = Date.now();

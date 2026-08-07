@@ -80,6 +80,15 @@ export function localDataRows(calendarEnabled: boolean): DataFlowRow[] {
     { label: 'Focus sessions', detail: 'Tab dwell stays on device' },
     { label: 'Memories', detail: 'Keyword memory store on this device' },
     { label: 'Browser memory', detail: 'Indexed visits (history + tab activity) stay on this device' },
+    {
+      label: 'Persistent Projects knowledge',
+      detail: 'Project titles, workstreams, and knowledge notes stay on this device',
+    },
+    {
+      label: 'Project browse auto-capture',
+      detail:
+        'When enabled, goal-aware browsing may silently attach visits to the active project (never leaves the device)',
+    },
   ];
   if (calendarEnabled) {
     rows.push({ label: 'Calendar event summaries', detail: 'Cached locally after sync' });
@@ -174,6 +183,10 @@ export async function ensurePrivacyDefaults(): Promise<void> {
   }
   if (settings.crashReportingEnabled === undefined) {
     next.crashReportingEnabled = false;
+    dirty = true;
+  }
+  if (settings.projectBrowseCaptureEnabled === undefined) {
+    next.projectBrowseCaptureEnabled = true;
     dirty = true;
   }
   if (dirty) await saveSettings(next);

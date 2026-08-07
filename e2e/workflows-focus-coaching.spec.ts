@@ -41,9 +41,26 @@ test.describe('Workflows focus & coaching', () => {
     await expect(philPage.getByText(/thesis|focus session|productivity summary/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test('WF-10: Multi-step assistant (trip to Japan)', async ({ philPage }) => {
-    test.skip(true, 'WF-10 travel playbook owned by C1/C3 — not C2 scope');
-    await expect(philPage.getByText(/Japan|travel goal|flights/i).first()).toBeVisible({ timeout: 5_000 });
+  test('WF-10: Multi-step assistant (trip to Japan)', async ({
+    philPage,
+    philExtensionId,
+  }) => {
+    await philPage.goto(
+      `chrome-extension://${philExtensionId}/src/sidebar/index.html?philTest=1`,
+      { waitUntil: 'domcontentloaded' },
+    );
+    await philPage.getByRole('button', { name: /^Agent$/i }).click();
+    const input = philPage.getByPlaceholder(/Message the agent/i);
+    await expect(input).toBeVisible({ timeout: 20_000 });
+    await input.fill("I'm planning a trip to Japan next April.");
+    await philPage.getByRole('button', { name: 'Send' }).click();
+    await expect(
+      philPage.getByText(/Japan|travel|Trip to Japan|flights|booking/i).first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await philPage.getByRole('button', { name: /^Goals$/i }).click();
+    await expect(philPage.getByText(/Japan|Trip to Japan|travel/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('WF-19: Productivity classification (“How productive was I today?”)', async ({ philPage, philServiceWorker }) => {

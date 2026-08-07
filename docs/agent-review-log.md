@@ -313,3 +313,22 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Detail:** Ran workflows-research/reminders/email/goals-planning + WF-13 with `?philTest=1` model-gate bypass. SERP default confirmed Google-primary in `webResearch.ts` (DDG only as `duckduckgo-fallback`). WF-07/10/14/17/19/20 left to C1/C2 owners.
 - **Suggested owner:** C1/C2 for remaining WF; D1 for live SERP scrape CI
 
+
+### 2026-08-07 — Agent D1 (Integration + CORE rewrite)
+- **Test IDs:** CORE-01…07, POL-04, WF-10, PRIV-*, launch wiring
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Wired Privacy tab to full PrivacyDashboard; CORE-01 tabs include Projects/Privacy; WF-10 travel skill registered; README + Google tool copy aligned.
+- **Detail:** Privacy stub (“land here”) removed. `projectBrowseCaptureEnabled` (default on) + inventory rows for Persistent Projects knowledge. `workflow.travel_plan` via `registerSkill` for Japan trip. Model-grounded CORE-06/PAGE still need WebGPU CI cache.
+- **Suggested owner:** D2 for gate triage; CI for model cache
+
+### 2026-08-07 — Agent D2 (Launch gate triage)
+- **Test IDs:** Launch gate; POL-04; BIZ-05…08; WF-10; review-log triage
+- **Severity:** should-fix
+- **Type:** deferred
+- **Summary:** Triaged all prior blocker/should-fix entries; no untriaged blockers remain. Gate result in `docs/launch-gate.md`.
+- **Detail:**
+  - **RESOLVED:** A0 skill-id freeze (dotted+aliases); absolute datetime (`deviceTime`/`reminderSchedule`); A3 BIZ-05…08 skips (now `e2e/biz-privacy.spec.ts`); A2 missing-ID scaffold (145/145 titles); B5 POL-04 Memory Milestone stub; WF-10 skip removed (D1 travel skill).
+  - **DEFER-with-owner:** A2 WebLLM/WebGPU CI env → D1/CI; B1 Stage-2 router (`enableStage2` off) → D1; B3 Calendar OAuth stub → C3; A1 ProjectMetrics bag → C1; C3 live SERP scrape → D1/CI; Demo MP4 → human PM.
+  - Prior A2 **blocker** entries are closed for missing-impl (IDs shipped); residual is env/model only (deferred, not untriaged).
+- **Suggested owner:** human PM for demo recording; D1 for e2e CI evidence

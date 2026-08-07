@@ -55,6 +55,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoSummarize: false,
   analyticsEnabled: false,
   crashReportingEnabled: false,
+  projectBrowseCaptureEnabled: true,
   generation: {
     temperature: 0.7,
     topP: 0.95,

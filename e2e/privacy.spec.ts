@@ -34,6 +34,9 @@ test.describe('Privacy (PRIV)', () => {
     await expect(
       philPage.getByText(/may leave device|leaves device|model download|Google/i).first(),
     ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      philPage.getByText(/Persistent Projects knowledge|Project browse auto-capture/i).first(),
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test('PRIV-04: Clear chats removes conversation data', async ({ philPage }) => {

@@ -2,14 +2,15 @@ import { test, expect, E2E_MODEL_LABEL, MODEL_READY_TIMEOUT_MS } from './fixture
 
 /**
  * CORE-01…05 live here as titled regressions (existing Phil UI coverage).
- * Model/Agent chat CORE-06/10 live in model-* specs; Gmail CORE-08/09 in gmail-*.
+ * CORE-06/07 live in the CORE model / research describe below; CORE-10 in model-restore-handshake;
+ * Gmail CORE-08/09 in gmail-*.
  */
 test.describe('Phil personal assistant UI (CORE)', () => {
   test('CORE-01: Agent tab is default; no Chat tab', async ({ philPage }) => {
     await expect(philPage.getByText('Phil').first()).toBeVisible();
     await expect(philPage.getByRole('button', { name: /^Chat$/i })).toHaveCount(0);
 
-    const tabs = ['Agent', 'Today', 'Focus', 'Goals', 'Reminders', 'Phil'];
+    const tabs = ['Agent', 'Today', 'Focus', 'Goals', 'Reminders', 'Projects', 'Phil', 'Privacy'];
     for (const label of tabs) {
       await expect(philPage.getByRole('button', { name: new RegExp(`^${label}$`, 'i') })).toBeVisible();
     }
@@ -276,6 +277,8 @@ test.describe('CORE model / research (extension profile)', () => {
     const body = await agentPage.locator('body').innerText();
     expect(body).toMatch(/WebGPU|GPU|Google|research|tab/i);
     expect(body).not.toMatch(/Milestone/i);
+    // Google is the default SERP (DuckDuckGo only as fallback) — do not require DDG-only copy.
+    expect(body).not.toMatch(/Milestone \d|coming soon/i);
   });
 });
 

@@ -132,6 +132,23 @@ export function PrivacyDashboard({ settings, onChange }: PrivacyDashboardProps) 
       </section>
 
       <section className="space-y-2">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
+          Persistent Projects
+        </h3>
+        <div className="space-y-2 rounded-2xl border border-border bg-panel p-3">
+          <Toggle
+            label="Project browse auto-capture"
+            checked={settings.projectBrowseCaptureEnabled !== false}
+            onChange={(projectBrowseCaptureEnabled) => onChange({ projectBrowseCaptureEnabled })}
+          />
+          <p className="text-[11px] text-muted">
+            When on, goal-aware browsing may silently attach visits to the active project&apos;s
+            knowledge base. Project titles, workstreams, and knowledge notes never leave this device.
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-2">
         <h3 className="text-xs font-medium uppercase tracking-wider text-muted">Permission inventory</h3>
         <ul className="space-y-2 rounded-2xl border border-border bg-panel p-3">
           {perms.map((p) => (

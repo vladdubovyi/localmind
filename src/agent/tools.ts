@@ -472,7 +472,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'web_research',
     description:
-      'Search the web via DuckDuckGo in a browser tab, open finding tabs, and return URLs. Leaves tabs open for the user.',
+      'Search the web via Google in a browser tab (DuckDuckGo only as fallback), open finding tabs, and return URLs. Leaves tabs open for the user.',
     risk: 'moderate',
     confirmLabel: 'Research the web and open result tabs',
     parameters: {

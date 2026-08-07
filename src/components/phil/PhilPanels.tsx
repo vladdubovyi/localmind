@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  composeBriefingContent,
-  focusSummaryToday,
-} from '@/background/phil/focusTracker';
+import { composeBriefingContent } from '@/background/phil/focusTracker';
+import type { FocusSnapshot } from '@/background/phil/focusTracker';
 import {
   cancelReminderFromUi,
   completeGoalFromUi,
@@ -24,11 +22,27 @@ import {
 import { cn } from '@/utils';
 
 function formatMs(ms: number): string {
-  const mins = Math.round(ms / 60_000);
-  if (mins < 60) return `${mins}m`;
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins < 60) return secs ? `${mins}m ${secs}s` : `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+async function fetchFocusSnapshot(checkpoint = false): Promise<FocusSnapshot | null> {
+  try {
+    const resp = (await chrome.runtime.sendMessage({
+      type: 'PHIL_FOCUS_SNAPSHOT',
+      checkpoint,
+    })) as { ok?: boolean; snapshot?: FocusSnapshot } | undefined;
+    if (resp?.ok && resp.snapshot) return resp.snapshot;
+  } catch {
+    // SW unavailable — fall through
+  }
+  return null;
 }
 
 function usePhilStorageRefresh(onChange: () => void): void {
@@ -112,22 +126,37 @@ export function TodayPanel() {
 }
 
 export function FocusPanel() {
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof focusSummaryToday>> | null>(
-    null,
-  );
+  const [summary, setSummary] = useState<FocusSnapshot | null>(null);
 
-  const refresh = useCallback(async () => {
-    setSummary(await focusSummaryToday());
+  const refresh = useCallback(async (checkpoint = false) => {
+    const snapshot = await fetchFocusSnapshot(checkpoint);
+    if (snapshot) {
+      setSummary(snapshot);
+      return;
+    }
+    // Last-resort: storage only (no live dwell — SW may be asleep).
+    const { focusSummaryToday } = await import('@/background/phil/focusTracker');
+    const base = await focusSummaryToday();
+    setSummary({ ...base, active: null });
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void refresh(true);
+    // Poll live dwell from the service worker so counters move while this tab is open.
     const id = window.setInterval(() => {
-      void refresh();
+      void refresh(false);
+    }, 2_000);
+    const checkpointId = window.setInterval(() => {
+      void refresh(true);
     }, 15_000);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      window.clearInterval(checkpointId);
+    };
   }, [refresh]);
-  usePhilStorageRefresh(refresh);
+  usePhilStorageRefresh(() => {
+    void refresh(false);
+  });
 
   if (!summary) {
     return <div className="grid h-full place-items-center text-sm text-muted">Loading focus…</div>;
@@ -137,6 +166,12 @@ export function FocusPanel() {
     <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
       <h2 className="font-display text-lg text-fg">Focus</h2>
       <p className="mt-1 text-xs text-muted">Tab time today · {formatMs(summary.totalMs)} total</p>
+      {summary.active && (
+        <p className="mt-1 text-xs text-accent">
+          Now: {summary.active.domain} · {formatMs(summary.active.elapsedMs)} ·{' '}
+          {summary.active.category}
+        </p>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         {(

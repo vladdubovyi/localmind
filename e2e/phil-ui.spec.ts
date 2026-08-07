@@ -54,11 +54,81 @@ test.describe('Phil personal assistant UI', () => {
     await expect(philPage.getByText(/scheduled/i).first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test('Focus tab shows category breakdown', async ({ philPage }) => {
+  test('Focus tab shows category breakdown and can display seconds', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
     await expect(philPage.getByRole('heading', { name: /^Focus$/i })).toBeVisible();
     await expect(philPage.getByText(/Productive/i).first()).toBeVisible();
     await expect(philPage.getByText(/Leisure/i).first()).toBeVisible();
+    // Counters render as Ns / Nm — not stuck blank.
+    await expect(philPage.getByText(/Tab time today/i)).toBeVisible();
+  });
+
+  test('Focus tracker records dwell time after browsing', async ({
+    philExtensionContext,
+    philServiceWorker,
+    philPage,
+  }) => {
+    // Ensure SW has trackers + a live dwell on a real page.
+    await philServiceWorker.evaluate(async () => {
+      await chrome.storage.local.set({
+        philSettings: {
+          fabEnabled: true,
+          trackingEnabled: true,
+          nudgesEnabled: true,
+          briefingEnabled: true,
+          briefingHour: 8,
+          briefingMinute: 0,
+          nudgeThresholdMs: 120_000,
+          locality: 'Austin TX',
+          categoryOverrides: {},
+        },
+      });
+    });
+
+    const site = await philExtensionContext.newPage();
+    await site.goto('https://example.com/', { waitUntil: 'domcontentloaded' });
+    await site.bringToFront();
+    // Give dwell time to accumulate past the 250ms floor.
+    await site.waitForTimeout(2_000);
+
+    // Switching tabs forces a flush of the active dwell into storage.
+    const other = await philExtensionContext.newPage();
+    await other.goto('https://example.org/', { waitUntil: 'domcontentloaded' });
+    await other.bringToFront();
+    await other.waitForTimeout(500);
+    await site.bringToFront();
+    await site.waitForTimeout(500);
+
+    const activity = await philServiceWorker.evaluate(async () => {
+      const stored = await chrome.storage.local.get('philTabActivity');
+      const rows = (stored.philTabActivity as Array<{ domain: string; ms: number }> | undefined) ?? [];
+      return {
+        count: rows.length,
+        exampleMs: rows
+          .filter((r) => r.domain.includes('example'))
+          .reduce((sum, r) => sum + (r.ms || 0), 0),
+      };
+    });
+
+    expect(activity.count).toBeGreaterThan(0);
+    expect(activity.exampleMs).toBeGreaterThan(250);
+
+    // Snapshot (incl. live dwell) should also report time via SW.
+    const snapshot = await philPage.evaluate(async () => {
+      return chrome.runtime.sendMessage({ type: 'PHIL_FOCUS_SNAPSHOT', checkpoint: true });
+    });
+    expect(snapshot?.ok).toBe(true);
+    expect((snapshot?.snapshot as { totalMs?: number } | undefined)?.totalMs ?? 0).toBeGreaterThan(
+      250,
+    );
+
+    await philPage.bringToFront();
+    await philPage.getByRole('button', { name: /^Focus$/i }).click();
+    await expect(philPage.getByText(/example\.(com|org)/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    // Should show seconds or minutes, not only "0m" for all categories forever.
+    await expect(philPage.getByText(/\d+s|\d+m/i).first()).toBeVisible();
   });
 
   test('Phil settings tab toggles FAB', async ({ philPage }) => {

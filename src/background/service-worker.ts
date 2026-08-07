@@ -9,7 +9,11 @@ import {
   getAgentPermissionState,
   requestAgentPermissions,
 } from '@/agent/permissions';
-import { registerFocusTracker } from '@/background/phil/focusTracker';
+import {
+  focusSnapshot,
+  registerFocusTracker,
+  resumeFocusTracking,
+} from '@/background/phil/focusTracker';
 import { registerPhilAlarms } from '@/background/phil/reminders';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
@@ -170,6 +174,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'PHIL_FOCUS_SNAPSHOT') {
+    focusSnapshot({ checkpoint: Boolean(message.checkpoint) })
+      .then((snapshot) => sendResponse({ ok: true, snapshot }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
   if (message?.type === 'SELECTION_ACTION') {
     (async () => {
       await openSidePanelForSender(sender);
@@ -293,6 +304,8 @@ queueMicrotask(() => {
   try {
     registerFocusTracker();
     registerPhilAlarms();
+    // Important: listeners alone do not start a dwell after SW wake/install.
+    void resumeFocusTracking();
   } catch (err) {
     console.error('[Phil] failed to register trackers', err);
   }

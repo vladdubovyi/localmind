@@ -683,6 +683,29 @@ export function rewriteToolCallForIntent(
     return { ...call, arguments: args };
   }
 
+  // After a successful research answer, block tab thrash / invented tab ids.
+  const priorResearch = [...priorSteps]
+    .reverse()
+    .find((s) => s.kind === 'tool_result' && s.toolCall?.name === 'web_research' && s.toolResult?.ok);
+  const researchAnswer =
+    priorResearch?.toolResult?.data &&
+    typeof priorResearch.toolResult.data === 'object' &&
+    typeof (priorResearch.toolResult.data as { answer?: unknown }).answer === 'string'
+      ? String((priorResearch.toolResult.data as { answer: string }).answer).trim()
+      : '';
+  if (
+    researchAnswer &&
+    (call.name === 'tabs_list' ||
+      call.name === 'tabs_create' ||
+      call.name === 'tabs_navigate' ||
+      call.name === 'web_research' ||
+      (call.name === 'page_read' &&
+        (call.arguments.tabId == null || Number(call.arguments.tabId) === 1)))
+  ) {
+    // Keep the call name but clear junk args so the agent loop can short-circuit.
+    return { ...call, arguments: { ...call.arguments, __philSkipAfterResearch: true } };
+  }
+
   return call;
 }
 

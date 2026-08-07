@@ -60,11 +60,14 @@ export default defineManifest({
     'https://accounts.google.com/*',
   ],
   // Required for WebLLM model + wasm artifact downloads (then works offline from cache).
+  // wttr.in / DuckDuckGo Instant Answer power live lookup skills without brittle SERP scraping.
   host_permissions: [
     'https://huggingface.co/*',
     'https://*.huggingface.co/*',
     'https://*.hf.co/*',
     'https://raw.githubusercontent.com/*',
+    'https://wttr.in/*',
+    'https://api.duckduckgo.com/*',
   ],
   content_security_policy: {
     extension_pages:

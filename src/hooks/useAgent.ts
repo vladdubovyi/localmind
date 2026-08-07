@@ -20,16 +20,9 @@ import {
   rewriteToolCallForIntent,
 } from '@/agent/goalIntent';
 import {
-  isBriefingGoal,
-  isFocusStatusGoal,
-  isGoalSetupGoal,
-  isReminderGoal,
-  isWebResearchGoal,
   offersToActWithoutTools,
-  parseGoalTitle,
-  parseReminderInMinutes,
-  parseReminderText,
 } from '@/agent/assistantIntent';
+import { routeGoal, type AgentRoute } from '@/agent/skills';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
@@ -158,10 +151,38 @@ function narratesToolUse(text: string): boolean {
   );
 }
 
-/** Informational browse tools should not pause on Allow for live-fact goals. */
-function shouldAutoConfirmTool(goal: string, name: string): boolean {
-  if (!isWebResearchGoal(goal)) return false;
+/** Informational browse tools should not pause on Allow for lookup skills. */
+function shouldAutoConfirmTool(route: AgentRoute, name: string): boolean {
+  if (!route.actDontAsk) return false;
   return name === 'web_research' || name === 'tabs_create' || name === 'tabs_navigate';
+}
+
+function researchAnswerFromResult(result: ToolResult | undefined): string | null {
+  if (!result?.ok || !result.data || typeof result.data !== 'object') return null;
+  const answer = (result.data as { answer?: unknown }).answer;
+  return typeof answer === 'string' && answer.trim() ? answer.trim() : null;
+}
+
+function latestResearchAnswer(steps: AgentStep[]): string | null {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const s = steps[i];
+    if (s.kind === 'tool_result' && s.toolCall?.name === 'web_research') {
+      return researchAnswerFromResult(s.toolResult);
+    }
+  }
+  return null;
+}
+
+/** Same tool spammed after research — stop instead of blowing the context window. */
+function isStuckToolLoop(steps: AgentStep[], name: string): boolean {
+  let streak = 0;
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const s = steps[i];
+    if (s.kind !== 'tool_call' && s.kind !== 'tool_result' && s.kind !== 'error') break;
+    if (s.toolCall?.name === name) streak += 1;
+    else if (s.kind === 'tool_call' || s.kind === 'tool_result') break;
+  }
+  return streak >= 2;
 }
 
 /** Compact prior transcript so follow-up goals keep context. */
@@ -177,80 +198,30 @@ function priorConversationContext(steps: AgentStep[]): string {
   return parts.join('\n\n').slice(0, 7000);
 }
 
-function philIntentHints(goal: string): string[] {
-  if (isReminderGoal(goal)) {
-    const mins = parseReminderInMinutes(goal);
-    return [
-      'Call reminder_create with text and inMinutes (or when).',
-      mins != null ? `Suggested inMinutes: ${mins}` : 'Infer inMinutes from the request.',
-      `Suggested text: ${parseReminderText(goal)}`,
-    ];
-  }
-  if (isGoalSetupGoal(goal)) {
-    return [
-      'Call goal_create with a clear title from the user request.',
-      `Suggested title: ${parseGoalTitle(goal)}`,
-    ];
-  }
-  if (isFocusStatusGoal(goal)) {
-    return ['Call focus_summary and summarize productive vs leisure time.'];
-  }
-  if (isBriefingGoal(goal)) {
-    return ['Call briefing_today and present the overview.'];
-  }
-  if (isWebResearchGoal(goal)) {
-    return [
-      'Call web_research immediately with the search query (do not ask for permission).',
-      'Then answer the user from the findings. Leave useful tabs open.',
-    ];
-  }
-  return [];
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Deterministic Phil tools — do not wait for the LLM to emit a call. */
-function buildPhilFastPathCall(goal: string): ToolCall | null {
-  if (isReminderGoal(goal)) {
-    return {
-      id: uid('call'),
-      name: 'reminder_create',
-      arguments: {
-        text: parseReminderText(goal),
-        inMinutes: parseReminderInMinutes(goal) ?? 30,
-      },
-    };
-  }
-  if (isGoalSetupGoal(goal)) {
-    return {
-      id: uid('call'),
-      name: 'goal_create',
-      arguments: { title: parseGoalTitle(goal) },
-    };
-  }
-  if (isFocusStatusGoal(goal)) {
-    return { id: uid('call'), name: 'focus_summary', arguments: {} };
-  }
-  if (isBriefingGoal(goal)) {
-    return { id: uid('call'), name: 'briefing_today', arguments: {} };
-  }
-  if (isWebResearchGoal(goal)) {
-    return {
-      id: uid('call'),
-      name: 'web_research',
-      arguments: { query: goal.trim(), maxResults: 3 },
-    };
-  }
-  return null;
+function resolveRoute(goal: string, priorSteps: AgentStep[]): AgentRoute {
+  const emailIntent = detectIntent(goal, priorSteps);
+  return routeGoal({ goal, emailIntent });
 }
 
-function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: string): string {
-  const philHints = philIntentHints(goal);
+function buildUserTurn(
+  goal: string,
+  priorSteps: AgentStep[],
+  priorContext: string,
+  route: AgentRoute,
+): string {
+  const philHints = route.hints;
   if (!priorContext) {
     if (!philHints.length) return goal;
-    return [goal, '', ...philHints].join('\n');
+    return [
+      goal,
+      '',
+      `Routed skill: ${route.skill.id} (${route.confidence}) — ${route.skill.description}`,
+      ...philHints,
+    ].join('\n');
   }
 
   const intent = detectIntent(goal, priorSteps);
@@ -260,6 +231,7 @@ function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: stri
     priorContext,
     '',
     `New request: ${goal}`,
+    `Routed skill: ${route.skill.id} (${route.confidence}) — ${route.skill.description}`,
   ];
 
   if (intent === 'email_draft') {
@@ -285,7 +257,7 @@ function buildUserTurn(goal: string, priorSteps: AgentStep[], priorContext: stri
     lines.push(
       'Call gmail_list only. Do not navigate to atom feeds. Do not invent senders/subjects.',
     );
-  } else if (intent === 'open_link') {
+  } else if (intent === 'open_link' || route.skill.id === 'open_link') {
     lines.push('Prefer tabs_create with the real https URL from context.');
   } else if (philHints.length) {
     lines.push(...philHints);
@@ -445,11 +417,20 @@ function continueAfterToolPrompt(
       );
     }
   } else if (call.name === 'web_research') {
-    lines.push(
-      'Answer the user now from these research findings (plain language, cite domains/URLs).',
-      'If the SERP text is too thin, call page_read on one of the opened finding tabs, then answer.',
-      'Do not ask whether to open a website — tools already ran.',
-    );
+    const answer = researchAnswerFromResult(result);
+    if (answer) {
+      lines.push(
+        'You already have the answer text above. Output the FINAL markdown answer now.',
+        'Do NOT call tabs_list, page_read, tabs_create, or web_research again.',
+        'Do NOT invent tab ids. Do NOT say you lack weather access.',
+      );
+    } else {
+      lines.push(
+        'Answer the user now from these research findings (plain language).',
+        'Only if a finding includes a real tabId, you may page_read that id once — never invent tabId 1.',
+        'Never call tabs_list in a loop.',
+      );
+    }
   } else {
     lines.push('Continue. Call another tool if needed, or give the final answer in markdown.');
   }
@@ -512,6 +493,7 @@ export function useAgent() {
       const priorSteps = stepsRef.current;
       const priorContext = priorConversationContext(priorSteps);
       const intent = detectIntent(goal, priorSteps);
+      const route = resolveRoute(goal, priorSteps);
 
       pushStep({ kind: 'user', content: goal });
 
@@ -521,24 +503,23 @@ export function useAgent() {
           throw new Error('Enable Agent mode in settings first.');
         }
 
-        // Phil PA tools run via the service worker and do not need the LLM.
-        // web_research also fast-paths, but then the LLM must summarize findings.
-        const fastCall = buildPhilFastPathCall(goal);
+        // Skill router: deterministic tools run before the LLM when possible.
+        const fastCall = route.toolCall;
         let researchSeed:
           | { call: ToolCall; result: ToolResult }
           | null = null;
 
-        if (fastCall && fastCall.name !== 'web_research') {
+        if (fastCall && fastCall.name !== 'web_research' && route.finalizeDirectAnswer) {
           pushStep({
             kind: 'thought',
-            content: 'Thinking…',
+            content: `Skill: ${route.skill.id}…`,
           });
           pushStep({
             kind: 'tool_call',
             content: toolCallLabel(fastCall.name, fastCall.arguments),
             toolCall: fastCall,
           });
-          let result = await executeTool(fastCall, false);
+          let result = await executeTool(fastCall, shouldAutoConfirmTool(route, fastCall.name));
           if (!result || typeof result !== 'object') {
             result = {
               ok: false,
@@ -579,14 +560,14 @@ export function useAgent() {
         if (fastCall?.name === 'web_research') {
           pushStep({
             kind: 'thought',
-            content: 'Looking that up on the web…',
+            content: `Skill: ${route.skill.id} — looking that up…`,
           });
           pushStep({
             kind: 'tool_call',
             content: toolCallLabel(fastCall.name, fastCall.arguments),
             toolCall: fastCall,
           });
-          let result = await executeTool(fastCall, shouldAutoConfirmTool(goal, fastCall.name));
+          let result = await executeTool(fastCall, shouldAutoConfirmTool(route, fastCall.name));
           if (!result || typeof result !== 'object') {
             result = {
               ok: false,
@@ -620,6 +601,11 @@ export function useAgent() {
               kind: 'error',
               content: result.error || 'Web research failed.',
             });
+            return;
+          }
+          const directAnswer = researchAnswerFromResult(result);
+          if (directAnswer && route.finalizeDirectAnswer) {
+            pushStep({ kind: 'final', content: directAnswer });
             return;
           }
           researchSeed = { call: fastCall, result };
@@ -656,7 +642,7 @@ export function useAgent() {
 
         const history: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
           { role: 'system', content: system },
-          { role: 'user', content: buildUserTurn(goal, priorSteps, priorContext) },
+          { role: 'user', content: buildUserTurn(goal, priorSteps, priorContext, route) },
         ];
 
         let stepsLeft = agentSettings.maxSteps;
@@ -718,11 +704,9 @@ export function useAgent() {
                   s.toolResult?.ok,
               );
             const needsPhilTool =
-              (isReminderGoal(goal) ||
-                isGoalSetupGoal(goal) ||
-                isFocusStatusGoal(goal) ||
-                isBriefingGoal(goal) ||
-                isWebResearchGoal(goal)) &&
+              Boolean(route.toolCall) &&
+              route.skill.id !== 'gmail' &&
+              route.skill.id !== 'chat' &&
               !gotSuccessfulTool;
 
             const offeredBrowse = offersToActWithoutTools(visible || reply);
@@ -739,7 +723,7 @@ export function useAgent() {
                 ((isEmailGoal(goal) ||
                   isOpenLinkGoal(goal) ||
                   intent === 'email_draft' ||
-                  isWebResearchGoal(goal)) &&
+                  route.actDontAsk) &&
                   !gotSuccessfulTool &&
                   stepsLeft > 0));
 
@@ -747,7 +731,7 @@ export function useAgent() {
               formatNudgesLeft -= 1;
 
               // Prefer executing a concrete tool over asking the model again.
-              const forcedPhil = buildPhilFastPathCall(goal);
+              const forcedPhil = route.toolCall;
               const forcedEmail =
                 !forcedPhil && (needsEmailTool || narratesToolUse(reply)) && intent === 'email_list'
                   ? ({
@@ -766,9 +750,9 @@ export function useAgent() {
                   kind: 'thought',
                   content:
                     forced.name === 'web_research'
-                      ? 'Opening the web instead of asking permission…'
+                      ? `Skill ${route.skill.id}: opening the web…`
                       : forcedPhil
-                        ? 'Running the Phil tool directly…'
+                        ? `Skill ${route.skill.id}: running tool…`
                         : 'Calling gmail_list instead of narrating…',
                 });
                 pushStep({
@@ -777,7 +761,7 @@ export function useAgent() {
                   toolCall: forced,
                 });
                 let okResult: ToolResult =
-                  (await executeTool(forced, shouldAutoConfirmTool(goal, forced.name))) ?? {
+                  (await executeTool(forced, shouldAutoConfirmTool(route, forced.name))) ?? {
                     ok: false,
                     error: 'No response from the background tool router.',
                     toolCall: forced,
@@ -829,6 +813,11 @@ export function useAgent() {
                     });
                     return;
                   }
+                  const forcedAnswer = researchAnswerFromResult(okResult);
+                  if (forcedAnswer && route.finalizeDirectAnswer) {
+                    pushStep({ kind: 'final', content: forcedAnswer });
+                    return;
+                  }
                   history.push({ role: 'assistant', content: reply });
                   history.push({
                     role: 'user',
@@ -854,11 +843,12 @@ export function useAgent() {
                 role: 'user',
                 content: [
                   `Original goal: ${goal}`,
+                  `Routed skill: ${route.skill.id}`,
                   hallucinated
                     ? 'Those emails were invented. You MUST call a real tool. Never fabricate inbox contents.'
                     : needsDraft
                       ? 'Do not only write the reply in chat. Output ONLY a gmail_draft tool call now:'
-                      : offeredBrowse || isWebResearchGoal(goal)
+                      : offeredBrowse || route.actDontAsk
                         ? 'Do not ask for permission. Output ONLY a web_research (or tabs_create) tool call now:'
                         : 'Do not narrate. Output ONLY a valid tool call now:',
                   nudgeToolExample(goal, stepsRef.current.length ? stepsRef.current : priorSteps),
@@ -889,13 +879,37 @@ export function useAgent() {
             });
           }
 
+          const knownAnswer = latestResearchAnswer(stepsRef.current);
+          const junkAfterResearch =
+            Boolean(knownAnswer) &&
+            (call.arguments.__philSkipAfterResearch === true ||
+              call.name === 'tabs_list' ||
+              call.name === 'tabs_create' ||
+              call.name === 'tabs_navigate' ||
+              call.name === 'web_research' ||
+              call.name === 'page_read');
+          if (
+            junkAfterResearch ||
+            (call.name === 'tabs_list' && isStuckToolLoop(stepsRef.current, 'tabs_list'))
+          ) {
+            pushStep({
+              kind: 'thought',
+              content: 'Stopping extra tab tools — answering from research results.',
+            });
+            pushStep({
+              kind: 'final',
+              content: knownAnswer || humanizeFinal(visible || 'I looked it up but could not summarize further.'),
+            });
+            break;
+          }
+
           pushStep({
             kind: 'tool_call',
             content: toolCallLabel(call.name, call.arguments),
             toolCall: call,
           });
 
-          let result = await executeTool(call, shouldAutoConfirmTool(goal, call.name));
+          let result = await executeTool(call, shouldAutoConfirmTool(route, call.name));
           if (!result || typeof result !== 'object') {
             result = {
               ok: false,

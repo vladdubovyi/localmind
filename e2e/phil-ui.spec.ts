@@ -54,11 +54,109 @@ test.describe('Phil personal assistant UI', () => {
     await expect(philPage.getByText(/scheduled/i).first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test('Focus tab shows category breakdown', async ({ philPage }) => {
+  test('Focus tab shows category breakdown and can display seconds', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Focus$/i }).click();
     await expect(philPage.getByRole('heading', { name: /^Focus$/i })).toBeVisible();
     await expect(philPage.getByText(/Productive/i).first()).toBeVisible();
     await expect(philPage.getByText(/Leisure/i).first()).toBeVisible();
+    // Counters render as Ns / Nm — not stuck blank.
+    await expect(philPage.getByText(/Tab time today/i)).toBeVisible();
+  });
+
+  test('Focus tracker records dwell time after browsing', async ({
+    philExtensionContext,
+    philServiceWorker,
+    philPage,
+  }) => {
+    await philServiceWorker.evaluate(async () => {
+      await chrome.storage.local.set({
+        philSettings: {
+          fabEnabled: true,
+          trackingEnabled: true,
+          nudgesEnabled: true,
+          briefingEnabled: true,
+          briefingHour: 8,
+          briefingMinute: 0,
+          nudgeThresholdMs: 120_000,
+          locality: 'Austin TX',
+          categoryOverrides: {},
+        },
+        philTabActivity: [],
+      });
+      await chrome.storage.session.remove('philFocusLive');
+    });
+
+    const site = await philExtensionContext.newPage();
+    await site.goto('https://example.com/', { waitUntil: 'domcontentloaded' });
+    await site.bringToFront();
+
+    // Drive tracker via SW hooks (extension-page → SW messaging is unreliable in Playwright).
+    await expect
+      .poll(async () => {
+        return philServiceWorker.evaluate(() =>
+          Boolean((globalThis as { __philFocus?: unknown }).__philFocus),
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    const resumed = await philServiceWorker.evaluate(async () => {
+      const hooks = (
+        globalThis as {
+          __philFocus?: {
+            resumeFocusTracking: () => Promise<void>;
+            focusSnapshot: () => Promise<{ active?: { domain?: string } | null; totalMs?: number }>;
+          };
+        }
+      ).__philFocus;
+      if (!hooks) return { ok: false, error: 'hooks missing' };
+      await hooks.resumeFocusTracking();
+      const snapshot = await hooks.focusSnapshot();
+      return { ok: true, snapshot };
+    });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.snapshot?.active?.domain).toMatch(/example\.com/i);
+
+    await site.waitForTimeout(2_000);
+
+    const checkpointed = await philServiceWorker.evaluate(async () => {
+      const hooks = (
+        globalThis as {
+          __philFocus?: {
+            checkpointFocus: () => Promise<void>;
+            focusSnapshot: () => Promise<{ totalMs?: number }>;
+          };
+        }
+      ).__philFocus;
+      if (!hooks) return { ok: false };
+      await hooks.checkpointFocus();
+      return { ok: true, snapshot: await hooks.focusSnapshot() };
+    });
+    expect(checkpointed.ok).toBe(true);
+    expect(checkpointed.snapshot?.totalMs ?? 0).toBeGreaterThan(250);
+
+    const activity = await philServiceWorker.evaluate(async () => {
+      const stored = await chrome.storage.local.get('philTabActivity');
+      const rows = (stored.philTabActivity as Array<{ domain: string; ms: number }> | undefined) ?? [];
+      return {
+        count: rows.length,
+        exampleMs: rows
+          .filter((r) => r.domain.includes('example'))
+          .reduce((sum, r) => sum + (r.ms || 0), 0),
+      };
+    });
+
+    expect(activity.count).toBeGreaterThan(0);
+    expect(activity.exampleMs).toBeGreaterThan(250);
+
+    await philPage.bringToFront();
+    await philPage.getByRole('button', { name: /^Focus$/i }).click();
+    await expect(philPage.getByRole('heading', { name: /^Focus$/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(philPage.getByText(/example\.com/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(philPage.getByText(/\d+s|\d+m/i).first()).toBeVisible();
   });
 
   test('Phil settings tab toggles FAB', async ({ philPage }) => {

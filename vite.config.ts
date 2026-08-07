@@ -18,6 +18,11 @@ export default defineConfig({
   build: {
     target: 'esnext',
     chunkSizeWarningLimit: 7000,
+    // Service workers have no `document`. Vite's modulepreload polyfill must not
+    // be injected into shared chunks the SW imports (or Phil trackers never boot).
+    modulePreload: {
+      polyfill: false,
+    },
     rollupOptions: {
       input: {
         popup: path.resolve(rootDir, 'src/popup/index.html'),

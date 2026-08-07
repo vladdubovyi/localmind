@@ -19,21 +19,62 @@ interface ActiveDwell {
   category: FocusCategory;
 }
 
+export type FocusLiveState = {
+  domain: string;
+  category: FocusCategory;
+  startedAt: number;
+  url: string;
+  tabId: number;
+};
+
+const LIVE_KEY = 'philFocusLive';
+
 let active: ActiveDwell | null = null;
 let lastNudgeAt = 0;
 let leisureStreakMs = 0;
 let leisureStreakGoalId: string | null = null;
+
+async function publishLive(next: ActiveDwell | null): Promise<void> {
+  try {
+    if (!next) {
+      await chrome.storage.session.remove(LIVE_KEY);
+      return;
+    }
+    const live: FocusLiveState = {
+      domain: next.domain,
+      category: next.category,
+      startedAt: next.startedAt,
+      url: next.url,
+      tabId: next.tabId,
+    };
+    await chrome.storage.session.set({ [LIVE_KEY]: live });
+  } catch {
+    // session storage may be unavailable in some test profiles
+  }
+}
+
+export async function readFocusLive(): Promise<FocusLiveState | null> {
+  try {
+    const stored = await chrome.storage.session.get(LIVE_KEY);
+    return (stored[LIVE_KEY] as FocusLiveState | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 async function flushActive(now = Date.now()): Promise<void> {
   if (!active) return;
   const settings = await getPhilSettings();
   if (!settings.trackingEnabled) {
     active = null;
+    await publishLive(null);
     return;
   }
   const ms = Math.max(0, now - active.startedAt);
-  if (ms < 800) {
+  // Ignore tiny flickers, but keep short real dwells so Focus counters move.
+  if (ms < 250) {
     active = null;
+    await publishLive(null);
     return;
   }
   await putTabActivity({
@@ -47,8 +88,10 @@ async function flushActive(now = Date.now()): Promise<void> {
     category: active.category,
   });
 
-  await maybeNudge(active, ms, now);
+  const session = active;
   active = null;
+  await publishLive(null);
+  void maybeNudge(session, ms, now).catch(() => undefined);
 }
 
 async function maybeNudge(session: ActiveDwell, ms: number, now: number): Promise<void> {
@@ -114,7 +157,14 @@ async function startDwell(tabId: number): Promise<void> {
   if (!settings.trackingEnabled) return;
   try {
     const tab = await chrome.tabs.get(tabId);
-    if (!tab.url || tab.url.startsWith('chrome') || tab.url.startsWith('devtools')) {
+    if (
+      !tab.url ||
+      tab.url.startsWith('chrome') ||
+      tab.url.startsWith('devtools') ||
+      tab.url.startsWith('chrome-extension') ||
+      tab.url.startsWith('edge') ||
+      tab.url.startsWith('about:')
+    ) {
       return;
     }
     const domain = domainFromUrl(tab.url);
@@ -126,8 +176,35 @@ async function startDwell(tabId: number): Promise<void> {
       startedAt: Date.now(),
       category: categorizeDomain(tab.url, settings.categoryOverrides),
     };
+    await publishLive(active);
   } catch {
     // tab gone
+  }
+}
+
+/** Persist the current dwell and keep counting (survives SW sleeps better). */
+export async function checkpointFocus(): Promise<void> {
+  if (!active) return;
+  const tabId = active.tabId;
+  await flushActive();
+  await startDwell(tabId);
+}
+
+/** Begin tracking the currently focused http(s) tab (call on SW boot). */
+export async function resumeFocusTracking(): Promise<void> {
+  try {
+    const activeTabs = await chrome.tabs.query({ active: true });
+    const httpTab = activeTabs.find(
+      (t) => t.id != null && typeof t.url === 'string' && /^https?:/i.test(t.url),
+    );
+    if (httpTab?.id != null) {
+      await startDwell(httpTab.id);
+      return;
+    }
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id != null) await startDwell(tab.id);
+  } catch {
+    // no focused window / tabs permission race
   }
 }
 
@@ -170,13 +247,36 @@ export function registerFocusTracker(): void {
       }
     });
   }
+
+  // Soft heartbeat while the SW stays awake (Focus UI polling also checkpoints).
+  try {
+    setInterval(() => {
+      void checkpointFocus().catch(() => undefined);
+    }, 15_000);
+  } catch {
+    // ignore
+  }
 }
 
-export async function focusSummaryToday(): Promise<{
+export type FocusSummary = {
   byCategory: Record<FocusCategory, number>;
   byDomain: Array<{ domain: string; ms: number; category: FocusCategory }>;
   totalMs: number;
-}> {
+};
+
+export type FocusActiveLive = {
+  domain: string;
+  category: FocusCategory;
+  startedAt: number;
+  elapsedMs: number;
+  url: string;
+};
+
+export type FocusSnapshot = FocusSummary & {
+  active: FocusActiveLive | null;
+};
+
+export async function focusSummaryToday(): Promise<FocusSummary> {
   const since = startOfLocalDay();
   const sessions = await listTabActivitySince(since);
   const byCategory: Record<FocusCategory, number> = {
@@ -196,6 +296,65 @@ export async function focusSummaryToday(): Promise<{
   }
   const byDomain = [...domainMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 25);
   return { byCategory, byDomain, totalMs };
+}
+
+/**
+ * Storage summary + live dwell from chrome.storage.session.
+ * Safe to call from the sidebar (no SW IPC required).
+ */
+export async function focusSnapshotFromStorage(): Promise<FocusSnapshot> {
+  const base = await focusSummaryToday();
+  const liveState = await readFocusLive();
+  if (!liveState) {
+    return { ...base, active: null };
+  }
+  const elapsedMs = Math.max(0, Date.now() - liveState.startedAt);
+  const live: FocusActiveLive = {
+    domain: liveState.domain,
+    category: liveState.category,
+    startedAt: liveState.startedAt,
+    elapsedMs,
+    url: liveState.url,
+  };
+
+  const byCategory = { ...base.byCategory };
+  byCategory[live.category] += elapsedMs;
+  const totalMs = base.totalMs + elapsedMs;
+  const domainMap = new Map(base.byDomain.map((d) => [d.domain, { ...d }]));
+  const prev = domainMap.get(live.domain);
+  if (prev) prev.ms += elapsedMs;
+  else domainMap.set(live.domain, { domain: live.domain, ms: elapsedMs, category: live.category });
+  const byDomain = [...domainMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 25);
+
+  return { byCategory, byDomain, totalMs, active: live };
+}
+
+/**
+ * Storage summary + in-SW live dwell. Prefer focusSnapshotFromStorage in UI.
+ */
+export async function focusSnapshot(opts?: { checkpoint?: boolean }): Promise<FocusSnapshot> {
+  if (opts?.checkpoint) {
+    await checkpointFocus();
+  }
+  // Keep session mirror in sync for UI readers.
+  await publishLive(active);
+  return focusSnapshotFromStorage();
+}
+
+/** @deprecated Prefer assigning hooks from the service worker entry. */
+export function installFocusTestHooks(): void {
+  const g = globalThis as typeof globalThis & {
+    __philFocus?: {
+      resumeFocusTracking: typeof resumeFocusTracking;
+      checkpointFocus: typeof checkpointFocus;
+      focusSnapshot: typeof focusSnapshot;
+    };
+  };
+  g.__philFocus = {
+    resumeFocusTracking,
+    checkpointFocus,
+    focusSnapshot,
+  };
 }
 
 export async function composeBriefingContent(): Promise<{

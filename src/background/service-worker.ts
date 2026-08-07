@@ -9,7 +9,12 @@ import {
   getAgentPermissionState,
   requestAgentPermissions,
 } from '@/agent/permissions';
-import { registerFocusTracker } from '@/background/phil/focusTracker';
+import {
+  checkpointFocus,
+  focusSnapshot,
+  registerFocusTracker,
+  resumeFocusTracking,
+} from '@/background/phil/focusTracker';
 import { registerPhilAlarms } from '@/background/phil/reminders';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
@@ -170,6 +175,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'PHIL_FOCUS_SNAPSHOT') {
+    focusSnapshot({ checkpoint: Boolean(message.checkpoint) })
+      .then((snapshot) => sendResponse({ ok: true, snapshot }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === 'PHIL_FOCUS_RESUME') {
+    resumeFocusTracking()
+      .then(async () => {
+        const snapshot = await focusSnapshot({ checkpoint: false });
+        sendResponse({ ok: true, snapshot });
+      })
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === 'PHIL_FOCUS_CHECKPOINT') {
+    focusSnapshot({ checkpoint: true })
+      .then((snapshot) => sendResponse({ ok: true, snapshot }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
   if (message?.type === 'SELECTION_ACTION') {
     (async () => {
       await openSidePanelForSender(sender);
@@ -288,11 +317,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 installContextMenus();
 
+// Synchronous so Playwright can find hooks even before microtasks run.
+(
+  globalThis as typeof globalThis & {
+    __philFocus?: {
+      resumeFocusTracking: typeof resumeFocusTracking;
+      checkpointFocus: typeof checkpointFocus;
+      focusSnapshot: typeof focusSnapshot;
+    };
+  }
+).__philFocus = {
+  resumeFocusTracking,
+  checkpointFocus,
+  focusSnapshot,
+};
+
 // Defer Phil trackers so a storage/alarms glitch cannot block message handling.
 queueMicrotask(() => {
   try {
     registerFocusTracker();
     registerPhilAlarms();
+    // Important: listeners alone do not start a dwell after SW wake/install.
+    void resumeFocusTracking();
   } catch (err) {
     console.error('[Phil] failed to register trackers', err);
   }

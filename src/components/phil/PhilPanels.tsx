@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   composeBriefingContent,
-  focusSummaryToday,
+  focusSnapshotFromStorage,
+  type FocusSnapshot,
 } from '@/background/phil/focusTracker';
 import {
   cancelReminderFromUi,
@@ -24,11 +25,39 @@ import {
 import { cn } from '@/utils';
 
 function formatMs(ms: number): string {
-  const mins = Math.round(ms / 60_000);
-  if (mins < 60) return `${mins}m`;
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins < 60) return secs ? `${mins}m ${secs}s` : `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function withLiveElapsed(snapshot: FocusSnapshot, now = Date.now()): FocusSnapshot {
+  if (!snapshot.active) return snapshot;
+  const elapsedMs = Math.max(0, now - snapshot.active.startedAt);
+  const delta = elapsedMs - snapshot.active.elapsedMs;
+  if (delta === 0) return snapshot;
+  const byCategory = { ...snapshot.byCategory };
+  byCategory[snapshot.active.category] += delta;
+  const domainMap = new Map(snapshot.byDomain.map((d) => [d.domain, { ...d }]));
+  const prev = domainMap.get(snapshot.active.domain);
+  if (prev) prev.ms += delta;
+  else {
+    domainMap.set(snapshot.active.domain, {
+      domain: snapshot.active.domain,
+      ms: elapsedMs,
+      category: snapshot.active.category,
+    });
+  }
+  return {
+    byCategory,
+    totalMs: snapshot.totalMs + delta,
+    byDomain: [...domainMap.values()].sort((a, b) => b.ms - a.ms).slice(0, 25),
+    active: { ...snapshot.active, elapsedMs },
+  };
 }
 
 function usePhilStorageRefresh(onChange: () => void): void {
@@ -37,13 +66,14 @@ function usePhilStorageRefresh(onChange: () => void): void {
       changes: Record<string, chrome.storage.StorageChange>,
       area: string,
     ) => {
-      if (area !== 'local') return;
+      if (area !== 'local' && area !== 'session') return;
       if (
         changes.philReminders ||
         changes.philGoals ||
         changes.philSettings ||
         changes.philTabActivity ||
-        changes.philBriefings
+        changes.philBriefings ||
+        changes.philFocusLive
       ) {
         onChange();
       }
@@ -112,20 +142,26 @@ export function TodayPanel() {
 }
 
 export function FocusPanel() {
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof focusSummaryToday>> | null>(
-    null,
-  );
+  const [summary, setSummary] = useState<FocusSnapshot | null>(null);
 
   const refresh = useCallback(async () => {
-    setSummary(await focusSummaryToday());
+    const snapshot = await focusSnapshotFromStorage();
+    setSummary(withLiveElapsed(snapshot));
   }, []);
 
   useEffect(() => {
     void refresh();
-    const id = window.setInterval(() => {
+    // Tick live dwell locally from startedAt — no SW messaging required.
+    const tickId = window.setInterval(() => {
+      setSummary((prev) => (prev ? withLiveElapsed(prev) : prev));
+    }, 1_000);
+    const refreshId = window.setInterval(() => {
       void refresh();
-    }, 15_000);
-    return () => window.clearInterval(id);
+    }, 5_000);
+    return () => {
+      window.clearInterval(tickId);
+      window.clearInterval(refreshId);
+    };
   }, [refresh]);
   usePhilStorageRefresh(refresh);
 
@@ -137,6 +173,12 @@ export function FocusPanel() {
     <div className="flex h-full flex-col overflow-y-auto px-4 py-4">
       <h2 className="font-display text-lg text-fg">Focus</h2>
       <p className="mt-1 text-xs text-muted">Tab time today · {formatMs(summary.totalMs)} total</p>
+      {summary.active && (
+        <p className="mt-1 text-xs text-accent">
+          Now: {summary.active.domain} · {formatMs(summary.active.elapsedMs)} ·{' '}
+          {summary.active.category}
+        </p>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         {(

@@ -182,6 +182,7 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** B1 is exclusive owner of routing entry in `useAgent.ts` (resolveRoute → factory); other pods only `registerSkill`.
 - **Detail:** `createRouterFactory` / `getDefaultRouter` / `registerSkill` live under `src/agent/router` + `src/agent/skills`. Test harness: `?philTest=1` → `window.__PHIL_ROUTER_TEST__` with `route.skills`.
 - **Suggested owner:** all Wave1+ pods
+
 ### 2026-08-07 — Agent B2 (Persistent Projects core)
 - **Test IDs:** PRJ-01…06
 - **Severity:** FYI
@@ -197,6 +198,31 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
 - **Summary:** Confirmed A0 Q6 preference: single `project_create` + template field for Wave 1 core; C1 may later register template-specific skills that call the same store.
 - **Detail:** UI create + NL heuristics cover PRJ-01 without model. Agent-loop NL path works when project skill wins routing; model-grounded “I’ve set up your …” replies still depend on tool finalize. E2e asserts UI create path.
 - **Suggested owner:** B1, C1, human PM
+
+### 2026-08-07 — Agent B3 (Onboarding + Errors)
+- **Test IDs:** ONB-01…08, ERR-01…04
+- **Severity:** should-fix
+- **Type:** deferred | skipped-test
+- **Summary:** Wired Calendar ONB-08 + ChatApp Onboarding/ModelRestoring/WebGPU recovery; full Google Calendar OAuth sync deferred to stub `calendarEnabled` flag.
+- **Detail:** SetupWizard steps are welcome → browser → gmail → calendar → ready → model UI. Persistence: `onboarding.grantedCalendar` snapshot + live `agentSettings.calendarEnabled` for B4 Privacy/planning. Calendar connect requests identity/Google hosts when needed then sets the flag — no Calendar API event sync yet. Minimal webResearch SERP URL swap to Google to unblock ERR-03 (C3 still owns deeper research). ERR-02 full mid-load harness and ERR-03 live empty-SERP agent run still limited by e2e fixture (assert copy/UI affordances). ONB-06 asserts Resume/Retry copy rather than forced interrupt. Shared `ErrorRecovery` component added.
+- **Suggested owner:** C3 (Calendar sync + research depth), B4 (Privacy reads calendarEnabled), D1 (model/GPU CI harness for ONB-05/06 interrupt)
+
+### 2026-08-07 — Agent B3 (Onboarding + Errors)
+- **Test IDs:** ERR-01
+- **Severity:** FYI
+- **Type:** open-question
+- **Summary:** ERR-01 stubs `navigator.gpu.requestAdapter → null` via page init script after philPage seed; race with already-probed WebGPU may need fixture-level GPU disable for CI certainty.
+- **Detail:** ChatApp probes via `probeWebGPU()` on mount. Reload after init script should re-probe; if flaky, recommend extension launch arg / CDP override in fixtures.
+- **Suggested owner:** B3 follow-up / D1 fixtures
+
+### 2026-08-07 — Agent B3 (Onboarding + Errors) — e2e evidence
+- **Test IDs:** ONB-01…08, ERR-01…04
+- **Severity:** FYI
+- **Type:** deferred
+- **Summary:** Local Playwright: **all ONB-01…08 and ERR-01…04 green** (12/12) on this branch.
+- **Detail:** Ran `playwright test e2e/onboarding.spec.ts e2e/errors.spec.ts` → 12 passed. Environment has no WebGPU; model gate shows inline WebGPU recovery + catalog (Recommended/Download/Google/Retry copy). ERR-02/03 assert copy/UI affordances rather than forced mid-load / live empty-SERP agent runs. Full Calendar OAuth sync still stubbed via `calendarEnabled`. ERR-01 uses isolated page for GPU stub.
+- **Suggested owner:** D1 (real GPU/model interrupt harness), C3 (live research + Calendar API sync)
+
 ### 2026-08-07 — Agent B5 (Settings + Polish)
 - **Test IDs:** SET-02…08, POL-01…05
 - **Severity:** should-fix
@@ -210,3 +236,4 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **POL-04:** Left Settings “Memory (coming in Milestone 4)” alone per ownership (B4). Expect POL-04 red until B4 removes it.
   - **SET-02/03 e2e:** Scaffold asserts UI visibility; full proactive harness remains C2. Frequency off / caps enforced in focus nudges + `canDeliverNotification`.
 - **Suggested owner:** B4 for Memory stub / POL-04; C2 to consume notificationPolicy caps for PRO-*
+

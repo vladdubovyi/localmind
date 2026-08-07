@@ -95,6 +95,7 @@ async function seedExtensionStorage(page: Page): Promise<void> {
         allowDebugger: false,
         gmailClientId: '',
         gmailMode: 'session',
+        calendarEnabled: false,
       },
       philSettings: {
         fabEnabled: true,

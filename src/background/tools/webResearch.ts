@@ -245,7 +245,8 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
   }
 
   const fullQuery = locality && !/\bnear me\b/i.test(query) ? `${query} ${locality}` : query;
-  const serpUrl = `https://duckduckgo.com/?q=${encodeURIComponent(fullQuery)}&ia=web`;
+  // Locked default: Google SERP (C3 may deepen research; keep Google as primary).
+  const serpUrl = `https://www.google.com/search?q=${encodeURIComponent(fullQuery)}`;
 
   const created = await executeTabTools({
     id: uid('tc'),
@@ -272,7 +273,7 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
     .map((m) => m[0].replace(/[.,;]+$/, ''))
     .filter(
       (u) =>
-        !/duckduckgo\.com|google\.[a-z.]+\/search|bing\.com|microsoft\.com\/?$/i.test(u) &&
+        !/duckduckgo\.com|google\.[a-z.]+\/(search|url|aclk)|bing\.com|microsoft\.com\/?$/i.test(u) &&
         !/\.(png|jpg|gif|svg|css|js)(\?|$)/i.test(u),
     );
 
@@ -307,15 +308,15 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
   const answer =
     findings.length > 0
       ? [
-          `Search results for “${fullQuery}”:`,
+          `Google search results for "${fullQuery}":`,
           ...findings.map((f, i) => `${i + 1}. ${f.domain} — ${f.url}`),
           snippet ? `\nExcerpt:\n${snippet}` : '',
         ]
           .filter(Boolean)
           .join('\n')
       : snippet
-        ? `Search page text for “${fullQuery}”:\n${snippet}`
-        : `Opened search for “${fullQuery}” but could not extract result text.`;
+        ? `Google search page text for "${fullQuery}":\n${snippet}`
+        : `Opened Google search for "${fullQuery}" but could not parse results. Review the search tab Phil opened.`;
 
   return {
     ok: true,
@@ -326,10 +327,13 @@ export async function runWebResearch(call: ToolCall): Promise<ToolResult> {
       serpTabId,
       findings,
       serpSnippet: snippet,
+      engine: 'google',
       note:
         findings.length > 0
           ? 'Answer from the excerpt/links. If you must read a page, use a real tabId from findings.'
-          : 'Answer from the search excerpt. Do not invent tab ids. Do not call tabs_list in a loop.',
+          : snippet
+            ? 'Answer from the Google search excerpt. Do not invent tab ids. Do not call tabs_list in a loop.'
+            : 'Could not parse Google SERP results; a search tab was opened. Tell the user what went wrong and that they can use the open Google tab.',
     },
     toolCall: call,
   };

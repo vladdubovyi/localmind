@@ -11,6 +11,12 @@ export interface OnboardingState {
   grantedBrowser?: boolean;
   grantedGmail?: boolean;
   grantedDebugger?: boolean;
+  /**
+   * Calendar connect choice from ONB-08.
+   * Live grant for Privacy/planning lives on agentSettings.calendarEnabled;
+   * this snapshot records what onboarding recorded at completion.
+   */
+  grantedCalendar?: boolean;
   skipped?: boolean;
 }
 
@@ -37,6 +43,7 @@ export async function completeOnboarding(
     grantedBrowser?: boolean;
     grantedGmail?: boolean;
     grantedDebugger?: boolean;
+    grantedCalendar?: boolean;
   } = {},
 ): Promise<OnboardingState> {
   return saveOnboardingState({
@@ -46,5 +53,6 @@ export async function completeOnboarding(
     grantedBrowser: opts.grantedBrowser,
     grantedGmail: opts.grantedGmail,
     grantedDebugger: opts.grantedDebugger,
+    grantedCalendar: opts.grantedCalendar,
   });
 }

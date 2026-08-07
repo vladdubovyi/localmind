@@ -55,6 +55,12 @@ export interface AgentSettings {
   gmailClientId: string;
   /** Prefer Gmail API when OAuth is configured; else session DOM */
   gmailMode: 'auto' | 'api' | 'session';
+  /**
+   * Calendar connected for daily planning (ONB-08).
+   * Privacy (B4) and planning skills read this flag.
+   * Full Google Calendar OAuth sync may still be deferred — this is the grant/connect state.
+   */
+  calendarEnabled: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -65,6 +71,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   gmailClientId: '',
   /** Session (open Gmail tab) by default — no OAuth client ID required. */
   gmailMode: 'session',
+  calendarEnabled: false,
 };
 
 export type AgentRuntimeMessage =

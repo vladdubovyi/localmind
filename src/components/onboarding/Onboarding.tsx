@@ -58,7 +58,7 @@ export function Onboarding({
         <Feature
           icon={<WifiOff size={16} />}
           title="Offline after download"
-          body="Models cache locally once; the engine stays warm in the background worker."
+          body="Models download once into this browser’s cache, then load offline."
         />
         <Feature
           icon={<Cpu size={16} />}

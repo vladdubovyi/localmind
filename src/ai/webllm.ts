@@ -5,11 +5,15 @@ import type { ChatChunk, ChatRequest, InitProgressReport } from '@/types';
 /**
  * WebLLM-backed provider.
  *
- * Model *weights* persist in the browser Cache API after the first download.
- * The live WebGPU engine is hosted in the extension service worker via
- * `CreateExtensionServiceWorkerMLCEngine`, so closing the side panel does not
- * throw away a warm model — reopen reconnects (instant if the SW is alive,
- * Cache API hydrate if Chrome killed the worker).
+ * Model *weights* persist in the browser Cache API after the first download
+ * (WebLLM default). The live WebGPU engine runs in the side panel page via
+ * `CreateMLCEngine`.
+ *
+ * Note: hosting the engine in the MV3 service worker was attempted, but our
+ * Vite/CRX bundle cannot reliably load `@mlc-ai/web-llm` in the SW (dynamic
+ * import hits `window` via `__vitePreload`; static import tree-shakes the
+ * wrong export). Until that is fixed upstream/in bundler config, page-side
+ * load + Cache API is the correct durable path.
  */
 export class WebLLMProvider extends BaseAIProvider {
   private engine: MLCEngineInterface | null = null;
@@ -47,19 +51,22 @@ export class WebLLMProvider extends BaseAIProvider {
     modelId: string,
     onProgress?: (p: InitProgressReport) => void,
   ): Promise<void> {
-    // Drop the page-side client only. Do NOT unload the SW-resident model —
-    // reconnecting with the same modelId skips reload entirely.
-    this.detachClient();
+    if (this.engine) {
+      try {
+        await this.engine.unload();
+      } catch {
+        // ignore unload errors when replacing models
+      }
+      this.engine = null;
+    }
 
     if (!(await hasWebGPU())) {
       throw new Error(
-        'WebGPU is not available in this browser. LocalMind requires Chrome 124+ with WebGPU enabled (including in extension service workers).',
+        'WebGPU is not available in this browser. LocalMind requires Chrome 113+ with WebGPU enabled.',
       );
     }
 
-    const { CreateExtensionServiceWorkerMLCEngine } = await import(
-      '@mlc-ai/web-llm'
-    );
+    const { CreateMLCEngine } = await import('@mlc-ai/web-llm');
 
     const initProgressCallback: InitProgressCallback = (report) => {
       onProgress?.({
@@ -69,33 +76,9 @@ export class WebLLMProvider extends BaseAIProvider {
       });
     };
 
-    this.engine = await CreateExtensionServiceWorkerMLCEngine(
-      modelId,
-      {
-        initProgressCallback,
-        onDisconnect: () => {
-          // Service worker / port went away. Mark not ready so the UI reconnects.
-          this.ready = false;
-          this.engine = null;
-        },
-      },
-      undefined,
-      10_000,
-    );
+    this.engine = await CreateMLCEngine(modelId, { initProgressCallback });
     this.modelId = modelId;
     this.ready = true;
-  }
-
-  private detachClient(): void {
-    if (!this.engine) return;
-    try {
-      const port = (this.engine as { port?: chrome.runtime.Port }).port;
-      port?.disconnect();
-    } catch {
-      // ignore disconnect races
-    }
-    this.engine = null;
-    this.ready = false;
   }
 
   async chat(
@@ -152,8 +135,11 @@ export class WebLLMProvider extends BaseAIProvider {
   }
 
   async dispose(): Promise<void> {
-    // Keep the SW-hosted model warm for the next panel open.
-    this.detachClient();
+    if (this.engine) {
+      await this.engine.unload();
+      this.engine = null;
+    }
+    this.ready = false;
     this.modelId = null;
   }
 }
@@ -170,7 +156,7 @@ async function hasWebGPU(): Promise<boolean> {
   }
 }
 
-/** Singleton used by popup + side panel pages (client of the SW engine). */
+/** Singleton used by popup + side panel pages. */
 let sharedProvider: WebLLMProvider | null = null;
 
 export function getAIProvider(): WebLLMProvider {

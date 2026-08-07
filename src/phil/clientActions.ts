@@ -116,6 +116,7 @@ export async function createProjectFromUi(input: {
   title: string;
   template?: ProjectTemplate;
   makeActive?: boolean;
+  utterance?: string;
 }): Promise<{ project: PersistentProject; goal: Goal }> {
   const title = input.title.trim();
   const template = input.template ?? inferProjectTemplate(title);
@@ -123,8 +124,7 @@ export async function createProjectFromUi(input: {
     title,
     template,
     makeActive: input.makeActive,
-    milestoneTitles: [`Get started on ${title}`],
-    statusSummary: `I've set up your ${title} project — next steps tracked in project terms.`,
+    utterance: input.utterance ?? title,
   });
   const goal = await createGoalFromUi(title, { projectId: project.id });
   return { project, goal };

@@ -11,6 +11,7 @@ import type {
   ProjectTemplate,
 } from '@/phil/projectTypes';
 import { uid } from '@/storage/phil';
+import { homeStandingSummary } from '@/storage/projectPlaybooks';
 
 const KEYS = {
   projects: 'philProjects',
@@ -131,8 +132,12 @@ export type CreateProjectInput = {
   targetDate?: number;
   status?: ProjectStatus;
   milestoneTitles?: string[];
+  milestones?: ProjectMilestone[];
   statusSummary?: string;
-  /** When true (default), set as the active project. */
+  metrics?: PersistentProject['metrics'];
+  knowledgeEntries?: PersistentProject['knowledgeEntries'];
+  utterance?: string;
+  applyPlaybook?: boolean;
   makeActive?: boolean;
 };
 
@@ -141,39 +146,33 @@ export async function createProject(input: CreateProjectInput): Promise<Persiste
   const title = input.title.trim();
   if (!title) throw new Error('title is required');
   const template = input.template ?? inferProjectTemplate(title);
-  const milestones: ProjectMilestone[] = (input.milestoneTitles?.length
-    ? input.milestoneTitles
-    : [`Get started on ${title}`]
-  ).map((mTitle, i) => ({
-    id: uid('ms'),
-    title: mTitle.trim() || `Milestone ${i + 1}`,
-    status: i === 0 ? 'in_progress' : 'not_started',
-    updatedAt: now,
-  }));
+  const { playbookForTemplate } = await import('@/storage/projectPlaybooks');
+  const book = input.applyPlaybook === false ? null : playbookForTemplate(template, title, input.utterance ?? title, now);
+
+  let milestones: ProjectMilestone[];
+  if (input.milestones?.length) milestones = input.milestones;
+  else if (input.milestoneTitles?.length) {
+    milestones = input.milestoneTitles.map((mTitle, i) => ({
+      id: uid('ms'), title: mTitle.trim() || `Milestone ${i + 1}`,
+      status: (i === 0 ? 'in_progress' : 'not_started') as ProjectMilestone['status'], updatedAt: now,
+    }));
+  } else if (book) milestones = book.milestones;
+  else {
+    milestones = [{ id: uid('ms'), title: `Get started on ${title}`, status: 'in_progress', updatedAt: now }];
+  }
+
+  const metrics = { ...(book?.metrics ?? {}), ...(input.metrics ?? {}) };
+  const statusSummary = input.statusSummary ?? book?.statusSummary ?? `I've set up your ${title} project — tracking milestones in project terms.`;
+  const targetDate = input.targetDate ?? book?.targetDate;
 
   const project: PersistentProject = {
-    id: uid('prj'),
-    title,
-    template,
-    status: input.status ?? 'active',
-    createdAt: now,
-    updatedAt: now,
-    targetDate: input.targetDate,
-    milestones,
-    linkedGoalIds: [],
-    linkedReminderIds: [],
-    knowledgeEntries: [],
-    metrics: {},
-    lastProgressAt: now,
-    statusSummary:
-      input.statusSummary ??
-      `I've set up your ${title} project — tracking milestones in project terms.`,
+    id: uid('prj'), title, template, status: input.status ?? 'active',
+    createdAt: now, updatedAt: now, targetDate, milestones,
+    linkedGoalIds: [], linkedReminderIds: [], knowledgeEntries: input.knowledgeEntries ?? [],
+    metrics, lastProgressAt: now, statusSummary,
   };
-
   await putProject(project);
-  if (input.makeActive !== false) {
-    await setActiveProjectId(project.id);
-  }
+  if (input.makeActive !== false) await setActiveProjectId(project.id);
   return project;
 }
 
@@ -271,33 +270,31 @@ export async function addKnowledgeEntry(
   return next;
 }
 
-/** Progress blurb for “Where am I?” (PRJ-05). */
+/** Progress blurb for “Where am I?” (PRJ-05 / PRJ-GA-03). */
 export function formatProjectProgress(project: PersistentProject): string {
-  const byStatus = {
-    done: 0,
-    in_progress: 0,
-    not_started: 0,
-    cancelled: 0,
-  };
+  const home = Boolean(project.metrics.homePurchase) || /\b(home|house|mortgage)\b/i.test(project.title);
+  if (home && (project.metrics.banksCompared != null || Array.isArray(project.metrics.browseLog))) {
+    if (typeof project.metrics.standingSummary === 'string' && project.metrics.standingSummary.trim()) {
+      return String(project.metrics.standingSummary);
+    }
+    return homeStandingSummary(project);
+  }
+  const byStatus = { done: 0, in_progress: 0, not_started: 0, cancelled: 0 };
   for (const m of project.milestones) byStatus[m.status] += 1;
   const lines = [
-    `Where am I on ${project.title}?`,
-    '',
+    `Where am I on ${project.title}?`, '',
     `Template: ${templateLabel(project.template)} · status: ${project.status}`,
     `Workstreams — done: ${byStatus.done}, in progress: ${byStatus.in_progress}, not started: ${byStatus.not_started}`,
   ];
   if (project.milestones.length) {
     lines.push('', 'Milestones:');
-    for (const m of project.milestones.slice(0, 12)) {
-      lines.push(`- [${m.status}] ${m.title}`);
-    }
+    for (const m of project.milestones.slice(0, 12)) lines.push(`- [${m.status}] ${m.title}`);
   }
   if (project.knowledgeEntries.length) {
     lines.push('', `Knowledge: ${project.knowledgeEntries.length} entr${project.knowledgeEntries.length === 1 ? 'y' : 'ies'}`);
   }
-  lines.push(
-    '',
-    'Next-week action plan: finish the in-progress workstream, schedule one focused block, and capture one knowledge note.',
-  );
+  if (typeof project.metrics.progressReview === 'string') lines.push('', String(project.metrics.progressReview));
+  if (typeof project.metrics.coachNudge === 'string') lines.push('', String(project.metrics.coachNudge));
+  lines.push('', "Next-week action plan: finish the in-progress workstream, schedule one focused block, and capture one knowledge note.");
   return lines.join('\n');
 }

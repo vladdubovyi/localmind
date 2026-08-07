@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createRouterFactory } from '../router/factory.ts';
 import { registerCoreSkills } from './coreSkills.ts';
 import { registerBrowserMemorySkill } from './browserMemorySkill.ts';
+import { registerProjectTemplateSkills } from './projects/index.ts';
 import type { PersistentProject } from '../../phil/projectTypes.ts';
 import type { RouteContext } from './types.ts';
 
@@ -13,6 +14,7 @@ function makeRouter() {
   const router = createRouterFactory({ defaultSearchEngine: 'google', enableStage2: false });
   registerCoreSkills(router);
   registerBrowserMemorySkill(router);
+  registerProjectTemplateSkills(router);
   return router;
 }
 
@@ -76,6 +78,7 @@ expectSkill(
   'project.research_manager',
 );
 expectSkill("I'm moving to Spain in six months.", 'project.life_planner');
+expectSkill("I'm buying my first home.", 'project.goal_aware_browse');
 expectSkill(
   "I'm looking for a mechanical keyboard under $150 with hot-swappable switches. Compare the best options and recommend one.",
   'research.compare_decide',
@@ -156,6 +159,7 @@ expectSkill('Send that email', 'email.send');
     'project.job_hunt',
     'project.research_manager',
     'project.life_planner',
+    'project.goal_aware_browse',
     'meta.clarify',
     'assistant.general',
     'email.send',

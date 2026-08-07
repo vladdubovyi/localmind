@@ -158,6 +158,8 @@ export function buildCoreSkills(): RegisteredSkill[] {
         required: ['text'],
       },
       routeScore: (ctx) => {
+        // Prefer memory.remember for "Remember that…" (isReminderGoal also matches "remind*").
+        if (isRememberGoal(goalOf(ctx)) || /\bremember that\b/i.test(goalOf(ctx))) return 0;
         if (isReminderGoal(goalOf(ctx))) return 0.98;
         return exampleOverlap(ctx, reminderExamples) * 0.7;
       },

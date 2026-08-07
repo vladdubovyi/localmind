@@ -190,12 +190,13 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
       const template = isProjectTemplate(templateArg)
         ? templateArg
         : inferProjectTemplate(title);
+      const utterance = argString(call, 'utterance') || title;
       const project = await createProject({
         title: title.trim(),
         template,
         targetDate: argNumber(call, 'targetDate'),
         makeActive: call.arguments.makeActive !== false,
-        statusSummary: `I've set up your ${title.trim()} project — speaking in project terms from here.`,
+        utterance,
       });
       const now = Date.now();
       const end = new Date();
@@ -224,7 +225,7 @@ export async function executePhilTools(call: ToolCall): Promise<ToolResult> {
         data: {
           project,
           goal,
-          message: `I've set up your ${project.title} project (${templateLabel(project.template)}).`,
+          message: project.statusSummary ?? `I've set up your ${project.title} project (${templateLabel(project.template)}).`,
         },
         toolCall: call,
       };

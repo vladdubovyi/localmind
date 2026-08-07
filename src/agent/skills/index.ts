@@ -24,3 +24,4 @@ export {
   registerBrowserMemorySkill,
   isBrowserMemoryFindGoal,
 } from './browserMemorySkill';
+export { registerProjectTemplateSkills, buildProjectTemplateSkills } from './projects';

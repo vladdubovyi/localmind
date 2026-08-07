@@ -2,9 +2,8 @@ import type { ToolCall } from '../types';
 import type { PersistentProject, ProjectTemplate } from '../../phil/projectTypes';
 
 /**
- * Stable skill ids — keep this list small; add modules, not one-off ifs.
- * Existing registry values must not be removed. Forward-compatible dotted ids
- * (e.g. `reminder.create`) may appear as Skill.id strings alongside these.
+ * Stable legacy skill ids — keep this list; do not remove.
+ * Canonical v1 ids use dotted namespaces (`reminder.create`) with these as aliases.
  */
 export type SkillId =
   | 'reminder'
@@ -20,7 +19,7 @@ export type SkillId =
 
 /**
  * Confirmation policy for skill execution (SKL-02 / WF-05).
- * Use string unions (erasableSyntaxOnly — no TS enums).
+ * Maps roughly to ADR: none→none, confirm→notify/confirm, required→never_auto.
  */
 export type ConfirmationLevel =
   /** Run without prompting (e.g. reminder_create, page summarize). */
@@ -32,70 +31,49 @@ export type ConfirmationLevel =
 
 export type RouteConfidence = 'high' | 'medium' | 'low';
 
+export type RouteTrigger = 'chat' | 'chip' | 'context_menu' | 'proactive' | 'alarm';
+
 /**
  * Router input context. `goal` remains the primary utterance field used by
  * today's AgentSkill.score path; `utterance` is an alias for the Wave-1
  * route(utterance, context) API.
  */
 export type RouteContext = {
-  /**
-   * User utterance / goal text — required by shipped AgentSkill.score / routeGoal.
-   * When building context for Router Factory, also set `utterance` (may equal `goal`).
-   */
   goal: string;
-  /** Canonical utterance for Router Factory `route(utterance, context)`. */
   utterance?: string;
-  /** Prior email/open-link intent from goalIntent when available. */
+  utteranceNorm?: string;
   emailIntent?: string | null;
-  /** Active Persistent Project for this turn (PRJ-04 / RTE-06). */
   activeProjectId?: string | null;
-  /** Optional hydrated project snapshot when already loaded. */
   activeProject?: PersistentProject | null;
-  /** Current page URL when side panel / content script has one (RTE-05). */
   pageUrl?: string | null;
-  /** Current page title when available. */
   pageTitle?: string | null;
-  /** Highlighted selection text (SEL-*, WF-12). */
+  pageHasExtract?: boolean;
   selection?: string | null;
-  /** Whether WebLLM (or stub) is ready for LLM-backed routing/execution. */
   modelReady?: boolean;
-  /** Local hour 0–23 for time-of-day routing features (device TZ). */
   localHour?: number;
-  /** Test-mode: expose route debug on SkillPlan (RTE-* harness). */
+  timeZone?: string;
+  nowMs?: number;
+  calendarConnected?: boolean;
+  memoryEnabled?: boolean;
+  trigger?: RouteTrigger;
+  priorPlan?: SkillPlan | null;
+  correctionHint?: string | null;
+  recentTurns?: Array<{ role: 'user' | 'assistant'; text: string }>;
   debugRouting?: boolean;
+  testMode?: boolean;
 };
 
-/**
- * Shipped scoring skill used by registry.ts / routeGoal.
- * Wave-1 Skill is the richer contract; AgentSkill remains the runtime shape
- * until B1 migrates registry entries.
- */
 export type AgentSkill = {
   id: SkillId;
-  /** One-line description for prompts / debugging. */
   description: string;
-  /**
-   * Score 0–1. Router picks the highest score above the threshold.
-   * Prefer high precision; leave ambiguous factual asks to web_lookup.
-   * Maps to Skill.routeScore in the forward-compatible Skill contract.
-   */
   score: (ctx: RouteContext) => number;
-  /** Optional deterministic tool call (fast-path; do not wait for the LLM). */
   buildToolCall?: (goal: string) => ToolCall | null;
-  /** If tool returns `data.answer`, finish immediately without more tools. */
   finalizeDirectAnswer?: boolean;
-  /** Auto-confirm moderate browse tools for this skill. */
   actDontAsk?: boolean;
-  /** Hints injected into the user turn / nudges. */
   hints?: (goal: string) => string[];
-  /**
-   * Optional confirmation metadata (additive). When absent, infer from
-   * actDontAsk / skill id during migration.
-   */
   confirmationLevel?: ConfirmationLevel;
 };
 
-/** Result of today's routeGoal() — single winning skill + fast-path tool. */
 export type AgentRoute = {
   skill: AgentSkill;
   confidence: RouteConfidence;
@@ -103,9 +81,9 @@ export type AgentRoute = {
   hints: string[];
   actDontAsk: boolean;
   finalizeDirectAnswer: boolean;
+  plan?: SkillPlan;
 };
 
-/** Permissions a skill may require before execute (stub for B1/B3/B4). */
 export type SkillPermission =
   | 'none'
   | 'tabs'
@@ -113,12 +91,12 @@ export type SkillPermission =
   | 'gmail'
   | 'calendar'
   | 'notifications'
-  | 'storage';
+  | 'storage'
+  | 'scripting'
+  | 'identity_gmail'
+  | 'storage_memory'
+  | 'storage_projects';
 
-/**
- * JSON-schema-ish input description for skill parameters.
- * Kept loose so pods can refine without breaking imports.
- */
 export type SkillInputSchema = {
   type?: 'object' | 'string' | 'null';
   properties?: Record<string, unknown>;
@@ -130,40 +108,27 @@ export type SkillInputSchema = {
 export type SkillExecuteArgs = {
   utterance: string;
   context: RouteContext;
-  /** Parameters proposed by the router / prior plan step. */
   params?: Record<string, unknown>;
 };
 
 export type SkillExecuteResult = {
   ok: boolean;
-  /** User-visible summary when the skill short-circuits. */
   message?: string;
-  /** Tool calls to enqueue when the skill defers to the agent loop. */
   toolCalls?: ToolCall[];
-  /** Artifacts created (project ids, reminder ids, …). */
   artifacts?: Record<string, unknown>;
   error?: string;
 };
 
 /**
- * Forward-compatible Skill contract (plan §17 / Wave-0 freeze).
- * B1 implements registry + execute; A1 only freezes the shape.
- *
- * Mapping from AgentSkill → Skill:
- * - id: SkillId ⊂ string (dotted ids allowed on Skill)
- * - description: same
- * - score(ctx) ↔ routeScore(ctx) / canHandle(ctx)
- * - buildToolCall / hints / finalizeDirectAnswer / actDontAsk → execute impl detail
- * - confirmationLevel ← actDontAsk ? 'none' : skill-specific
+ * Forward-compatible Skill contract (ADR 0001).
+ * Canonical ids use dotted namespaces; `aliases` keep flat legacy ids scoring.
  */
 export type Skill = {
-  /** Stable id; prefer dotted names for new skills (`reminder.create`). */
   id: string;
   description: string;
-  /** Few-shot / routing examples (RTE-07 extensibility). */
   examples?: string[];
+  aliases?: string[];
   inputSchema?: SkillInputSchema;
-  /** Coarse category for taxonomy / telemetry. */
   category?:
     | 'reminder'
     | 'goal'
@@ -176,55 +141,56 @@ export type Skill = {
     | 'focus'
     | 'memory'
     | 'settings'
+    | 'settings_privacy'
     | 'browser'
+    | 'browser_memory'
+    | 'meta'
     | 'fallback'
+    | 'chitchat'
     | 'other';
-  /** Project template this skill owns, when applicable. */
   projectTemplate?: ProjectTemplate;
   permissions?: SkillPermission[];
   confirmationLevel: ConfirmationLevel;
-  /** Cheap boolean gate before scoring (optional). */
+  priority?: number;
   canHandle?: (ctx: RouteContext) => boolean;
-  /** Score 0–1; mirrors AgentSkill.score. */
   routeScore: (ctx: RouteContext) => number;
-  /**
-   * Execute the skill. Stub OK until B1/C* implement.
-   * Implementations may throw NotImplementedError during Wave 0.
-   */
+  score?: (ctx: RouteContext) => number | { score: number; reasons?: string[] };
+  extractArgs?: (ctx: RouteContext) => Record<string, unknown> | null;
   execute: (args: SkillExecuteArgs) => Promise<SkillExecuteResult> | SkillExecuteResult;
 };
 
-/** One step in a SkillPlan (ordered invocations). */
+export type RegisteredSkill = Skill & {
+  legacyId?: SkillId;
+  buildToolCall?: AgentSkill['buildToolCall'];
+  hints?: AgentSkill['hints'];
+  actDontAsk?: boolean;
+  finalizeDirectAnswer?: boolean;
+};
+
 export type SkillPlanStep = {
   skillId: string;
   params?: Record<string, unknown>;
-  /** Confidence for this step alone. */
+  args?: Record<string, unknown>;
+  confirmationLevel?: ConfirmationLevel;
   confidence?: RouteConfidence;
 };
 
-/**
- * Ordered skill invocations produced by Router Factory:
- * `route(utterance, context) → SkillPlan`
- */
 export type SkillPlan = {
   steps: SkillPlanStep[];
-  /** Overall plan confidence. */
   confidence: RouteConfidence;
-  /** When true, use lightweight / short-circuit path (RTE-09). */
   lightweight?: boolean;
-  /** Clarifying question instead of executing (RTE-03). */
+  shortCircuit?: boolean;
   clarification?: string | null;
-  /**
-   * Test-mode route debug (RTE-* harness). Populated when
-   * RouteContext.debugRouting is true.
-   */
+  clarifyQuestion?: string;
   debug?: {
     skills: string[];
     scores?: Array<{ id: string; score: number }>;
+    stage?: 'stage0' | 'stage1' | 'stage2' | 'clarify' | 'fallback';
+    llmRouteCalls?: number;
+    ranked?: Array<{ id: string; score: number }>;
   };
 };
 
-/** Adapter helper type: promote a shipped AgentSkill toward Skill metadata. */
 export type AgentSkillAsSkillMeta = Pick<AgentSkill, 'id' | 'description'> & {
   confirmationLevel: ConfirmationLevel;
   routeScore: AgentSkill['score'];

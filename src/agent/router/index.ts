@@ -2,6 +2,7 @@ export type {
   AgentRoute,
   AgentRouteToSkillPlan,
   ConfirmationLevel,
+  CreateRouterFactoryOptions,
   RegisterSkillOptions,
   RouteConfidence,
   RouteContext,
@@ -18,3 +19,4 @@ export type {
   SkillPlanStep,
 } from './types';
 export { NotImplementedError } from './types';
+export { createRouterFactory, buildRouteContext } from './factory';

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Bot, PanelRightOpen, Settings2 } from 'lucide-react';
 import { AgentPanel, type AgentSeedGoal } from '@/components/agent/AgentPanel';
+import { RouterTestHarness } from '@/components/agent/RouterTestHarness';
 import { BrandMark } from '@/components/common/BrandMark';
 import {
   FocusPanel,
@@ -147,6 +148,7 @@ export function ChatApp({ variant }: ChatAppProps) {
         variant === 'popup' ? 'w-[380px]' : 'w-full',
       )}
     >
+      <RouterTestHarness />
       <header className="flex items-center justify-between gap-2 border-b border-border-subtle px-3 py-2.5">
         <BrandMark size="sm" />
         <div className="flex items-center gap-1">

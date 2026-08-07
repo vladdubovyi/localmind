@@ -22,13 +22,118 @@ import {
 import {
   offersToActWithoutTools,
 } from '@/agent/assistantIntent';
-import { routeGoal, type AgentRoute } from '@/agent/skills';
+import { routeGoal, type AgentRoute, type RouteContext, type SkillPlan } from '@/agent/skills';
 import { buildAgentSystemPrompt, parseToolCalls, stripToolCallMarkup } from '@/agent/parser';
 import { getTool, toolsPromptBlock } from '@/agent/tools';
 import type { AgentSettings, AgentStep, ToolCall, ToolResult } from '@/agent/types';
 import { getAgentSettings } from '@/storage/agentSettings';
 import { getSettings } from '@/storage/db';
 import { uid } from '@/utils';
+
+/** Last route plan for test-mode harness (RTE-*). */
+let lastRoutePlan: SkillPlan | null = null;
+
+export function getLastRoutePlan(): SkillPlan | null {
+  return lastRoutePlan;
+}
+
+async function readActivePageMeta(): Promise<{
+  pageUrl?: string;
+  pageTitle?: string;
+}> {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs.find((t) => t.url && /^https?:/i.test(t.url));
+    if (!tab?.url) return {};
+    return { pageUrl: tab.url, pageTitle: tab.title };
+  } catch {
+    return {};
+  }
+}
+
+async function readActiveProjectMeta(): Promise<{
+  activeProjectId?: string | null;
+  activeProject?: RouteContext['activeProject'];
+}> {
+  try {
+    const stored = await chrome.storage.local.get(['philActiveProject', 'activeProjectId']);
+    const activeProjectId =
+      (stored.activeProjectId as string | undefined) ??
+      ((stored.philActiveProject as { id?: string } | undefined)?.id ?? null);
+    const snap = stored.philActiveProject as RouteContext['activeProject'] | undefined;
+    return {
+      activeProjectId: activeProjectId ?? null,
+      activeProject: snap ?? null,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function recentTurnsFromSteps(steps: AgentStep[]): RouteContext['recentTurns'] {
+  const turns: NonNullable<RouteContext['recentTurns']> = [];
+  for (const s of steps.slice(-12)) {
+    if (s.kind === 'user') turns.push({ role: 'user', text: s.content });
+    else if (s.kind === 'final') turns.push({ role: 'assistant', text: s.content });
+  }
+  return turns;
+}
+
+async function resolveRoute(goal: string, priorSteps: AgentStep[]): Promise<AgentRoute> {
+  const emailIntent = detectIntent(goal, priorSteps);
+  const [{ pageUrl, pageTitle }, projectMeta, settings] = await Promise.all([
+    readActivePageMeta(),
+    readActiveProjectMeta(),
+    getSettings().catch(() => null),
+  ]);
+
+  const testMode =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('philTest') ||
+      Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
+
+  const correctionHint = /\b(no,?\s*i meant|i meant set a reminder)\b/i.test(goal)
+    ? goal
+    : null;
+
+  const ctx: RouteContext = {
+    goal,
+    utterance: goal,
+    emailIntent,
+    pageUrl: pageUrl ?? null,
+    pageTitle: pageTitle ?? null,
+    pageHasExtract: Boolean(pageUrl),
+    ...projectMeta,
+    modelReady: true,
+    memoryEnabled: settings?.memoryEnabled !== false,
+    recentTurns: recentTurnsFromSteps(priorSteps),
+    priorPlan: lastRoutePlan,
+    correctionHint,
+    testMode,
+    debugRouting: testMode,
+    trigger: 'chat',
+  };
+
+  const route = routeGoal(ctx);
+  lastRoutePlan = route.plan ?? null;
+
+  if (testMode && typeof window !== 'undefined') {
+    const w = window as unknown as {
+      __PHIL_LAST_ROUTE__?: unknown;
+    };
+    w.__PHIL_LAST_ROUTE__ = {
+      skills: route.plan?.debug?.skills ?? [],
+      stage: route.plan?.debug?.stage,
+      shortCircuit: route.plan?.shortCircuit ?? route.plan?.lightweight,
+      confidence: route.confidence,
+      clarification: route.plan?.clarification ?? null,
+      llmRouteCalls: route.plan?.debug?.llmRouteCalls ?? 0,
+      'route.skills': route.plan?.debug?.skills ?? [],
+    };
+  }
+
+  return route;
+}
 
 async function executeTool(call: ToolCall, confirmed = false): Promise<ToolResult> {
   try {
@@ -200,11 +305,6 @@ function priorConversationContext(steps: AgentStep[]): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveRoute(goal: string, priorSteps: AgentStep[]): AgentRoute {
-  const emailIntent = detectIntent(goal, priorSteps);
-  return routeGoal({ goal, emailIntent });
 }
 
 function buildUserTurn(
@@ -493,7 +593,7 @@ export function useAgent() {
       const priorSteps = stepsRef.current;
       const priorContext = priorConversationContext(priorSteps);
       const intent = detectIntent(goal, priorSteps);
-      const route = resolveRoute(goal, priorSteps);
+      const route = await resolveRoute(goal, priorSteps);
 
       pushStep({ kind: 'user', content: goal });
 
@@ -501,6 +601,41 @@ export function useAgent() {
         const agentSettings = await getAgentSettings();
         if (!agentSettings.enabled) {
           throw new Error('Enable Agent mode in settings first.');
+        }
+
+        // Clarify short-circuit (RTE-03) — no durable artifacts.
+        if (route.plan?.clarification || route.plan?.debug?.stage === 'clarify') {
+          const q =
+            route.plan.clarification ||
+            route.plan.clarifyQuestion ||
+            'Could you share a bit more context?';
+          pushStep({
+            kind: 'thought',
+            content: 'Need a bit more context…',
+          });
+          if (route.plan?.debug) {
+            pushStep({
+              kind: 'thought',
+              content: `route.skills = [${route.plan.debug.skills.join(', ')}] · stage=${route.plan.debug.stage}`,
+            });
+          }
+          pushStep({ kind: 'final', content: q });
+          return;
+        }
+
+        if (route.plan?.debug?.skills?.length) {
+          const testMode =
+            typeof window !== 'undefined' &&
+            (new URLSearchParams(window.location.search).has('philTest') ||
+              Boolean((window as unknown as { __PHIL_TEST_MODE__?: boolean }).__PHIL_TEST_MODE__));
+          if (testMode) {
+            pushStep({
+              kind: 'thought',
+              content: `route.skills = [${route.plan.debug.skills.join(', ')}] · stage=${route.plan.debug.stage}${
+                route.plan.shortCircuit || route.plan.lightweight ? ' · short-circuit' : ''
+              }`,
+            });
+          }
         }
 
         // Skill router: deterministic tools run before the LLM when possible.

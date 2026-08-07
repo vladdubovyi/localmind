@@ -1,5 +1,13 @@
-import type { AgentRoute, AgentSkill, RouteConfidence, RouteContext } from './types';
-import { AGENT_SKILLS } from './registry';
+import type {
+  AgentRoute,
+  AgentSkill,
+  RegisteredSkill,
+  RouteConfidence,
+  RouteContext,
+  SkillId,
+  SkillPlan,
+} from './types';
+import { getDefaultRouter } from './defaultRouter';
 
 const SCORE_THRESHOLD = 0.55;
 
@@ -9,38 +17,88 @@ function confidenceFor(score: number): RouteConfidence {
   return 'low';
 }
 
-/**
- * Pick the best skill for a goal.
- * High-precision skills (reminder, weather, gmail…) win when they match;
- * ambiguous factual questions fall through to web_lookup; otherwise chat.
- */
-export function routeGoal(ctx: RouteContext): AgentRoute {
-  let best: { skill: AgentSkill; score: number } | null = null;
-  for (const skill of AGENT_SKILLS) {
-    const score = skill.score(ctx);
-    if (!best || score > best.score) best = { skill, score };
-  }
-
-  const skill =
-    best && best.score >= SCORE_THRESHOLD
-      ? best.skill
-      : (AGENT_SKILLS.find((s) => s.id === 'chat') as AgentSkill);
-  const score = best && skill.id === best.skill.id ? best.score : 0.1;
-  const toolCall = skill.buildToolCall?.(ctx.goal) ?? null;
-
+function toAgentSkill(registered: RegisteredSkill): AgentSkill {
+  const legacyId = (registered.legacyId ??
+    (registered.category === 'email'
+      ? 'gmail'
+      : registered.category === 'research'
+        ? 'web_lookup'
+        : registered.category === 'focus'
+          ? 'focus'
+          : registered.category === 'reminder'
+            ? 'reminder'
+            : registered.category === 'goal'
+              ? 'goal'
+              : registered.category === 'planning'
+                ? 'briefing'
+                : 'chat')) as SkillId;
   return {
-    skill,
-    confidence: confidenceFor(score),
-    toolCall,
-    hints: skill.hints?.(ctx.goal) ?? [],
-    actDontAsk: Boolean(skill.actDontAsk),
-    finalizeDirectAnswer: Boolean(skill.finalizeDirectAnswer),
+    id: legacyId,
+    description: `${registered.id}: ${registered.description}`,
+    score: (ctx) => registered.routeScore(ctx),
+    buildToolCall: registered.buildToolCall,
+    finalizeDirectAnswer: registered.finalizeDirectAnswer,
+    actDontAsk: registered.actDontAsk,
+    hints: registered.hints,
+    confirmationLevel: registered.confirmationLevel,
   };
 }
 
-/** Debug / tests: ranked skill scores for a goal. */
-export function rankSkills(ctx: RouteContext): Array<{ id: string; score: number }> {
-  return AGENT_SKILLS.map((skill) => ({ id: skill.id, score: skill.score(ctx) }))
-    .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score);
+/**
+ * Map a SkillPlan from the factory into the legacy AgentRoute used by useAgent.
+ */
+export function skillPlanToAgentRoute(plan: SkillPlan, goal: string): AgentRoute {
+  const router = getDefaultRouter();
+  const step = plan.steps[0];
+  const skillId = step?.skillId ?? 'assistant.general';
+  const registered = (router.getSkill(skillId) ??
+    router.getSkill('assistant.general')) as RegisteredSkill | undefined;
+
+  const fallbackChat: AgentSkill = {
+    id: 'chat',
+    description: 'Conversational reply without tools',
+    score: () => 0.1,
+    hints: () => ['Answer directly if no tool is needed. Stay on-topic.'],
+    confirmationLevel: 'none',
+  };
+
+  const agentSkill = registered ? toAgentSkill(registered) : fallbackChat;
+  const toolCall = registered?.buildToolCall?.(goal) ?? null;
+  const topScore = plan.debug?.ranked?.[0]?.score ?? (plan.confidence === 'high' ? 0.95 : 0.6);
+
+  return {
+    skill: agentSkill,
+    confidence: plan.confidence || confidenceFor(topScore),
+    toolCall,
+    hints: registered?.hints?.(goal) ?? agentSkill.hints?.(goal) ?? [],
+    actDontAsk: Boolean(registered?.actDontAsk),
+    finalizeDirectAnswer: Boolean(registered?.finalizeDirectAnswer),
+    plan,
+  };
 }
+
+/**
+ * Pick the best skill for a goal via Router Factory (registry SoT).
+ * High-precision skills win when they match; otherwise fallback / clarify.
+ */
+export function routeGoal(ctx: RouteContext): AgentRoute {
+  const router = getDefaultRouter();
+  const utterance = ctx.utterance ?? ctx.goal;
+  const plan = router.routeSync(utterance, {
+    ...ctx,
+    goal: ctx.goal || utterance,
+    utterance,
+  });
+  return skillPlanToAgentRoute(plan, utterance);
+}
+
+/** Debug / tests: ranked skill scores for a goal (factory registry). */
+export function rankSkills(ctx: RouteContext): Array<{ id: string; score: number }> {
+  const router = getDefaultRouter();
+  const utterance = ctx.utterance ?? ctx.goal;
+  const plan = router.routeSync(utterance, { ...ctx, goal: ctx.goal || utterance, utterance });
+  return (plan.debug?.ranked ?? []).filter((r) => r.score > 0);
+}
+
+/** @deprecated Prefer factory routeSync; kept for SCORE_THRESHOLD consumers. */
+export { SCORE_THRESHOLD };

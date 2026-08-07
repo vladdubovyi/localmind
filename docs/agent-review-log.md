@@ -142,3 +142,43 @@ Append-only log for unclear requirements, open questions, missing/skipped/deferr
   - **Not run full suite:** Remaining ONB/ERR/PRIV/MEM/SET-02…/DAY/BRW/EA/PRO/POL/BIZ-05…08/WF/PRJ/RTE/SKL intentionally fail-on-missing UI until owner pods land.
   - **Website note:** `e2e/business.spec.ts` expects A3 `website/**` assets; may fail on this branch until A3 merged.
 - **Suggested owner:** D1/CI for model cache; B3+ for ONB; see prior A2 entry for group owners
+
+### 2026-08-07 — Agent B1 (Skills + Router Factory)
+- **Test IDs:** RTE-01…09, SKL-01…03
+- **Severity:** should-fix
+- **Type:** open-question
+- **Summary:** Locked skill ids to **dotted namespaces** (`reminder.create`, etc.) with **aliases** for flat legacy ids (`reminder`) so both score/resolve.
+- **Detail:** Canonical SkillPlan.debug.skills / e2e asserts use dotted ids. `getSkill('reminder')` resolves to `reminder.create`. AgentRoute bridge still surfaces legacy SkillId for useAgent fast-paths. A0 ADR §13 Q2 closed by B1.
+- **Suggested owner:** C1/C3 follow same id convention when registering templates
+
+### 2026-08-07 — Agent B1 (Skills + Router Factory)
+- **Test IDs:** RTE-09, SKL-*
+- **Severity:** should-fix
+- **Type:** deferred
+- **Summary:** **Stage-2 WebLLM structured routing deferred** for Wave 1 — ship Stage0+Stage1+clarify+fallback only; Stage-2 behind `enableStage2` + `llmRouter` (default off).
+- **Detail:** Local JSON reliability + extra latency vs RTE-09. Cascade still accepts optional Stage-2 when flag set. Multi-skill compare/decide authored via Stage-1 utterance cues (`planTemplates`-style), not LLM. A0 ADR §13 Q1/Q3.
+- **Suggested owner:** Wave 2 / D1 to enable Stage-2 once goldens prove JSON stable
+
+### 2026-08-07 — Agent B1 (Skills + Router Factory)
+- **Test IDs:** RTE-02, RTE-06, SKL-01, PRJ-*
+- **Severity:** FYI
+- **Type:** missing-impl
+- **Summary:** Project template skills are **registered stubs** (score + execute message) for SKL-01 / RTE-02/06 routing; full Persistent Projects UI/storage and template execute bodies remain B2/C1.
+- **Detail:** `project.career_accelerator`, `project.job_hunt`, `project.research_manager`, `project.life_planner`, `project.exec_day`, `project.create`, `project.status` register via `registerCoreSkills`. C1 should `registerSkill` (replace) with real implementations — do not edit factory core.
+- **Suggested owner:** B2, C1
+
+### 2026-08-07 — Agent B1 (Skills + Router Factory)
+- **Test IDs:** WF-04, SET-08, RTE-01
+- **Severity:** question
+- **Type:** deferred
+- **Summary:** Absolute datetime parsing (“next Tuesday 3 PM” in device TZ) still relative/`inMinutes` in reminder skill; TZ is on RouteContext but chrono util left for C3.
+- **Detail:** Reminder routes Stage-0 correctly; creating absolute when= is C3/B5. Device TZ exposed on context.timeZone.
+- **Suggested owner:** C3, B5
+
+### 2026-08-07 — Agent B1 (Skills + Router Factory)
+- **Test IDs:** RTE-*, SKL-*
+- **Severity:** FYI
+- **Type:** open-question
+- **Summary:** B1 is exclusive owner of routing entry in `useAgent.ts` (resolveRoute → factory); other pods only `registerSkill`.
+- **Detail:** `createRouterFactory` / `getDefaultRouter` / `registerSkill` live under `src/agent/router` + `src/agent/skills`. Test harness: `?philTest=1` → `window.__PHIL_ROUTER_TEST__` with `route.skills`.
+- **Suggested owner:** all Wave1+ pods

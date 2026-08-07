@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { isFactualLookupGoal, rankSkills, routeGoal } from './index.ts';
+import { isFactualLookupGoal, rankSkills, routeGoal, resetDefaultRouter } from './index.ts';
+
+resetDefaultRouter();
 
 function route(goal: string, emailIntent?: string | null) {
   return routeGoal({ goal, emailIntent: emailIntent ?? null });
 }
 
+// Legacy flat-id AgentRoute bridge still works
 assert.equal(route('Remind me in 20 minutes to stretch').skill.id, 'reminder');
 assert.equal(route('Set a goal to finish the proposal').skill.id, 'goal');
 assert.equal(route('How much productive time today?').skill.id, 'focus');
@@ -23,7 +26,12 @@ assert.equal(isFactualLookupGoal('What is Bitcoin worth today?'), true);
 assert.equal(isFactualLookupGoal('Remind me in 5 minutes'), false);
 
 const ranked = rankSkills({ goal: 'What is the weather today?' });
-assert.ok(ranked[0]?.id === 'live_weather');
-assert.ok(ranked.every((r) => r.id !== 'web_lookup' || r.score < ranked[0].score));
+assert.ok(ranked[0]?.id === 'research.web.weather' || ranked[0]?.id === 'live_weather');
+assert.ok(ranked.every((r) => !r.id.includes('web_lookup') || r.score < ranked[0].score));
+
+// Factory dotted ids on SkillPlan
+assert.ok(
+  route('Remind me in 20 minutes to stretch').plan?.debug?.skills.includes('reminder.create'),
+);
 
 console.log('agent/skills/router.test.ts OK');

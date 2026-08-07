@@ -2,6 +2,13 @@ import { test, expect } from './fixtures/extension';
 
 /** MEM-* — persistent memory (Wave1 B4). Prefer fail-on-missing UI. */
 test.describe('Memory (MEM)', () => {
+  test.beforeEach(async ({ philPage }) => {
+    const close = philPage.getByRole('button', { name: /Close settings/i });
+    if (await close.isVisible().catch(() => false)) {
+      await close.click();
+    }
+  });
+
   test('MEM-01: Remember this via natural language', async ({ philPage }) => {
     await philPage.getByRole('button', { name: /^Agent$/i }).click();
     await expect(philPage.getByText('Memories', { exact: true }).first()).toBeVisible({

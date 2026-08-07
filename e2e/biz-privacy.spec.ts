@@ -12,6 +12,13 @@ test.describe('Business privacy controls (BIZ-05…08)', () => {
     await expect(privacy).toBeVisible({ timeout: 5_000 });
   });
 
+  test.afterEach(async ({ philPage }) => {
+    const close = philPage.getByRole('button', { name: /Close settings/i });
+    if (await close.isVisible().catch(() => false)) {
+      await close.click();
+    }
+  });
+
   test('BIZ-05: Feedback button in extension', async ({ philPage }) => {
     await expect(philPage.getByRole('link', { name: /^Feedback$/i })).toBeVisible({
       timeout: 5_000,

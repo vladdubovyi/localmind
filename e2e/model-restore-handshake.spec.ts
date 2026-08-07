@@ -62,8 +62,8 @@ test.describe('WebLLM restore', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    const restoring = page.getByText(/Restoring LocalMind/i);
-    const download = page.getByRole('button', { name: /Download AI|Load LocalMind/i });
+    const restoring = page.getByText(/Restoring Phil/i);
+    const download = page.getByRole('button', { name: /Download AI|Load Phil/i });
     await expect(restoring.or(download).first()).toBeVisible({ timeout: 30_000 });
 
     if (!(await restoring.isVisible().catch(() => false))) {

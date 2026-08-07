@@ -38,7 +38,7 @@ export async function fetchActivePageContext(): Promise<PageContext> {
 
   if (isRestrictedUrl(tab.url)) {
     throw new PageContextError(
-      'LocalMind cannot read this page (browser or store page). Open a normal website.',
+      'Phil cannot read this page (browser or store page). Open a normal website.',
       'RESTRICTED',
     );
   }

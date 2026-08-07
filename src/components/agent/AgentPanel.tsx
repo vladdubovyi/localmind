@@ -72,7 +72,7 @@ function stepLabel(step: AgentStep): string {
     case 'confirm':
       return 'Confirm';
     case 'final':
-      return 'LocalMind';
+      return 'Phil';
     case 'error':
       return 'Error';
     default:

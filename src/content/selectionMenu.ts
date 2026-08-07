@@ -85,7 +85,7 @@ function showMenu(snapshot: SelectionSnapshot, onAction: (action: SelectionActio
   const root = document.createElement('div');
   root.id = ROOT_ID;
   root.setAttribute('role', 'toolbar');
-  root.setAttribute('aria-label', 'LocalMind selection actions');
+  root.setAttribute('aria-label', 'Phil selection actions');
 
   for (const action of SELECTION_ACTIONS) {
     const btn = document.createElement('button');

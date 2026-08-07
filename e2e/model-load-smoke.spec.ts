@@ -22,13 +22,13 @@ test('CreateMLCEngine path reports progress (not silent hang)', async ({
 
   // Pick lightest model and start download/load.
   const gemma = page.getByRole('button', { name: /Gemma 2 2B/i });
-  await expect(gemma.or(page.getByText(/Restoring LocalMind|Download AI/i)).first()).toBeVisible({
+  await expect(gemma.or(page.getByText(/Restoring Phil|Download AI/i)).first()).toBeVisible({
     timeout: 30_000,
   });
 
   if (await gemma.isVisible().catch(() => false)) {
     await gemma.click();
-    const start = page.getByRole('button', { name: /Download AI|Load LocalMind/i });
+    const start = page.getByRole('button', { name: /Download AI|Load Phil/i });
     await start.click();
   }
 
@@ -50,7 +50,7 @@ test('CreateMLCEngine path reports progress (not silent hang)', async ({
         if (/\b([1-9]\d?)%|\b100%/.test(body)) {
           return 'progress';
         }
-        if (/Restoring LocalMind/i.test(body) && /\b0%\b/.test(body) && /Loading from local cache/i.test(body)) {
+        if (/Restoring Phil/i.test(body) && /\b0%\b/.test(body) && /Loading from local cache/i.test(body)) {
           return 'stuck-zero';
         }
         return 'waiting';

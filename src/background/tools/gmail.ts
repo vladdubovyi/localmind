@@ -346,7 +346,7 @@ export async function executeGmailTools(
           bodyPreview: draft.body.slice(0, 240),
           note:
             call.name === 'gmail_send'
-              ? 'Draft opened in Gmail. Click Send yourself — LocalMind will not auto-send in session mode.'
+              ? 'Draft opened in Gmail. Click Send yourself — Phil will not auto-send in session mode.'
               : 'Compose draft opened in your Gmail tab. Review and click Send yourself if you want to send it.',
         },
         error: result.error,

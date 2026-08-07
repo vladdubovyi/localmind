@@ -47,7 +47,7 @@ export abstract class BaseAIProvider implements AIProvider {
         {
           role: 'system',
           content:
-            'You are LocalMind, a private on-device assistant. Be accurate and concise.',
+            'You are Phil, a private on-device assistant. Be accurate and concise.',
         },
         {
           role: 'user',

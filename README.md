@@ -1,28 +1,20 @@
-# LocalMind
+# Phil
 
-**Private AI that lives inside your browser.**
+**Your private on-device personal assistant.**
 
-LocalMind is a Chrome extension (Manifest V3) that runs an LLM fully on-device with [WebLLM](https://webllm.mlc.ai/) + WebGPU. No OpenAI, no API keys, no cloud inference, no Ollama.
+Phil is a Chrome extension (Manifest V3) that runs an LLM fully on-device with [WebLLM](https://webllm.mlc.ai/) + WebGPU. Chat, focus tracking, reminders, goals, morning briefings, web research, and an optional local browser agent — no OpenAI, no API keys, no cloud inference.
 
-## Shipped
+## Shipped (1.0)
 
-### Milestone 1 — Core runtime
-Chrome extension + WebLLM download/cache + chat UI (markdown, copy, regenerate, stop). Curated free models from light (Gemma 2 2B) through high-end (Qwen 3.5 9B, Llama 3.1 8B, DeepSeek R1 distill, Qwen Coder 7B). Model weights persist in the browser Cache API; reopening the side panel restores from cache (GPU reload) instead of re-downloading.
-
-### Milestone 2 — Page understanding
-**Ask this page** + **Summarize** (TLDR / bullets / facts / actions) with DOM → chunk → retrieve → LLM.
-
-### Milestone 3 — Selection actions
-Floating toolbar + context menu: Explain / Summarize / Rewrite / Translate / ELI5 / Improve, with **Replace on page**.
-
-### Browser Agent (new)
-Optional local agent that can:
-- Open / list / navigate tabs
-- Read pages, query DOM, click, type, fill forms
-- Scan / draft Gmail (API OAuth or Gmail-tab session mode)
-- Run multi-step tool loops with confirmation gates
-
-Agent mode requests extra permissions only when enabled. It never automates password login. `gmail_send` always requires explicit confirmation; session mode never auto-clicks Send.
+- **Chat + Ask this page** with on-device models (Gemma 2 2B through Qwen 3.5 9B / Llama 3.1 8B)
+- **Selection actions** (explain / rewrite / translate / ELI5 / improve + replace)
+- **Browser Agent** — tabs, page DOM, Gmail session/API tools with confirmation gates
+- **Focus** — tab dwell tracking (productive vs leisure)
+- **Reminders** — `chrome.alarms` + notifications
+- **Goals** — off-task nudges when leisure sites eat the day
+- **Today** — morning briefing from goals, reminders, and focus
+- **Web research** — DuckDuckGo SERP via browser tabs; finding tabs left open
+- **Always-on FAB** on web pages (right-click / Shift-click for quick intents)
 
 ## Quick start
 
@@ -32,42 +24,34 @@ npm run build
 ```
 
 1. `chrome://extensions` → Developer mode → **Load unpacked** → `dist/`
-2. Open LocalMind → **Download AI**
-3. Chat, Ask this page, or open the **Agent** tab
+2. Open Phil → **Download AI**
+3. Use **Today / Focus / Goals / Reminders**, or open the **Agent** tab
 
 ### Agent setup
 
 1. Side panel → **Agent** → Settings → **Enable + grant permissions**
 2. Load a local model (same as chat)
-3. Optional Gmail API: create an OAuth Web client in Google Cloud, add the redirect URL from `chrome.identity.getRedirectURL('oauth2')`, paste the client ID into Agent settings → **Connect Gmail**
+3. Optional Gmail API: OAuth Web client + redirect from `chrome.identity.getRedirectURL('oauth2')`
 4. Without OAuth, use **session** mode while signed into `mail.google.com`
 
 ## Architecture
 
 ```
 src/
+├── phil/           # Categories + PA types
 ├── agent/          # Tool registry, parser, permissions, Gmail API
-├── background/     # Service worker + tool router (tabs/page/gmail/debugger)
-├── content/        # Extraction, selection menu, page actions, Gmail DOM
-├── components/     # Chat + Agent UI
+├── background/     # Service worker, Phil focus/reminders, tool router
+├── content/        # FAB, extraction, selection menu, page/Gmail actions
+├── components/     # Chat + Phil panels + Agent UI
 ├── ai/             # WebLLM provider
-└── storage/        # IndexedDB + agent settings
+└── storage/        # IndexedDB (localmind chat + phil PA)
 ```
-
-### Agent tool loop
-
-```
-Goal → local LLM → <tool_call> → service worker router → chrome.* / content script
-     → observation → LLM → … → final answer
-```
-
-Risky tools pause for Allow / Deny in the Agent panel.
 
 ## Privacy
 
 - Prompts, pages, chats stay on-device
 - No analytics by default
-- Gmail OAuth tokens stored locally; no LocalMind server
+- Gmail OAuth tokens stored locally; no Phil server
 - See [PERMISSIONS.md](./PERMISSIONS.md)
 
 ## License

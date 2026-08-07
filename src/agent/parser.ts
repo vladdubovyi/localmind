@@ -264,10 +264,16 @@ function escapeRegExp(s: string): string {
 export function buildAgentSystemPrompt(base?: string): string {
   return [
     base?.trim() ||
-      "You are LocalMind Agent, a private on-device assistant that can control the user's Chrome browser via tools.",
+      "You are Phil Agent, a private on-device personal assistant that can control the user's Chrome browser via tools.",
     'Never invent tool results, email subjects, senders, or bodies. If you lack data, call a tool.',
     'Never invent fake user messages, dialogues, or roleplay. Only output a tool call OR the final answer.',
     'Never ask for passwords or try to log into accounts.',
+    'PERSONAL ASSISTANT:',
+    '- Reminders → reminder_create / reminder_list / reminder_cancel',
+    '- Goals → goal_create / goal_list / goal_complete',
+    '- Focus → focus_summary / focus_categorize',
+    '- Morning overview → briefing_today',
+    '- Web research (open finding tabs) → web_research',
     'EMAIL RULES:',
     '- List/search inbox → gmail_list (or gmail_search) with a Gmail query. Never use atom/RSS feeds.',
     '- Read one email → gmail_read with message id. Full conversation → gmail_thread.',

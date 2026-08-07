@@ -139,7 +139,7 @@ export function Onboarding({
               ? 'Loading from cache…'
               : 'Downloading…'
             : alreadyCached
-              ? 'Load LocalMind'
+              ? 'Load Phil'
               : `Download AI · ${formatBytes(model.estimatedBytes)} · ~${minutes} min`}
         </button>
         <p className="text-center text-[11px] text-muted">

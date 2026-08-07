@@ -76,6 +76,17 @@ async function seedExtensionStorage(page: Page): Promise<void> {
         gmailClientId: '',
         gmailMode: 'session',
       },
+      philSettings: {
+        fabEnabled: true,
+        trackingEnabled: true,
+        nudgesEnabled: true,
+        briefingEnabled: true,
+        briefingHour: 8,
+        briefingMinute: 0,
+        nudgeThresholdMs: 120_000,
+        locality: 'Austin TX',
+        categoryOverrides: {},
+      },
     });
 
     // App settings live in IndexedDB (`localmind`), not chrome.storage.
@@ -112,6 +123,50 @@ async function seedExtensionStorage(page: Page): Promise<void> {
               maxTokens: 1024,
               systemPrompt: '',
             },
+          },
+          'app',
+        );
+      };
+    });
+
+    // Phil PA data lives in IndexedDB (`phil`).
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('phil', 1);
+      req.onerror = () => reject(req.error ?? new Error('phil indexedDB open failed'));
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('philSettings')) db.createObjectStore('philSettings');
+        if (!db.objectStoreNames.contains('reminders')) {
+          db.createObjectStore('reminders', { keyPath: 'id' }).createIndex('by-when', 'when');
+        }
+        if (!db.objectStoreNames.contains('goals')) {
+          db.createObjectStore('goals', { keyPath: 'id' }).createIndex('by-updated', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('tabActivity')) {
+          const store = db.createObjectStore('tabActivity', { keyPath: 'id' });
+          store.createIndex('by-started', 'startedAt');
+          store.createIndex('by-domain', 'domain');
+        }
+        if (!db.objectStoreNames.contains('briefings')) {
+          db.createObjectStore('briefings', { keyPath: 'id' }).createIndex('by-date', 'dateKey');
+        }
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('philSettings', 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('phil settings write failed'));
+        tx.objectStore('philSettings').put(
+          {
+            fabEnabled: true,
+            trackingEnabled: true,
+            nudgesEnabled: true,
+            briefingEnabled: true,
+            briefingHour: 8,
+            briefingMinute: 0,
+            nudgeThresholdMs: 120_000,
+            locality: 'Austin TX',
+            categoryOverrides: {},
           },
           'app',
         );
@@ -155,7 +210,7 @@ async function ensureModelReady(page: Page): Promise<void> {
 
   await page
     .getByRole('button', { name: new RegExp(E2E_MODEL_LABEL, 'i') })
-    .or(page.getByRole('button', { name: /Download AI|Load LocalMind/i }))
+    .or(page.getByRole('button', { name: /Download AI|Load Phil/i }))
     .or(agentTab)
     .first()
     .waitFor({ state: 'visible', timeout: 60_000 })
@@ -170,7 +225,7 @@ async function ensureModelReady(page: Page): Promise<void> {
     if (await gemma.isEnabled().catch(() => false)) {
       await gemma.click({ timeout: 5_000 }).catch(() => undefined);
     }
-    const startBtn = page.getByRole('button', { name: /Download AI|Load LocalMind/i });
+    const startBtn = page.getByRole('button', { name: /Download AI|Load Phil/i });
     if (await startBtn.isEnabled().catch(() => false)) {
       await startBtn.click({ timeout: 5_000 }).catch(() => undefined);
     }

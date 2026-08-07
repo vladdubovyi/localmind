@@ -15,8 +15,11 @@ import {
   mountSelectionMenu,
   replaceSavedSelection,
 } from '@/content/selectionMenu';
+import { mountPhilFab } from '@/content/philFab';
 import type { AgentRuntimeMessage } from '@/agent/types';
 import type { PageContext, RuntimeMessage } from '@/types';
+
+mountPhilFab();
 
 mountSelectionMenu((action, text) => {
   void chrome.runtime.sendMessage({
@@ -73,7 +76,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage | AgentRuntimeMess
     try {
       if (message.action === 'banner') {
         if (message.showBanner === false) hideAgentBanner();
-        else showAgentBanner(message.message ?? 'LocalMind Agent is controlling this tab');
+        else showAgentBanner(message.message ?? 'Phil Agent is controlling this tab');
         sendResponse({ ok: true });
         return false;
       }

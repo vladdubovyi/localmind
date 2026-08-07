@@ -29,10 +29,10 @@ export function BrandMark({
       {showWordmark && (
         <div className="leading-tight">
           <div className={cn('font-display font-semibold tracking-tight text-fg', textClass)}>
-            LocalMind
+            Phil
           </div>
           {size === 'lg' && (
-            <div className="text-xs text-muted">Private AI in your browser</div>
+            <div className="text-xs text-muted">Your private personal assistant</div>
           )}
         </div>
       )}

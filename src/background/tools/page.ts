@@ -82,7 +82,7 @@ export async function executePageTools(call: ToolCall): Promise<ToolResult> {
           type: 'PAGE_ACTION',
           action: 'banner',
           showBanner: true,
-          message: `LocalMind Agent: ${call.name}`,
+          message: `Phil Agent: ${call.name}`,
         });
       } catch {
         // ignore

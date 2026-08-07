@@ -15,7 +15,7 @@ export function ChatInput({
   isGenerating,
   onSend,
   onStop,
-  placeholder = 'Message LocalMind…',
+  placeholder = 'Message Phil…',
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);

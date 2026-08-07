@@ -1,6 +1,6 @@
 /**
  * Background service worker (Manifest V3).
- * Coordinates side panel, context menus, selection handoff, and agent tools.
+ * Coordinates side panel, context menus, selection handoff, Phil PA, and agent tools.
  * Inference runs in extension pages (side panel) via WebGPU — not here.
  * (WebLLM-in-SW is disabled until the Vite/CRX bundle can load it safely.)
  */
@@ -9,8 +9,12 @@ import {
   getAgentPermissionState,
   requestAgentPermissions,
 } from '@/agent/permissions';
+import { registerFocusTracker } from '@/background/phil/focusTracker';
+import { registerPhilAlarms } from '@/background/phil/reminders';
 import { routeAgentTool } from '@/background/tools/router';
 import { getAgentSettings } from '@/storage/agentSettings';
+import { getPhilSettings, savePhilSettings } from '@/storage/phil';
+import type { PhilQuickIntent } from '@/phil/types';
 import type { PendingSelectionAction, SelectionAction } from '@/types';
 
 const SELECTION_MENU_ACTIONS = [
@@ -40,28 +44,37 @@ async function setPendingAction(action: PendingSelectionAction): Promise<void> {
   await chrome.storage.session.set({ pendingSelectionAction: action });
 }
 
+async function setPhilQuickIntent(intent: PhilQuickIntent): Promise<void> {
+  await chrome.storage.session.set({ philQuickIntent: intent });
+}
+
+function installContextMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'phil-open',
+      title: 'Ask Phil',
+      contexts: ['page', 'selection'],
+    });
+
+    for (const action of SELECTION_MENU_ACTIONS) {
+      chrome.contextMenus.create({
+        id: `phil-${action.id}`,
+        parentId: 'phil-open',
+        title: action.title,
+        contexts: ['selection'],
+      });
+    }
+  });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   // Primary UI is the side panel — keep setup, model, chat, and agent in one place.
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
     // older Chrome builds may not support setPanelBehavior
   });
 
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: 'localmind-open',
-      title: 'Ask LocalMind',
-      contexts: ['page', 'selection'],
-    });
-
-    for (const action of SELECTION_MENU_ACTIONS) {
-      chrome.contextMenus.create({
-        id: `localmind-${action.id}`,
-        parentId: 'localmind-open',
-        title: action.title,
-        contexts: ['selection'],
-      });
-    }
-  });
+  installContextMenus();
+  void savePhilSettings({}).then(() => undefined);
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -70,13 +83,16 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Also apply on SW wake so upgrades pick up the behavior without reinstall.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+installContextMenus();
+registerFocusTracker();
+registerPhilAlarms();
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.windowId) return;
 
   await chrome.sidePanel.open({ windowId: tab.windowId });
 
-  if (info.menuItemId === 'localmind-open') {
+  if (info.menuItemId === 'phil-open' || info.menuItemId === 'localmind-open') {
     if (info.selectionText?.trim()) {
       await setPendingAction({
         action: 'explain',
@@ -91,10 +107,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
 
-  const action = String(info.menuItemId).replace(
-    'localmind-',
-    '',
-  ) as SelectionAction;
+  const action = String(info.menuItemId)
+    .replace('phil-', '')
+    .replace('localmind-', '') as SelectionAction;
   const text = (info.selectionText ?? '').trim();
   if (!text) return;
 
@@ -115,6 +130,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'OPEN_SIDE_PANEL') {
     openSidePanelForSender(sender)
       .then(() => sendResponse({ ok: true }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === 'PHIL_QUICK_INTENT') {
+    (async () => {
+      await openSidePanelForSender(sender);
+      const kind = message.kind as PhilQuickIntent['kind'];
+      await setPhilQuickIntent({
+        kind,
+        text: message.text ? String(message.text) : undefined,
+        createdAt: Date.now(),
+      });
+      sendResponse({ ok: true });
+    })().catch((err: unknown) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  if (message?.type === 'PHIL_GET_SETTINGS') {
+    getPhilSettings()
+      .then((settings) => sendResponse({ ok: true, settings }))
       .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }

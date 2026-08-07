@@ -164,7 +164,7 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
         {step === 'welcome' && (
           <StepBody
             icon={<Sparkles size={22} />}
-            title="Welcome to LocalMind"
+            title="Welcome to Phil"
             body="Private AI in your browser. Set up optional permissions for page tools, Agent, and Gmail — or jump straight into chat."
           >
             <ul className="mt-4 space-y-2 text-sm text-fg-dim">
@@ -179,7 +179,7 @@ export function SetupWizard({ onFinished }: SetupWizardProps) {
           <StepBody
             icon={<Globe size={22} />}
             title="Browse & control pages"
-            body="Allow LocalMind to open tabs and interact with websites for Ask this page and Agent mode. You can change this anytime in Chrome settings."
+            body="Allow Phil to open tabs and interact with websites for Ask this page and Agent mode. You can change this anytime in Chrome settings."
           >
             <PermissionCard
               granted={results.grantedBrowser}

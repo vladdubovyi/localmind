@@ -54,6 +54,10 @@ src/
 
 See [`docs/adr/0001-skills-router.md`](docs/adr/0001-skills-router.md) for routing.
 
+## Roadmap
+
+Planned work (long-term project context, smart goals, project breakdown, smart day tracker): see [`ROADMAP.md`](./ROADMAP.md).
+
 ## Privacy
 
 - Prompts, pages, chats, projects, and memories stay on-device
